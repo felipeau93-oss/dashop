@@ -717,24 +717,53 @@ const RunRateSection = ({ baseData, targetQuinzena, prevStats }) => {
 // APP PRINCIPAL
 // ============================================================================
 export default function App() {
-  // === SISTEMA DE LOGIN ===
-  const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('dashopAuth') === 'true');
+// === SISTEMA DE LOGIN (COM EXPIRAÇÃO DE 10 MINUTOS) ===
+  const verificarAcesso = React.useCallback(() => {
+    const tempoSalvo = localStorage.getItem('dashopAuthTime');
+    if (!tempoSalvo) return false;
+    
+    // Calcula quantos minutos se passaram desde o login
+    const tempoPassado = Date.now() - parseInt(tempoSalvo, 10);
+    const dezMinutos = 10 * 60 * 1000; // 10 minutos em milissegundos
+    
+    if (tempoPassado > dezMinutos) {
+      localStorage.removeItem('dashopAuthTime');
+      return false; // Expirou!
+    }
+    return true; // Ainda tá no prazo!
+  }, []);
+
+  const [isAuthenticated, setIsAuthenticated] = useState(verificarAcesso);
   const [senhaDigitada, setSenhaDigitada] = useState('');
   const [erroLogin, setErroLogin] = useState(false);
 
-  const SENHA_CORRETA = 'operacao2026'; // ⚠️ MUDE AQUI PARA A SENHA QUE VOCÊ QUISER!
+  const SENHA_CORRETA = 'operacao2026'; // ⚠️ SUA SENHA AQUI
+
+  // Checa a cada 5 segundos se o tempo de 10 minutos acabou para deslogar automaticamente
+  React.useEffect(() => {
+    let interval;
+    if (isAuthenticated) {
+      interval = setInterval(() => {
+        if (!verificarAcesso()) {
+          setIsAuthenticated(false);
+        }
+      }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [isAuthenticated, verificarAcesso]);
 
   const handleLogin = (e) => {
     e.preventDefault();
     if (senhaDigitada === SENHA_CORRETA) {
-      localStorage.setItem('dashopAuth', 'true'); // Salva no navegador para não pedir senha toda vez
+      localStorage.setItem('dashopAuthTime', Date.now().toString()); // Salva o carimbo de tempo atual
       setIsAuthenticated(true);
       setErroLogin(false);
+      setSenhaDigitada('');
     } else {
       setErroLogin(true);
     }
   };
-  // ========================
+  // =========================================================
   const [rawData, setRawData] = useState(initialParsedData);
   const [rawFaturamentoData, setRawFaturamentoData] = useState(initialFaturamentoData);
   
@@ -1478,7 +1507,14 @@ export default function App() {
   const lostTot = resumoMetrics.categories && resumoMetrics.categories['Lost Packages'] ? resumoMetrics.categories['Lost Packages'] : { valor: 0, qtd: 0 };
   const nvTot = resumoMetrics.categories && resumoMetrics.categories['Not Visited'] ? resumoMetrics.categories['Not Visited'] : { valor: 0, qtd: 0 };
 
-// === TELA DE LOGIN (Mostra isso se a pessoa não tiver a senha) ===
+// ⚠️ CORREÇÃO: O useEffect DEVE vir antes da tela de login!
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      fetchFromGoogleSheets();
+    }
+  }, [sheetUrl, sheetUrlFaturamento, isAuthenticated]);
+
+  // === TELA DE LOGIN ===
   if (!isAuthenticated) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-900 px-4">
@@ -1487,33 +1523,26 @@ export default function App() {
             <Lock className="w-8 h-8 text-blue-600" />
           </div>
           <h1 className="text-2xl font-black text-slate-800 mb-2">Acesso Restrito</h1>
-          <p className="text-sm text-slate-500 text-center mb-6">Digite a senha da operação para acessar o DashOp.</p>
+          <p className="text-sm text-slate-500 text-center mb-6">Sua sessão expira a cada 10 minutos por segurança.</p>
 
           <input
             type="password"
             value={senhaDigitada}
             onChange={(e) => setSenhaDigitada(e.target.value)}
             placeholder="Sua senha..."
-            className="w-full border border-slate-300 rounded-xl px-4 py-3 mb-4 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-700"
+            className="w-full border border-slate-300 rounded-xl px-4 py-3 mb-4 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-700 text-center tracking-widest"
           />
 
           {erroLogin && <p className="text-xs text-red-500 font-bold mb-4 bg-red-50 px-3 py-1.5 rounded-lg w-full text-center">Senha incorreta. Tente novamente.</p>}
 
           <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors shadow-md">
-            Entrar no Dashboard
+            Acessar DashOp
           </button>
         </form>
       </div>
     );
   }
   // ==================================================================
-
-  // Adicionado para carregar os dados automaticamente ao abrir o site
-  React.useEffect(() => {
-    fetchFromGoogleSheets();
-    // Utilizamos o array vazio [] para garantir que ele rode apenas 1x na inicialização
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
