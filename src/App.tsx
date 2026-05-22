@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { 
+import {
+  Lock, 
   LayoutDashboard, 
   AlertCircle, 
   TrendingUp, 
@@ -716,6 +717,24 @@ const RunRateSection = ({ baseData, targetQuinzena, prevStats }) => {
 // APP PRINCIPAL
 // ============================================================================
 export default function App() {
+  // === SISTEMA DE LOGIN ===
+  const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('dashopAuth') === 'true');
+  const [senhaDigitada, setSenhaDigitada] = useState('');
+  const [erroLogin, setErroLogin] = useState(false);
+
+  const SENHA_CORRETA = 'operacao2026'; // ⚠️ MUDE AQUI PARA A SENHA QUE VOCÊ QUISER!
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (senhaDigitada === SENHA_CORRETA) {
+      localStorage.setItem('dashopAuth', 'true'); // Salva no navegador para não pedir senha toda vez
+      setIsAuthenticated(true);
+      setErroLogin(false);
+    } else {
+      setErroLogin(true);
+    }
+  };
+  // ========================
   const [rawData, setRawData] = useState(initialParsedData);
   const [rawFaturamentoData, setRawFaturamentoData] = useState(initialFaturamentoData);
   
@@ -1458,6 +1477,36 @@ export default function App() {
   const pnrTot = resumoMetrics.categories && resumoMetrics.categories['PNRs'] ? resumoMetrics.categories['PNRs'] : { valor: 0, qtd: 0 };
   const lostTot = resumoMetrics.categories && resumoMetrics.categories['Lost Packages'] ? resumoMetrics.categories['Lost Packages'] : { valor: 0, qtd: 0 };
   const nvTot = resumoMetrics.categories && resumoMetrics.categories['Not Visited'] ? resumoMetrics.categories['Not Visited'] : { valor: 0, qtd: 0 };
+
+// === TELA DE LOGIN (Mostra isso se a pessoa não tiver a senha) ===
+  if (!isAuthenticated) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-slate-900 px-4">
+        <form onSubmit={handleLogin} className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full flex flex-col items-center animate-in fade-in zoom-in duration-500">
+          <div className="bg-blue-100 p-4 rounded-full mb-6">
+            <Lock className="w-8 h-8 text-blue-600" />
+          </div>
+          <h1 className="text-2xl font-black text-slate-800 mb-2">Acesso Restrito</h1>
+          <p className="text-sm text-slate-500 text-center mb-6">Digite a senha da operação para acessar o DashOp.</p>
+
+          <input
+            type="password"
+            value={senhaDigitada}
+            onChange={(e) => setSenhaDigitada(e.target.value)}
+            placeholder="Sua senha..."
+            className="w-full border border-slate-300 rounded-xl px-4 py-3 mb-4 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-700"
+          />
+
+          {erroLogin && <p className="text-xs text-red-500 font-bold mb-4 bg-red-50 px-3 py-1.5 rounded-lg w-full text-center">Senha incorreta. Tente novamente.</p>}
+
+          <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors shadow-md">
+            Entrar no Dashboard
+          </button>
+        </form>
+      </div>
+    );
+  }
+  // ==================================================================
 
   // Adicionado para carregar os dados automaticamente ao abrir o site
   React.useEffect(() => {
