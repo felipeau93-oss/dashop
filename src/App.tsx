@@ -1,50 +1,37 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import {
+import { 
   Lock, 
   LayoutDashboard, 
   AlertCircle, 
   TrendingUp, 
+  TrendingDown,
   RefreshCw, 
-  Building2, 
-  Users,
-  DollarSign,
-  Hash,
-  Calculator,
-  FileSpreadsheet,
   ArrowUpDown,
   ArrowDown,
   ArrowUp,
   Scale,
-  Activity
+  Activity,
+  PackageCheck,
+  Database,
+  Box,
+  Check,
+  Filter,
+  Target,
+  FileSpreadsheet,
+  Calculator,
+  ChevronDown,
+  ChevronRight,
+  DollarSign,
+  GitCompare
 } from 'lucide-react';
 
 // ============================================================================
 // DADOS PRÉ-PROCESSADOS (MOCK)
 // ============================================================================
-const initialParsedData = [
-  { quinzena: "202601Q1", regional: "1", supervisor: "Carlos Mendes", filial: "ERS16", motorista: "Iasmin da Silva Rodrigues", tipo: "Lost Packages", valor: 854.98 },
-  { quinzena: "202601Q1", regional: "2", supervisor: "Ana Paula", filial: "ERS7", motorista: "Robinson Dorneles Cunha", tipo: "Lost Packages", valor: 20.95 },
-  { quinzena: "202601Q1", regional: "1", supervisor: "Carlos Mendes", filial: "ESC5", motorista: "Gustavo Dias Chawiche", tipo: "Lost Packages", valor: 29.95 },
-  { quinzena: "202601Q1", regional: "3", supervisor: "Roberto Justus", filial: "ESC9", motorista: "Bruno Gustavo Kunz da Silva", tipo: "Lost Packages", valor: 149.00 },
-  { quinzena: "202601Q1", regional: "2", supervisor: "Ana Paula", filial: "ERS1", motorista: "Daniel Das Neves Souza", tipo: "Lost Packages", valor: 908.51 },
-  { quinzena: "202601Q1", regional: "4", supervisor: "Juliana Silva", filial: "SSC4", motorista: "Elvis Magrinelli", tipo: "Lost Packages", valor: 4487.17 },
-  { quinzena: "202601Q1", regional: "1", supervisor: "Carlos Mendes", filial: "ESC4", motorista: "Alice Edimar Zampieri", tipo: "Lost Packages", valor: 1613.03 },
-  { quinzena: "202601Q1", regional: "3", supervisor: "Roberto Justus", filial: "ERS9", motorista: "Rosilaine Alves Fagundes", tipo: "Lost Packages", valor: 730.90 },
-  { quinzena: "202601Q1", regional: "1", supervisor: "Carlos Mendes", filial: "ESC5", motorista: "Joel Vieira Gama", tipo: "PNRs", valor: 80.00 },
-  { quinzena: "202601Q1", regional: "3", supervisor: "Roberto Justus", filial: "ESC9", motorista: "Valdecir Gottert", tipo: "PNRs", valor: 759.00 },
-  { quinzena: "202601Q1", regional: "2", supervisor: "Ana Paula", filial: "SRS7", motorista: "Maiquel da Silva Dos Reis", tipo: "PNRs", valor: 713.00 },
-  { quinzena: "202601Q1", regional: "3", supervisor: "Roberto Justus", filial: "ESC9", motorista: "Lilian Rezende", tipo: "PNRs", valor: 755.00 },
-  { quinzena: "202601Q1", regional: "4", supervisor: "Juliana Silva", filial: "SRS8", motorista: "Maiki Cruz Teles", tipo: "PNRs", valor: 1148.00 },
-  { quinzena: "202601Q1", regional: "1", supervisor: "Carlos Mendes", filial: "ERS16", motorista: "Jacques Ariel da Silva Rodrigues", tipo: "Not Visited", valor: 507.85 },
-];
-
-const initialFaturamentoData = [
-  { quinzena: "202601Q1", regional: "1", supervisor: "Carlos Mendes", filial: "ERS16", motorista: "Iasmin da Silva Rodrigues", faturamento: 12450.50, id_rota: "R01", categoria: "Van" },
-  { quinzena: "202601Q1", regional: "1", supervisor: "Carlos Mendes", filial: "ESC4", motorista: "Alice", faturamento: 8200.00, id_rota: "R02", categoria: "Fiorino" },
-  { quinzena: "202601Q1", regional: "1", supervisor: "Carlos Mendes", filial: "ESC5", motorista: "Gustavo", faturamento: 15300.00, id_rota: "R03", categoria: "VUC" },
-  { quinzena: "202601Q1", regional: "3", supervisor: "Roberto Justus", filial: "ESC9", motorista: "Bruno", faturamento: 11200.00, id_rota: "R04", categoria: "Van" },
-  { quinzena: "202601Q1", regional: "4", supervisor: "Juliana Silva", filial: "SSC4", motorista: "Elvis", faturamento: 5000.00, id_rota: "R05", categoria: "Fiorino" },
-];
+const initialParsedData = [];
+const initialFaturamentoData = [];
+const initialOperacionalData = [];
+const initialBscData = [];
 
 // ============================================================================
 // FUNÇÕES AUXILIARES GLOBAIS
@@ -78,24 +65,17 @@ const formatQtd = (value) => {
   return Number.isInteger(value) ? value : Number(value).toFixed(2);
 };
 
-const loadScript = (src) => {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
-    const script = document.createElement('script');
-    script.src = src; script.onload = resolve; script.onerror = reject;
-    document.head.appendChild(script);
-  });
-};
-
-const columnLabelsMap = {
-  quinzena: 'Quinzena',
-  regional: 'Regional',
-  supervisor: 'Supervisor',
-  filial: 'Filial',
-  motorista: 'Motorista'
+const formatDS = (value) => {
+  if (value === undefined || value === null) return '0%';
+  return Number(value.toFixed(2)) + '%';
 };
 
 const normalizeText = (str) => String(str).trim().toUpperCase();
+
+const normalizeHeader = (str) => {
+  if (!str) return '';
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+};
 
 const normalizeQuinzena = (val) => {
   if (!val) return 'N/A';
@@ -134,32 +114,74 @@ const extractRegional = (val) => {
   return fallbackMatch ? fallbackMatch[0] : str;
 };
 
-const getThemeColors = (color) => {
-  const maps = {
-    blue: { bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-900', high: 'text-blue-600', tableHead: 'border-blue-200' },
-    orange: { bg: 'bg-orange-50', border: 'border-orange-100', text: 'text-orange-900', high: 'text-orange-600', tableHead: 'border-orange-200' },
-    emerald: { bg: 'bg-emerald-50', border: 'border-emerald-100', text: 'text-emerald-900', high: 'text-emerald-600', tableHead: 'border-emerald-200' },
-    red: { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-900', high: 'text-red-600', tableHead: 'border-red-200' },
-    rose: { bg: 'bg-rose-50', border: 'border-rose-100', text: 'text-rose-900', high: 'text-rose-600', tableHead: 'border-rose-200' },
-    purple: { bg: 'bg-purple-50', border: 'border-purple-100', text: 'text-purple-900', high: 'text-purple-600', tableHead: 'border-purple-200' },
-    indigo: { bg: 'bg-indigo-50', border: 'border-indigo-100', text: 'text-indigo-900', high: 'text-indigo-600', tableHead: 'border-indigo-200' },
-    violet: { bg: 'bg-violet-50', border: 'border-violet-100', text: 'text-violet-900', high: 'text-violet-600', tableHead: 'border-violet-200' }
-  };
-  return maps[color] || maps.blue;
+const loadScript = (src) => {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+    const script = document.createElement('script');
+    script.src = src; script.onload = resolve; script.onerror = reject;
+    document.head.appendChild(script);
+  });
 };
 
-const BreakdownLabels = ({ raw, isQtd, isTM, sizeClass = "text-xs px-2 py-0.5 rounded" }) => {
-  const getVal = (cat) => {
-    const catData = raw[cat] || { valor: 0, qtd: 0 };
-    if (isTM) return formatCurrency(catData.qtd ? catData.valor / catData.qtd : 0);
-    if (isQtd) return formatQtd(catData.qtd);
-    return formatCurrency(catData.valor);
+// ============================================================================
+// COMPONENTE MULTI-SELECT DE FILTROS
+// ============================================================================
+const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const toggleOption = (opt) => {
+    if (selected.includes(opt)) {
+      onChange(selected.filter(i => i !== opt));
+    } else {
+      onChange([...selected, opt]);
+    }
   };
+
+  const selectAll = () => onChange([]);
+
+  const displayText = selected.length === 0 
+    ? 'Todas' 
+    : selected.length === 1 
+      ? selected[0] 
+      : `${selected.length} selecionadas`;
+
   return (
-    <div className="flex gap-2 font-medium text-slate-500 justify-center flex-wrap">
-      <span className={`bg-blue-50 text-blue-700 border border-blue-100 whitespace-nowrap ${sizeClass}`}>PNR: {getVal('PNRs')}</span>
-      <span className={`bg-orange-50 text-orange-700 border border-orange-100 whitespace-nowrap ${sizeClass}`}>Lost: {getVal('Lost Packages')}</span>
-      {!isTM && <span className={`bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap ${sizeClass}`}>NV: {getVal('Not Visited')}</span>}
+    <div className="relative shrink-0 flex items-center z-50">
+      <span className="text-[10px] font-bold text-slate-500 uppercase px-2 hidden sm:block">{label}:</span>
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className={`bg-white border text-sm rounded-xl px-3 py-1.5 outline-none font-bold cursor-pointer shadow-sm flex items-center justify-between min-w-[120px] max-w-[180px] transition-all duration-200 ${isOpen ? 'border-blue-500 ring-2 ring-blue-500/20 text-blue-700' : 'border-slate-300 text-slate-700 hover:border-blue-400'}`}
+      >
+        <span className="truncate">{displayText}</span>
+        <ArrowDown className={`w-3 h-3 ml-2 shrink-0 transition-transform ${isOpen ? 'rotate-180 text-blue-500' : 'text-slate-400'}`} />
+      </button>
+      
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)}></div>
+          <div className="absolute top-full mt-2 w-64 max-h-72 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-100">
+            <button 
+              onClick={selectAll}
+              className={`text-left px-3 py-2.5 rounded-lg text-sm font-bold transition-colors ${selected.length === 0 ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              {selected.length === 0 ? '✓ Todas Selecionadas' : 'Selecionar Todas'}
+            </button>
+            <div className="h-px bg-slate-100 my-1"></div>
+            {options.map((opt, idx) => (
+              <div 
+                key={idx} 
+                onClick={() => toggleOption(opt)}
+                className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors group"
+              >
+                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0 ${selected.includes(opt) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 group-hover:border-blue-400'}`}>
+                  {selected.includes(opt) && <Check className="w-3 h-3 text-white" />}
+                </div>
+                <span className={`text-sm truncate ${selected.includes(opt) ? 'font-bold text-slate-800' : 'font-medium text-slate-600'}`} title={opt}>{opt}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -168,86 +190,6 @@ const BreakdownLabels = ({ raw, isQtd, isTM, sizeClass = "text-xs px-2 py-0.5 ro
 // COMPONENTES DE GRÁFICOS (NATIVOS)
 // ============================================================================
 
-const NativeBarChart = ({ data, metricType, heightClass = "h-[450px]" }) => {
-  if (!data || data.length === 0) return <div className={`w-full ${heightClass} flex items-center justify-center text-slate-400`}>Nenhum dado disponível.</div>;
-  const maxTotal = Math.max(...data.map(d => d.total)) || 1;
-  const yAxisSteps = [4, 3, 2, 1, 0];
-  const isCurrency = metricType === 'valor' || metricType === 'tm';
-  const excludeNV = metricType === 'tm';
-
-  return (
-    <div className={`w-full ${heightClass} flex flex-col pt-4 pb-28 relative`}>
-      <div className="flex-1 flex relative">
-        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
-          {yAxisSteps.map((step, idx) => (
-            <div key={`y-axis-${idx}`} className="w-full border-t border-slate-200 flex items-center" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 4 ? '-10px' : '0' }}>
-              <span className="text-[10px] text-slate-400 bg-white pr-2 -translate-y-1/2">
-                {isCurrency ? `R$ ${((maxTotal * (step / 4)) / 1000).toFixed(1)}k` : Math.round(maxTotal * (step / 4))}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div className="z-10 flex w-full h-full items-end gap-1 sm:gap-2 ml-12 pr-2 border-b border-slate-300">
-          {data.map((d, i) => {
-            const hPct = Math.max((d.total / maxTotal) * 100, 1);
-            let pnrPct = 0, lostPct = 0, notVPct = 0;
-
-            const pnrData = d.raw.PNRs || { valor: 0, qtd: 0 };
-            const lostData = d.raw['Lost Packages'] || { valor: 0, qtd: 0 };
-            const nvData = d.raw['Not Visited'] || { valor: 0, qtd: 0 };
-            const totalData = d.raw.total || { valor: 1, qtd: 1 };
-
-            if (metricType === 'qtd') {
-                pnrPct = (pnrData.qtd / totalData.qtd) * 100 || 0;
-                lostPct = (lostData.qtd / totalData.qtd) * 100 || 0;
-                notVPct = excludeNV ? 0 : ((nvData.qtd / totalData.qtd) * 100 || 0);
-            } else if (metricType === 'tm') {
-                const totalVal = pnrData.valor + lostData.valor;
-                pnrPct = totalVal ? (pnrData.valor / totalVal) * 100 : 0;
-                lostPct = totalVal ? (lostData.valor / totalVal) * 100 : 0;
-                notVPct = 0;
-            } else {
-                pnrPct = (pnrData.valor / totalData.valor) * 100 || 0;
-                lostPct = (lostData.valor / totalData.valor) * 100 || 0;
-                notVPct = excludeNV ? 0 : ((nvData.valor / totalData.valor) * 100 || 0);
-            }
-            const formatTooltipVal = (cat) => {
-                const catData = d.raw[cat] || { valor: 0, qtd: 0 };
-                if (metricType === 'tm') return formatCurrency(catData.qtd ? catData.valor / catData.qtd : 0);
-                if (metricType === 'qtd') return formatQtd(catData.qtd);
-                return formatCurrency(catData.valor);
-            };
-            return (
-              <div key={`bar-${i}`} className="flex-1 flex flex-col justify-end h-full relative group cursor-pointer">
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 w-52 bg-slate-900 text-white text-xs rounded-lg p-3 shadow-xl pointer-events-none">
-                  <p className="font-bold border-b border-slate-700 pb-1 mb-2">{d.name}</p>
-                  <div className="flex justify-between mb-1"><span className="text-blue-400">PNRs</span><span>{formatTooltipVal('PNRs')}</span></div>
-                  <div className="flex justify-between mb-1"><span className="text-orange-400">Lost Packages</span><span>{formatTooltipVal('Lost Packages')}</span></div>
-                  {!excludeNV && (<div className="flex justify-between mb-2"><span className="text-slate-300">Not Visited</span><span>{formatTooltipVal('Not Visited')}</span></div>)}
-                  <div className="flex justify-between font-bold border-t border-slate-700 pt-2 mt-1"><span>{metricType === 'tm' ? 'Ticket Médio' : 'Total'}</span><span>{isCurrency ? formatCurrency(d.total) : formatQtd(d.total)}</span></div>
-                </div>
-                <div className="w-full flex flex-col hover:opacity-80 transition-opacity" style={{ height: `${hPct}%` }}>
-                  {!excludeNV && <div style={{height: `${notVPct}%`}} className="bg-slate-300 rounded-t-sm w-full" />}
-                  <div style={{height: `${lostPct}%`}} className={`bg-orange-500 w-full ${excludeNV ? 'rounded-t-sm' : ''}`} />
-                  <div style={{height: `${pnrPct}%`}} className="bg-blue-500 w-full" />
-                </div>
-                <div className="absolute top-full mt-3 w-full h-28 pointer-events-none">
-                  <p className="text-[9px] sm:text-[10px] text-slate-600 font-medium whitespace-nowrap truncate" style={{ transform: 'rotate(-45deg)', transformOrigin: 'top left' }}>{d.name}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div className="absolute bottom-2 left-0 w-full flex justify-center gap-6 text-xs font-medium text-slate-600">
-        <span className="flex items-center gap-2"><div className="w-3 h-3 bg-blue-500 rounded-sm"></div> PNRs</span>
-        <span className="flex items-center gap-2"><div className="w-3 h-3 bg-orange-500 rounded-sm"></div> Lost Packages</span>
-        {!excludeNV && <span className="flex items-center gap-2"><div className="w-3 h-3 bg-slate-300 rounded-sm"></div> Not Visited</span>}
-      </div>
-    </div>
-  );
-};
-
 const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]" }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
 
@@ -255,10 +197,11 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
     setHoveredIndex(null);
   }, [data]);
 
-  if (!data || data.length === 0) return <div className={`w-full ${heightClass} flex items-center justify-center text-slate-400`}>Nenhum dado disponível.</div>;
+  const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
+  if (safeData.length === 0) return <div className={`w-full ${heightClass} flex items-center justify-center text-slate-400`}>Nenhum dado disponível.</div>;
   
-  const maxFat = Math.max(1, ...data.map(d => Math.max(d.faturamento || 0, d.penalidades || 0)));
-  const maxRep = Math.max(10, ...data.map(d => d.representatividade !== Infinity && d.representatividade ? d.representatividade : 0)); 
+  const maxFat = Math.max(1, ...safeData.map(d => Math.max(d.faturamento || 0, d.penalidades || 0)));
+  const maxRep = Math.max(10, ...safeData.map(d => d.representatividade !== Infinity && d.representatividade ? d.representatividade : 0)); 
   
   const log10 = (val) => Math.log10(Math.max(val, 0) + 1);
   const logMaxFat = log10(maxFat);
@@ -298,7 +241,7 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
           
           <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
             <polyline 
-              points={data.map((d, i) => `${(i + 0.5) * (100 / data.length)},${100 - Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100)}`).join(' ')} 
+              points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100)}`).join(' ')} 
               fill="none" 
               stroke="#7c3aed" 
               strokeWidth="2.5" 
@@ -306,21 +249,20 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
             />
           </svg>
 
-          {hoveredIndex !== null && data[hoveredIndex] && (
+          {hoveredIndex !== null && safeData[hoveredIndex] && (
             <div 
               className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 opacity-80 z-10 pointer-events-none transition-all duration-200" 
               style={{ 
-                bottom: `${Math.min(Math.max(((data[hoveredIndex].representatividade || 0) / maxRep) * 100, 0), 100)}%` 
+                bottom: `${Math.min(Math.max(((safeData[hoveredIndex].representatividade || 0) / maxRep) * 100, 0), 100)}%` 
               }}
             />
           )}
 
-          {data.map((d, i) => {
+          {safeData.map((d, i) => {
             const fatPct = (log10(d.faturamento || 0) / logMaxFat) * 100;
             const penPct = (log10(d.penalidades || 0) / logMaxFat) * 100;
             const repPct = Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100);
 
-            // Proporções para a barra empilhada (Breakdown)
             const pnrRatio = d.penalidades > 0 ? ((d.pnr || 0) / d.penalidades) * 100 : 0;
             const lostRatio = d.penalidades > 0 ? ((d.lost || 0) / d.penalidades) * 100 : 0;
             const nvRatio = d.penalidades > 0 ? ((d.notVisited || 0) / d.penalidades) * 100 : 0;
@@ -389,19 +331,381 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
   );
 };
 
-// ============================================================================
-// COMPONENTE: PROJEÇÃO (RUN RATE)
-// ============================================================================
-const RunRateSection = ({ baseData, targetQuinzena, prevStats }) => {
-  const [totalDias, setTotalDias] = useState(15);
-  const [diasOperados, setDiasOperados] = useState(8);
-  const [selectedRegional, setSelectedRegional] = useState(null);
+const NativeDSChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]" }) => {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
 
   React.useEffect(() => {
-    if (diasOperados > totalDias) setDiasOperados(totalDias);
-  }, [totalDias, diasOperados]);
+    setHoveredIndex(null);
+  }, [data]);
 
-  if (!baseData || baseData.length === 0) return null;
+  const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
+  if (safeData.length === 0) return <div className={`w-full ${heightClass} flex items-center justify-center text-slate-400`}>Nenhum dado disponível.</div>;
+
+  const maxVol = Math.max(1, ...safeData.map(d => d.saldo || 0));
+  
+  const log10 = (val) => Math.log10(Math.max(val, 0) + 1);
+  const logMaxVol = log10(maxVol);
+
+  const formatAxisVal = (val) => {
+    if (val < 1) return '0';
+    if (val >= 1000) return `${(val / 1000).toFixed(1)}k`;
+    return `${Math.round(val)}`;
+  };
+
+  const yAxisSteps = [4, 3, 2, 1, 0];
+  const dsSteps = [100, 95, 90, 85, 80];
+
+  return (
+    <div className={`w-full ${heightClass} flex flex-col pt-6 pb-20 relative`}>
+      <div className="absolute top-0 left-0 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Escala Logarítmica (Vol.)</div>
+      <div className="absolute top-0 right-0 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Linear (DS %)</div>
+      
+      <div className="flex-1 flex relative mt-2">
+        
+        {/* Eixos Verticais */}
+        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+          {yAxisSteps.map((step, idx) => {
+            const valAtStep = Math.pow(10, logMaxVol * (step / 4)) - 1;
+            const dsAtStep = dsSteps[idx];
+            return (
+              <div key={`y-axis-${idx}`} className="w-full border-t border-slate-100 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 4 ? '-10px' : '0' }}>
+                <span className="text-[10px] font-medium text-slate-500 bg-white pr-2 -translate-y-1/2">
+                  {formatAxisVal(valAtStep)}
+                </span>
+                <span className="text-[10px] font-bold text-emerald-600 bg-white pl-2 -translate-y-1/2">
+                  {`${dsAtStep}%`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 ml-12 mr-10 border-b border-slate-300 relative">
+          
+          {/* Linha de Meta: 98.5% */}
+          <div className="absolute w-full border-t-[3px] border-dashed border-slate-800 z-10 pointer-events-none opacity-60 flex items-center" style={{ bottom: `${((98.5 - 80) / 20) * 100}%` }}>
+             <span className="absolute left-0 -ml-12 text-[10px] font-black text-white bg-slate-800 px-1.5 py-0.5 rounded shadow-sm">META</span>
+          </div>
+
+          <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <polyline 
+              points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max((((d.ds || 0) - 80) / 20) * 100, 0), 100)}`).join(' ')} 
+              fill="none" 
+              stroke="#0f766e" 
+              strokeWidth="4" 
+              vectorEffect="non-scaling-stroke" 
+            />
+          </svg>
+
+          {hoveredIndex !== null && safeData[hoveredIndex] && (
+            <div 
+              className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 opacity-80 z-10 pointer-events-none transition-all duration-200" 
+              style={{ 
+                bottom: `${Math.min(Math.max((((safeData[hoveredIndex].ds || 0) - 80) / 20) * 100, 0), 100)}%` 
+              }}
+            />
+          )}
+
+          {safeData.map((d, i) => {
+            const saldoPct = (log10(d.saldo || 0) / logMaxVol) * 85;
+            const dsDisplayPct = Math.min(Math.max((((d.ds || 0) - 80) / 20) * 100, 0), 100);
+
+            const entreguesRatio = d.saldo > 0 ? ((d.entregues || 0) / d.saldo) * 100 : 0;
+            const insucessosTotais = (d.saldo || 0) - (d.entregues || 0);
+            const insucessosRatio = d.saldo > 0 ? (insucessosTotais / d.saldo) * 100 : 0;
+            
+            const dotColor = (d.ds || 0) >= 98.5 ? 'border-emerald-500' : ((d.ds || 0) >= 95 ? 'border-orange-500' : 'border-red-500');
+
+            const insDetalhes = d.insucessosDetalhados || {};
+            const sortedInsucessos = Object.entries(insDetalhes)
+              .sort((a,b) => b[1] - a[1])
+              .filter(item => item[1] > 0);
+
+            const topIns = sortedInsucessos.slice(0, 5);
+            const outrosVal = sortedInsucessos.slice(5).reduce((acc, curr) => acc + curr[1], 0);
+
+            return (
+              <div 
+                key={`bar-ds-${i}`} 
+                className={`flex-1 flex flex-col justify-end h-full relative group max-w-[60px] ${onBarClick ? 'cursor-pointer' : ''}`}
+                onClick={() => onBarClick && onBarClick(d[labelKey])}
+                onMouseEnter={() => setHoveredIndex(i)}
+                onMouseLeave={() => setHoveredIndex(null)}
+              >
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 hidden group-hover:block z-50 w-64 bg-slate-900 text-white text-xs rounded-lg p-4 shadow-xl pointer-events-none">
+                  <p className="font-bold border-b border-slate-700 pb-2 mb-3 text-center">{d[labelKey]}</p>
+                  <div className="flex justify-between mb-1.5"><span className="text-blue-400">Total de Pacotes</span><span className="font-mono">{formatQtd(d.saldo || 0)}</span></div>
+                  
+                  <div className="flex justify-between mt-2 pt-2 border-t border-slate-700 mb-1"><span className="text-slate-300 font-bold">Composição Operacional</span></div>
+                  <div className="flex justify-between mb-0.5 pl-2"><span className="text-emerald-400 text-[10px]">↳ Entregues</span><span className="font-mono text-[10px]">{formatQtd(d.entregues || 0)}</span></div>
+                  <div className="flex justify-between mb-1.5 pl-2"><span className="text-red-400 text-[10px]">↳ Insucessos Totais</span><span className="font-mono text-[10px] font-bold">{formatQtd(insucessosTotais)}</span></div>
+                  
+                  {(topIns.length > 0) && (
+                    <>
+                      <div className="flex justify-between mt-2 pt-2 border-t border-slate-700 mb-1">
+                         <span className="text-slate-400 font-bold text-[9px] uppercase tracking-wider">Detalhamento de Insucessos</span>
+                      </div>
+                      {topIns.map(([motivo, val], idx) => (
+                        <div key={idx} className="flex justify-between mb-0.5 pl-2 gap-2">
+                           <span className="text-red-300 text-[9px] truncate max-w-[140px]" title={motivo}>↳ {motivo}</span>
+                           <span className="font-mono text-red-200 text-[9px]">{formatQtd(val)}</span>
+                        </div>
+                      ))}
+                      {outrosVal > 0 && (
+                        <div className="flex justify-between mb-0.5 pl-2 gap-2">
+                           <span className="text-red-300 text-[9px] truncate max-w-[140px]" title="Outros Classificados">↳ Outros (Classificados)</span>
+                           <span className="font-mono text-red-200 text-[9px]">{formatQtd(outrosVal)}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <div className="flex justify-between font-bold border-t border-slate-700 pt-2 mt-2">
+                     <span className="text-emerald-300">Delivery Success (DS)</span>
+                     <span className={(d.ds||0) >= 98.5 ? 'text-emerald-400' : ((d.ds||0) >= 95 ? 'text-orange-400' : 'text-red-400')}>{formatDS(d.ds)}</span>
+                  </div>
+                </div>
+
+                <div className="w-full flex items-end justify-center h-full gap-[1px]">
+                  <div className="bg-blue-400 w-1/2 rounded-t-sm hover:opacity-80 transition-opacity" style={{ height: `${saldoPct}%` }}></div>
+                  <div className="w-1/2 flex flex-col justify-end hover:opacity-80 transition-opacity" style={{ height: `${saldoPct}%` }}>
+                    {insucessosRatio > 0 && <div className="bg-red-500 w-full" style={{ height: `${insucessosRatio}%`, borderTopLeftRadius: insucessosRatio > 0 ? '0.125rem' : '0', borderTopRightRadius: insucessosRatio > 0 ? '0.125rem' : '0' }}></div>}
+                    {entreguesRatio > 0 && <div className="bg-emerald-500 w-full" style={{ height: `${entreguesRatio}%`, borderTopLeftRadius: insucessosRatio === 0 && entreguesRatio > 0 ? '0.125rem' : '0', borderTopRightRadius: insucessosRatio === 0 && entreguesRatio > 0 ? '0.125rem' : '0' }}></div>}
+                  </div>
+                </div>
+
+                <div className={`absolute w-3 h-3 sm:w-3.5 sm:h-3.5 bg-white rounded-full border-[3px] shadow-md left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center ${dotColor}`} style={{ bottom: `calc(${dsDisplayPct}% - 6px)` }}>
+                  <span className="absolute bottom-full mb-1 text-[9px] font-bold text-slate-700 bg-white/95 px-1 py-0.5 rounded shadow-sm border border-slate-200 pointer-events-none">
+                    {d[labelKey]}
+                  </span>
+                </div>
+
+                <div className="absolute top-full mt-3 w-full text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <p className="text-[9px] sm:text-[10px] text-slate-600 font-bold truncate">{d[labelKey]}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      
+      <div className="absolute bottom-2 left-0 w-full flex justify-center gap-4 sm:gap-6 text-xs font-bold text-slate-600 flex-wrap">
+        <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-400 rounded-sm"></div> Total de Pacotes</span>
+        <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-emerald-500 rounded-sm"></div> Entregues</span>
+        <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-red-500 rounded-sm"></div> Insucessos</span>
+        <span className="flex items-center gap-1.5 ml-2">
+          <div className="flex items-center justify-center w-5 relative">
+            <div className="w-full h-[3px] border-t-[3px] border-dashed border-slate-800 absolute"></div>
+          </div> 
+          Meta (98.5%)
+        </span>
+        <span className="flex items-center gap-1.5 ml-2">
+          <div className="flex items-center justify-center w-5 relative">
+            <div className="w-full h-1 bg-teal-700 absolute"></div>
+            <div className="w-3 h-3 bg-white border-[3px] border-teal-700 rounded-full z-10"></div>
+          </div> 
+          % DS
+        </span>
+      </div>
+    </div>
+  );
+};
+
+const NativeRunRateChart = ({ 
+  diasOperados, totalDias, 
+  currentSaldo, currentEntregues, 
+  projSaldo, projEntregues 
+}) => {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+
+  const currentInsucessos = currentSaldo - currentEntregues;
+  const projInsucessos = projSaldo - projEntregues;
+  
+  const currentDS = currentSaldo > 0 ? (currentEntregues / currentSaldo) * 100 : 0;
+  const projDS = projSaldo > 0 ? (projEntregues / projSaldo) * 100 : 0;
+
+  const data = [
+    { 
+      label: `Realizado (D-${diasOperados})`, 
+      saldo: currentSaldo, 
+      entregues: currentEntregues, 
+      insucessos: currentInsucessos, 
+      ds: currentDS, 
+      isProj: false 
+    },
+    { 
+      label: `Projeção (D-${totalDias})`, 
+      saldo: projSaldo, 
+      entregues: projEntregues, 
+      insucessos: projInsucessos, 
+      ds: projDS, 
+      isProj: true 
+    }
+  ];
+
+  const maxVol = Math.max(1, projSaldo) * 1.2;
+  const yAxisSteps = [4, 3, 2, 1, 0];
+  const dsSteps = [100, 95, 90, 85, 80];
+
+  const formatAxisVal = (val) => {
+    if (val < 1) return '0';
+    if (val >= 1000000) return `${(val / 1000000).toFixed(1)}M`;
+    if (val >= 1000) return `${(val / 1000).toFixed(1)}k`;
+    return `${Math.round(val)}`;
+  };
+
+  const dsToY = (ds) => Math.min(Math.max((((ds || 0) - 80) / 20) * 100, 0), 100);
+
+  const targetY = dsToY(98.5);
+  const currentY = dsToY(currentDS);
+  const projY = dsToY(projDS);
+
+  return (
+    <div className="w-full h-[320px] flex flex-col pt-6 pb-12 relative">
+      <div className="absolute top-0 left-0 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Linear (Volume)</div>
+      <div className="absolute top-0 right-0 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Linear (DS %)</div>
+      
+      <div className="flex-1 flex relative mt-2">
+        
+        {/* Eixos Verticais */}
+        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+          {yAxisSteps.map((step, idx) => {
+            const valAtStep = maxVol * (step / 4);
+            const dsAtStep = dsSteps[idx];
+            return (
+              <div key={`y-axis-${idx}`} className="w-full border-t border-slate-100 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 4 ? '-10px' : '0' }}>
+                <span className="text-[10px] font-medium text-slate-500 bg-white pr-2 -translate-y-1/2">
+                  {formatAxisVal(valAtStep)}
+                </span>
+                <span className="text-[10px] font-bold text-emerald-600 bg-white pl-2 -translate-y-1/2">
+                  {`${dsAtStep}%`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 ml-12 mr-10 border-b border-slate-300 relative">
+          
+          {/* Linha de Meta: 98.5% */}
+          <div className="absolute w-full border-t-[3px] border-dashed border-slate-800 z-10 pointer-events-none opacity-60 flex items-center" style={{ bottom: `${targetY}%` }}>
+             <span className="absolute left-0 -ml-12 text-[10px] font-black text-white bg-slate-800 px-1.5 py-0.5 rounded shadow-sm">META</span>
+          </div>
+
+          {/* SVG overlay para a linha de Trajetória do DS */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <line 
+              x1="25" y1={100 - currentY} 
+              x2="75" y2={100 - projY} 
+              stroke="#0f766e" strokeWidth="4" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" 
+            />
+          </svg>
+
+          {data.map((d, i) => {
+            const saldoPct = (d.saldo / maxVol) * 100;
+            const entreguesRatio = d.saldo > 0 ? (d.entregues / d.saldo) * 100 : 0;
+            const insucessosRatio = d.saldo > 0 ? (d.insucessos / d.saldo) * 100 : 0;
+            
+            const dotColor = d.ds >= 98.5 ? 'border-emerald-500' : (d.ds >= 95 ? 'border-orange-500' : 'border-red-500');
+            const dsDisplayPct = dsToY(d.ds);
+
+            return (
+              <div 
+                key={i} 
+                className="flex-1 flex flex-col justify-end h-full relative group max-w-[120px] cursor-pointer"
+                onMouseEnter={() => setHoveredIndex(i)}
+                onMouseLeave={() => setHoveredIndex(null)}
+              >
+                {/* Tooltip */}
+                {hoveredIndex === i && (
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-50 w-56 bg-slate-900 text-white text-xs rounded-lg p-4 shadow-xl pointer-events-none">
+                    <p className="font-bold border-b border-slate-700 pb-2 mb-3 text-center">{d.label}</p>
+                    <div className="flex justify-between mb-1.5"><span className="text-blue-400">Total Pacotes</span><span className="font-mono">{formatQtd(d.saldo)}</span></div>
+                    <div className="flex justify-between mb-0.5"><span className="text-emerald-400">↳ Entregues</span><span className="font-mono">{formatQtd(d.entregues)}</span></div>
+                    <div className="flex justify-between mb-3"><span className="text-red-400">↳ Insucessos</span><span className="font-mono">{formatQtd(d.insucessos)}</span></div>
+                    <div className="flex justify-between font-bold border-t border-slate-700 pt-2">
+                       <span className="text-emerald-300">DS Projetado</span>
+                       <span className={d.ds >= 98.5 ? 'text-emerald-400' : (d.ds >= 95 ? 'text-orange-400' : 'text-red-400')}>{formatDS(d.ds)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Stacked Bar */}
+                <div className={`w-full flex flex-col justify-end transition-opacity hover:opacity-100 ${d.isProj ? 'opacity-60' : 'opacity-90'}`} style={{ height: `${saldoPct}%` }}>
+                  {insucessosRatio > 0 && <div className="bg-red-500 w-full" style={{ height: `${insucessosRatio}%`, borderTopLeftRadius: '0.125rem', borderTopRightRadius: '0.125rem' }}></div>}
+                  {entreguesRatio > 0 && <div className="bg-emerald-500 w-full" style={{ height: `${entreguesRatio}%`, borderTopLeftRadius: insucessosRatio === 0 ? '0.125rem' : '0', borderTopRightRadius: insucessosRatio === 0 ? '0.125rem' : '0' }}></div>}
+                </div>
+
+                {/* DS Dot */}
+                <div className={`absolute w-4 h-4 bg-white rounded-full border-[4px] shadow-lg left-1/2 -translate-x-1/2 z-30 transition-transform group-hover:scale-125 flex justify-center ${dotColor}`} style={{ bottom: `calc(${dsDisplayPct}% - 8px)` }}>
+                  <span className="absolute bottom-full mb-1 text-[10px] font-bold text-slate-700 bg-white/95 px-1.5 py-0.5 rounded shadow-sm border border-slate-200 pointer-events-none">
+                    {formatDS(d.ds)}
+                  </span>
+                </div>
+
+                {/* Label */}
+                <div className="absolute top-full mt-4 w-full text-center">
+                  <p className="text-[10px] sm:text-xs text-slate-600 font-bold truncate">{d.label}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// COMPONENTE: PROJEÇÃO FINANCEIRA (RUN RATE)
+// ============================================================================
+const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats }) => {
+  const { totalDias, diasOperados } = useMemo(() => {
+    if (!targetQuinzena || targetQuinzena === 'N/A') return { totalDias: 15, diasOperados: 15 };
+    const year = parseInt(targetQuinzena.substring(0, 4));
+    const month = parseInt(targetQuinzena.substring(4, 6)) - 1;
+    const q = targetQuinzena.substring(6, 8);
+    
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const currentDate = now.getDate();
+    
+    const isCurrentMonth = (year === currentYear && month === currentMonth);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const total = q === 'Q1' ? 15 : (daysInMonth - 15);
+    let operados = total;
+
+    if (isCurrentMonth) {
+      if (q === 'Q1' && currentDate <= 15) {
+        operados = currentDate - 1; // Cálculo D-1
+      } else if (q === 'Q2' && currentDate > 15) {
+        operados = (currentDate - 15) - 1; // Cálculo D-1
+      } else if (q === 'Q1' && currentDate > 15) {
+        operados = 15;
+      } else if (q === 'Q2' && currentDate <= 15) {
+        operados = 1;
+      }
+    } else {
+      const targetDate = new Date(year, month, 1);
+      if (now < targetDate) operados = 1;
+    }
+    return { totalDias: total, diasOperados: Math.max(1, operados) };
+  }, [targetQuinzena]);
+
+  const [selectedRegional, setSelectedRegional] = useState(null);
+
+  if (!baseData || baseData.length === 0) {
+    return (
+      <div className="bg-slate-50 p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col items-center justify-center text-center gap-3">
+        <AlertCircle className="w-8 h-8 text-slate-400" />
+        <p className="text-slate-500 font-medium max-w-md">
+          Nenhuma informação financeira disponível para a quinzena <strong>{targetQuinzena}</strong>. Verifique se a base possui dados para este período ou altere o filtro.
+        </p>
+      </div>
+    );
+  }
 
   const mult = diasOperados > 0 ? totalDias / diasOperados : 1;
 
@@ -459,7 +763,6 @@ const RunRateSection = ({ baseData, targetQuinzena, prevStats }) => {
   const projFatGlob = globalFat * mult;
   const projPenGlob = globalPen * mult;
 
-  // Pegando o Top 6 para alertas baseado na REPRESENTATIVIDADE (Pareto)
   const topOfensores = [...projFilialData]
     .filter(d => d.penalidades > 0)
     .sort((a, b) => b.representatividade - a.representatividade)
@@ -510,35 +813,20 @@ const RunRateSection = ({ baseData, targetQuinzena, prevStats }) => {
           <Activity className="w-6 h-6 text-blue-600" />
           <div>
             <h2 className="text-xl md:text-2xl font-bold text-slate-800">
-              Projeção de Fechamento (Run Rate) - {targetQuinzena}
+              Projeção de Fechamento Financeiro (Run Rate) - {targetQuinzena}
             </h2>
             <p className="text-sm text-slate-500 font-medium mt-1">
-              Simule o resultado final ajustando o total de dias da quinzena atual.
+              Cálculo automático baseado nos dias operados da quinzena atual.
             </p>
           </div>
         </div>
 
-        {/* Controles de Dias */}
         <div className="flex flex-col sm:flex-row gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full lg:w-auto">
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-bold text-slate-500 uppercase">Dias na Quinzena:</span>
-            <input 
-              type="number" min="1" max="31" 
-              value={totalDias} 
-              onChange={(e) => setTotalDias(Math.max(1, Number(e.target.value)))}
-              className="w-24 border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 bg-white"
-            />
-          </div>
-          <div className="flex flex-col gap-1 flex-1 sm:w-48">
-            <div className="flex justify-between items-center">
-              <span className="text-xs font-bold text-slate-500 uppercase">Dias Operados:</span>
-              <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded">{diasOperados}</span>
-            </div>
-            <input 
-              type="range" min="1" max={totalDias} value={diasOperados} 
-              onChange={(e) => setDiasOperados(Number(e.target.value))} 
-              className="w-full h-2 mt-2 bg-slate-300 rounded-lg appearance-none cursor-pointer accent-blue-600" 
-            />
+          <div className="flex flex-col gap-1 items-center justify-center px-4">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cálculo Automático</span>
+            <span className="text-sm font-black text-blue-600 bg-blue-100 px-4 py-1.5 rounded-full border border-blue-200 shadow-sm">
+              {diasOperados} / {totalDias} Dias Operados
+            </span>
           </div>
         </div>
       </div>
@@ -562,11 +850,10 @@ const RunRateSection = ({ baseData, targetQuinzena, prevStats }) => {
         </div>
       </div>
 
-      {/* NOVO: Alerta de Risco Operacional */}
       {topOfensores.length > 0 && (
         <div className="mb-8 p-6 bg-red-50/40 border border-red-100 rounded-2xl">
           <h3 className="text-sm font-black text-red-600 mb-4 uppercase tracking-wider flex items-center gap-2">
-            <AlertCircle className="w-5 h-5" /> Alerta de Risco Operacional: Top 6 Maiores Impactos na Margem (Pareto)
+            <AlertCircle className="w-5 h-5" /> Alerta de Risco Financeiro: Top 6 Maiores Impactos na Margem
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {topOfensores.map((filial, idx) => (
@@ -602,7 +889,6 @@ const RunRateSection = ({ baseData, targetQuinzena, prevStats }) => {
         </div>
       )}
 
-      {/* NOVO: Gráficos lado a lado Regional e Filial */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
           <div className="flex items-center justify-between mb-4 px-2 pt-2">
@@ -678,33 +964,6 @@ const RunRateSection = ({ baseData, targetQuinzena, prevStats }) => {
                         </p>
                     </div>
                 </li>
-                
-                <li className="flex flex-col gap-3 mt-6 pt-6 border-t border-slate-800">
-                    <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Comportamento por Tipo de Infração</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                            <span className="text-blue-400 text-xs font-bold tracking-wider uppercase">PNRs</span>
-                            <div className="flex justify-between items-center mt-2">
-                                <span className="text-white font-mono text-base font-bold">{formatCurrency(globalPnr * mult)}</span>
-                                {getInsightTag(pnrVar, true)}
-                            </div>
-                        </div>
-                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                            <span className="text-orange-400 text-xs font-bold tracking-wider uppercase">Lost Packages</span>
-                            <div className="flex justify-between items-center mt-2">
-                                <span className="text-white font-mono text-base font-bold">{formatCurrency(globalLost * mult)}</span>
-                                {getInsightTag(lostVar, true)}
-                            </div>
-                        </div>
-                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                            <span className="text-slate-400 text-xs font-bold tracking-wider uppercase">Not Visited</span>
-                            <div className="flex justify-between items-center mt-2">
-                                <span className="text-white font-mono text-base font-bold">{formatCurrency(globalNv * mult)}</span>
-                                {getInsightTag(nvVar, true)}
-                            </div>
-                        </div>
-                    </div>
-                </li>
             </ul>
         </div>
       )}
@@ -712,34 +971,887 @@ const RunRateSection = ({ baseData, targetQuinzena, prevStats }) => {
   );
 };
 
+// ============================================================================
+// COMPONENTE: PROJEÇÃO OPERACIONAL E SIMULADOR (RUN RATE)
+// ============================================================================
+const RunRateOperacionalSection = ({ baseData, targetQuinzena, titlePrefix = "Operacional" }) => {
+  const { totalDias, diasOperados } = useMemo(() => {
+    if (!targetQuinzena || targetQuinzena === 'N/A') return { totalDias: 15, diasOperados: 15 };
+    const year = parseInt(targetQuinzena.substring(0, 4));
+    const month = parseInt(targetQuinzena.substring(4, 6)) - 1;
+    const q = targetQuinzena.substring(6, 8);
+    
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const currentDate = now.getDate();
+    
+    const isCurrentMonth = (year === currentYear && month === currentMonth);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const total = q === 'Q1' ? 15 : (daysInMonth - 15);
+    let operados = total;
+
+    if (isCurrentMonth) {
+      if (q === 'Q1' && currentDate <= 15) {
+        operados = currentDate - 1; // Cálculo D-1
+      } else if (q === 'Q2' && currentDate > 15) {
+        operados = (currentDate - 15) - 1; // Cálculo D-1
+      } else if (q === 'Q1' && currentDate > 15) {
+        operados = 15;
+      } else if (q === 'Q2' && currentDate <= 15) {
+        operados = 1;
+      }
+    } else {
+      const targetDate = new Date(year, month, 1);
+      if (now < targetDate) operados = 1;
+    }
+    return { totalDias: total, diasOperados: Math.max(1, operados) };
+  }, [targetQuinzena]);
+
+  const [selectedRegional, setSelectedRegional] = useState(null);
+
+  if (!baseData || baseData.length === 0) {
+    return (
+      <div className="bg-slate-50 p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col items-center justify-center text-center gap-3">
+        <AlertCircle className="w-8 h-8 text-slate-400" />
+        <p className="text-slate-500 font-medium max-w-md">
+          Nenhuma informação de projeção disponível para a quinzena <strong>{targetQuinzena}</strong>. Verifique se a base possui dados para este período ou altere o filtro.
+        </p>
+      </div>
+    );
+  }
+
+  const mult = diasOperados > 0 ? totalDias / diasOperados : 1;
+
+  let globalSaldo = 0, globalEntregues = 0;
+  baseData.forEach(d => {
+    globalSaldo += d.saldo;
+    globalEntregues += d.entregues;
+  });
+
+  const projFilialData = baseData.map(d => {
+    const pSaldo = d.saldo * mult;
+    const pEntregues = d.entregues * mult;
+    const pIns = {};
+    if (d.insucessosDetalhados) {
+        Object.entries(d.insucessosDetalhados).forEach(([k, v]) => pIns[k] = v * mult);
+    }
+    return {
+      ...d,
+      saldo: pSaldo,
+      entregues: pEntregues,
+      ds: pSaldo > 0 ? (pEntregues / pSaldo) * 100 : 0,
+      insucessosDetalhados: pIns
+    };
+  }).sort((a, b) => a.ds - b.ds); 
+
+  const regionalMap = {};
+  baseData.forEach(d => {
+    const regName = d.regional && d.regional !== 'N/A' ? `Regional ${d.regional}` : 'Sem Regional';
+    const supName = d.supervisor && d.supervisor !== 'N/A' ? d.supervisor : '';
+    const r = supName && regName !== 'Sem Regional' ? `${regName} - ${supName}` : regName;
+    if (!regionalMap[r]) regionalMap[r] = { name: r, saldo: 0, entregues: 0, insucessosDetalhados: {} };
+    regionalMap[r].saldo += d.saldo;
+    regionalMap[r].entregues += d.entregues;
+    if (d.insucessosDetalhados) {
+        Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+            regionalMap[r].insucessosDetalhados[k] = (regionalMap[r].insucessosDetalhados[k] || 0) + v;
+        });
+    }
+  });
+
+  const projRegionalData = Object.values(regionalMap).map(r => {
+    const pSaldo = r.saldo * mult;
+    const pEntregues = r.entregues * mult;
+    const pIns = {};
+    if (r.insucessosDetalhados) {
+        Object.entries(r.insucessosDetalhados).forEach(([k, v]) => pIns[k] = v * mult);
+    }
+    return {
+      ...r,
+      saldo: pSaldo,
+      entregues: pEntregues,
+      ds: pSaldo > 0 ? (pEntregues / pSaldo) * 100 : 0,
+      insucessosDetalhados: pIns
+    };
+  }).sort((a, b) => a.ds - b.ds);
+
+  const projSaldoGlob = globalSaldo * mult;
+  const projEntreguesGlob = globalEntregues * mult;
+  const dsGlobal = projSaldoGlob > 0 ? (projEntreguesGlob / projSaldoGlob) * 100 : 0;
+
+  const atingiuMetaDS = dsGlobal >= 98.5;
+
+  const topOfensores = [...projFilialData]
+    .filter(d => d.saldo > 0)
+    .slice(0, 6);
+    
+  const regionalDrilldownData = selectedRegional 
+    ? projFilialData.filter(d => {
+        const regName = d.regional && d.regional !== 'N/A' ? `Regional ${d.regional}` : 'Sem Regional';
+        const supName = d.supervisor && d.supervisor !== 'N/A' ? d.supervisor : '';
+        const rName = supName && regName !== 'Sem Regional' ? `${regName} - ${supName}` : regName;
+        return rName === selectedRegional;
+      })
+    : [];
+
+  return (
+    <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 mb-8">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
+        <div className="flex items-center gap-3">
+          <Box className="w-6 h-6 text-emerald-600" />
+          <div>
+            <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+              Projeção {titlePrefix} (Run Rate) - {targetQuinzena}
+            </h2>
+            <p className="text-sm text-slate-500 font-medium mt-1">
+              Cálculo automático baseado nos dias operados da quinzena atual.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full lg:w-auto">
+          <div className="flex flex-col gap-1 items-center justify-center px-4">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cálculo Automático</span>
+            <span className="text-sm font-black text-emerald-600 bg-emerald-100 px-4 py-1.5 rounded-full border border-emerald-200 shadow-sm">
+              {diasOperados} / {totalDias} Dias Operados
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-8 border border-slate-200 rounded-3xl bg-slate-50/40 p-6 md:p-8">
+         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-2 gap-4">
+            <div>
+               <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                 <TrendingUp className="w-5 h-5" /> Evolução de Volume vs. Projeção de DS
+               </h3>
+               <p className="text-3xl sm:text-4xl font-black text-slate-800 mt-2">
+                 {formatDS(dsGlobal)} 
+                 <span className="text-sm sm:text-base font-bold text-slate-400 ml-3">Projetado para Fechamento</span>
+               </p>
+            </div>
+            <div className="text-left sm:text-right bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-200">
+               <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Meta Oficial</span>
+               <span className="text-xl font-black text-slate-800">98.50%</span>
+            </div>
+         </div>
+         
+         <NativeRunRateChart 
+            diasOperados={diasOperados} 
+            totalDias={totalDias} 
+            currentSaldo={globalSaldo} 
+            currentEntregues={globalEntregues} 
+            projSaldo={projSaldoGlob} 
+            projEntregues={projEntreguesGlob} 
+         />
+      </div>
+
+      <div className={`mb-8 p-4 rounded-xl border flex items-center justify-between gap-4 ${atingiuMetaDS ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+          <div className="flex items-center gap-4">
+              <div className={`p-3 rounded-full ${atingiuMetaDS ? 'bg-emerald-100' : 'bg-red-100'}`}>
+                {atingiuMetaDS ? <TrendingUp className="w-6 h-6 text-emerald-600" /> : <TrendingDown className="w-6 h-6 text-red-600" />}
+              </div>
+              <div>
+                  <h4 className={`font-bold ${atingiuMetaDS ? 'text-emerald-800' : 'text-red-800'}`}>
+                      Tendência de Fechamento: {atingiuMetaDS ? 'Positiva (Dentro da Meta)' : 'Negativa (Abaixo da Meta)'}
+                  </h4>
+                  <p className={`text-sm font-medium ${atingiuMetaDS ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {atingiuMetaDS 
+                      ? `A operação projeta fechar o período superando o alvo de 98.5%. Continue o acompanhamento.`
+                      : `A operação não deve atingir os 98.5% se mantiver a performance atual. Atue imediatamente nas filiais abaixo.`}
+                  </p>
+              </div>
+          </div>
+      </div>
+
+      {topOfensores.length > 0 && (
+        <div className="mb-8 p-6 bg-orange-50/40 border border-orange-200 rounded-2xl">
+          <h3 className="text-sm font-black text-orange-600 mb-4 uppercase tracking-wider flex items-center gap-2">
+            <AlertCircle className="w-5 h-5" /> Alerta Crítico: Filiais com Menor DS Previsto (Gargalos)
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {topOfensores.map((filial, idx) => {
+              const dsc = filial.ds >= 98.5 ? 'bg-emerald-500' : (filial.ds >= 95 ? 'bg-orange-500' : 'bg-red-500');
+              const dscText = filial.ds >= 98.5 ? 'text-emerald-600' : (filial.ds >= 95 ? 'text-orange-600' : 'text-red-600');
+              return (
+              <div key={idx} className="bg-white p-5 rounded-xl border border-orange-100 shadow-sm flex flex-col relative overflow-hidden">
+                <div className={`absolute top-0 left-0 w-1 h-full ${dsc}`}></div>
+                <div className="flex justify-between items-start mb-2">
+                   <div>
+                     <span className="font-black text-slate-800 text-lg block">{filial.filial}</span>
+                     <span className="text-xs font-bold text-slate-500">{filial.regional && filial.regional !== 'N/A' ? `Regional ${filial.regional}` : 'Sem Regional'}</span>
+                   </div>
+                   <span className={`text-xs font-black text-white ${dsc} px-2 py-0.5 rounded-full shadow-sm`}>#{idx + 1}</span>
+                </div>
+                
+                <div className="flex flex-col gap-1.5 my-3 px-3 py-2.5 bg-slate-50 rounded-lg border border-slate-100">
+                    <div className="flex justify-between items-center text-[10px] font-bold"><span className="text-slate-500 uppercase">Pacotes Totais</span><span className="text-slate-700">{formatQtd(filial.saldo)}</span></div>
+                    <div className="flex justify-between items-center text-[10px] font-bold"><span className="text-emerald-500 uppercase">Entregues</span><span className="text-slate-700">{formatQtd(filial.entregues)}</span></div>
+                    <div className="flex justify-between items-center text-[10px] font-bold"><span className="text-red-500 uppercase">Insucessos</span><span className="text-slate-700">{formatQtd(filial.saldo - filial.entregues)}</span></div>
+                </div>
+
+                <div className="flex justify-between items-end mt-auto pt-3 border-t border-slate-100">
+                  <div className="flex flex-col items-start">
+                     <span className="text-[10px] text-slate-400 uppercase font-bold">Status</span>
+                     <span className={`text-sm font-black ${dscText}`}>{filial.ds >= 98.5 ? 'Excelente' : (filial.ds >= 95 ? 'Atenção' : 'Crítico')}</span>
+                  </div>
+                  <div className="flex flex-col items-end">
+                     <span className="text-[10px] text-slate-400 uppercase font-bold">DS Projetado</span>
+                     <span className={`text-lg font-black ${dscText}`}>{formatDS(filial.ds)}</span>
+                  </div>
+                </div>
+              </div>
+            )})}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col xl:col-span-2">
+          <div className="flex items-center justify-between mb-4 px-2 pt-2">
+            <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider">
+              {selectedRegional ? `Filiais: ${selectedRegional}` : 'Projeção DS por Regional'}
+            </h3>
+            {selectedRegional && (
+              <button 
+                onClick={() => setSelectedRegional(null)}
+                className="text-[10px] sm:text-xs font-bold text-slate-600 bg-slate-200 px-2 py-1 rounded hover:bg-slate-300 transition-colors"
+              >
+                ← Voltar
+              </button>
+            )}
+          </div>
+          {!selectedRegional ? (
+            <NativeDSChart 
+              data={projRegionalData} 
+              labelKey="name" 
+              heightClass="h-[350px]" 
+              onBarClick={(r) => setSelectedRegional(r)}
+            />
+          ) : (
+            <NativeDSChart 
+              data={regionalDrilldownData} 
+              labelKey="filial" 
+              heightClass="h-[350px]" 
+            />
+          )}
+        </div>
+        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
+          <h3 className="text-sm font-bold text-slate-600 text-center mb-2 pt-2 uppercase tracking-wider">DS por Filial (Piores Resultados)</h3>
+          <NativeDSChart 
+            data={projFilialData.slice(0, 15)} 
+            labelKey="filial" 
+            heightClass="h-[350px]" 
+          />
+        </div>
+        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
+          <h3 className="text-sm font-bold text-slate-600 text-center mb-2 pt-2 uppercase tracking-wider">DS por Filial (Melhores Resultados)</h3>
+          <NativeDSChart 
+            data={[...projFilialData].filter(d => d.saldo > 0).sort((a,b) => b.ds - a.ds).slice(0, 15)} 
+            labelKey="filial" 
+            heightClass="h-[350px]" 
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// COMPONENTE: DETALHE FINANCEIRO (DRILL-DOWN)
+// ============================================================================
+const DetalheFinanceiroSection = ({ dadosFiltrados, onExport, isExporting }) => {
+  const [sortConfig, setSortConfig] = useState({ key: 'totalValor', direction: 'desc' });
+  const [selectedFilial, setSelectedFilial] = useState(null);
+  const [selectedMotorista, setSelectedMotorista] = useState(null);
+
+  const handleSort = (key) => {
+    let direction = 'desc';
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+      direction = 'asc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const handleLevelUp = () => {
+    if (selectedMotorista) {
+      setSelectedMotorista(null);
+      setSortConfig({ key: 'totalValor', direction: 'desc' });
+    } else if (selectedFilial) {
+      setSelectedFilial(null);
+      setSortConfig({ key: 'totalValor', direction: 'desc' });
+    }
+  };
+
+  const dataAgrupada = useMemo(() => {
+    const map = {};
+    dadosFiltrados.forEach(d => {
+      const fKey = normalizeText(d.filial);
+      if (!map[fKey]) {
+        map[fKey] = {
+          filial: d.filial,
+          regional: d.regional || 'N/A',
+          supervisor: d.supervisor || 'N/A',
+          totalValor: 0, totalQtd: 0,
+          pnrValor: 0, pnrQtd: 0,
+          lostValor: 0, lostQtd: 0,
+          nvValor: 0, nvQtd: 0,
+          motoristasMap: {}
+        };
+      }
+      
+      const mKey = normalizeText(d.motorista);
+      if (!map[fKey].motoristasMap[mKey]) {
+        map[fKey].motoristasMap[mKey] = {
+          motorista: d.motorista,
+          totalValor: 0, totalQtd: 0,
+          pnrValor: 0, pnrQtd: 0,
+          lostValor: 0, lostQtd: 0,
+          nvValor: 0, nvQtd: 0,
+          casos: []
+        };
+      }
+
+      const qtd = d._pesoQtd !== undefined ? d._pesoQtd : 1;
+      const valor = d.valor || 0;
+
+      // Agrega Filial
+      map[fKey].totalValor += valor;
+      map[fKey].totalQtd += qtd;
+      if (d.tipo === 'PNRs') { map[fKey].pnrValor += valor; map[fKey].pnrQtd += qtd; }
+      else if (d.tipo === 'Lost Packages') { map[fKey].lostValor += valor; map[fKey].lostQtd += qtd; }
+      else if (d.tipo === 'Not Visited') { map[fKey].nvValor += valor; map[fKey].nvQtd += qtd; }
+
+      // Agrega Motorista
+      map[fKey].motoristasMap[mKey].totalValor += valor;
+      map[fKey].motoristasMap[mKey].totalQtd += qtd;
+      if (d.tipo === 'PNRs') { map[fKey].motoristasMap[mKey].pnrValor += valor; map[fKey].motoristasMap[mKey].pnrQtd += qtd; }
+      else if (d.tipo === 'Lost Packages') { map[fKey].motoristasMap[mKey].lostValor += valor; map[fKey].motoristasMap[mKey].lostQtd += qtd; }
+      else if (d.tipo === 'Not Visited') { map[fKey].motoristasMap[mKey].nvValor += valor; map[fKey].motoristasMap[mKey].nvQtd += qtd; }
+
+      // Adiciona o caso individual
+      map[fKey].motoristasMap[mKey].casos.push({
+        tipo: d.tipo,
+        valor: valor,
+        qtd: qtd,
+        id_display: d.tipo === 'Not Visited' ? (d.id_rota || '-') : (d.id_pacote || '-')
+      });
+    });
+
+    return Object.values(map).map(f => ({
+      ...f,
+      motoristas: Object.values(f.motoristasMap)
+    }));
+  }, [dadosFiltrados]);
+
+  const currentViewData = useMemo(() => {
+    const sortArray = (arr) => {
+      return [...arr].sort((a, b) => {
+        let aVal = a[sortConfig.key] !== undefined ? a[sortConfig.key] : '';
+        let bVal = b[sortConfig.key] !== undefined ? b[sortConfig.key] : '';
+        if (typeof aVal === 'string') { aVal = aVal.toLowerCase(); bVal = bVal.toLowerCase(); }
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    };
+
+    if (!selectedFilial) {
+      return sortArray(dataAgrupada);
+    }
+    
+    const filialData = dataAgrupada.find(f => f.filial === selectedFilial);
+    if (!filialData) return [];
+
+    if (!selectedMotorista) {
+      return sortArray(filialData.motoristas);
+    }
+
+    const motoristaData = filialData.motoristas.find(m => m.motorista === selectedMotorista);
+    if (!motoristaData) return [];
+
+    return sortArray(motoristaData.casos);
+  }, [dataAgrupada, selectedFilial, selectedMotorista, sortConfig]);
+
+  const SortIcon = ({ columnKey }) => {
+    if (sortConfig.key !== columnKey) return <ArrowUpDown className="w-3 h-3 inline-block ml-1 opacity-30" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 inline-block ml-1 text-blue-600" /> : <ArrowDown className="w-3 h-3 inline-block ml-1 text-blue-600" />;
+  };
+
+  return (
+    <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <DollarSign className="w-6 h-6 text-blue-600 shrink-0" />
+          <div className="min-w-0">
+             <h2 
+               className="text-xl md:text-2xl font-bold text-slate-800 truncate" 
+               title={selectedMotorista ? `Casos Ofensores: ${selectedMotorista}` : selectedFilial ? `Motoristas da Filial: ${selectedFilial}` : 'Detalhamento Financeiro'}
+             >
+               {selectedMotorista 
+                 ? `Casos: ${selectedMotorista}` 
+                 : selectedFilial 
+                   ? `Motoristas: ${selectedFilial}` 
+                   : 'Detalhamento Financeiro'}
+             </h2>
+             <p className="text-sm text-slate-500 font-medium truncate">Análise interativa por Filial, Motorista e Casos Ofensores.</p>
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto shrink-0">
+          {(selectedFilial || selectedMotorista) && (
+            <button 
+              onClick={handleLevelUp}
+              className="flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm shrink-0 w-full sm:w-auto"
+            >
+              ← Voltar
+            </button>
+          )}
+          <button 
+            onClick={() => onExport({ filial: selectedFilial, motorista: selectedMotorista })} 
+            disabled={isExporting} 
+            className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 shadow-sm shrink-0 w-full sm:w-auto"
+          >
+            {isExporting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} 
+            Gerar Planilha Excel
+          </button>
+        </div>
+      </div>
+      
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-sm w-full">
+        <table className="w-full text-left border-collapse min-w-[1000px]">
+          <thead className="bg-slate-50 sticky top-0 z-20 shadow-sm">
+            {!selectedMotorista ? (
+              <tr className="text-[10px] uppercase tracking-wider text-slate-500 select-none">
+                <th className="py-3 px-3 font-bold border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort(selectedFilial ? 'motorista' : 'filial')}>
+                  {selectedFilial ? 'Motorista' : 'Filial'} <SortIcon columnKey={selectedFilial ? 'motorista' : 'filial'} />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-slate-800 bg-slate-100/50" onClick={() => handleSort('totalValor')}>
+                  Total (R$) <SortIcon columnKey="totalValor" />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-slate-800 bg-slate-100/50" onClick={() => handleSort('totalQtd')}>
+                  Total (Qtd) <SortIcon columnKey="totalQtd" />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-blue-600 bg-blue-50/30" onClick={() => handleSort('pnrValor')}>
+                  PNR (R$) <SortIcon columnKey="pnrValor" />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-blue-600 bg-blue-50/30" onClick={() => handleSort('pnrQtd')}>
+                  PNR (Qtd) <SortIcon columnKey="pnrQtd" />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-orange-600 bg-orange-50/30" onClick={() => handleSort('lostValor')}>
+                  Lost (R$) <SortIcon columnKey="lostValor" />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-orange-600 bg-orange-50/30" onClick={() => handleSort('lostQtd')}>
+                  Lost (Qtd) <SortIcon columnKey="lostQtd" />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('nvValor')}>
+                  NV (R$) <SortIcon columnKey="nvValor" />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('nvQtd')}>
+                  NV (Qtd) <SortIcon columnKey="nvQtd" />
+                </th>
+              </tr>
+            ) : (
+              <tr className="text-[10px] uppercase tracking-wider text-slate-500 select-none">
+                <th className="py-3 px-3 font-bold border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors whitespace-nowrap w-[1%]" onClick={() => handleSort('tipo')}>
+                  Tipo Penalidade <SortIcon columnKey="tipo" />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors whitespace-nowrap w-[1%]" onClick={() => handleSort('id_display')}>
+                  ID (Pacote / Rota) <SortIcon columnKey="id_display" />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-slate-800 bg-slate-100/50 whitespace-nowrap w-[1%]" onClick={() => handleSort('valor')}>
+                  Valor (R$) <SortIcon columnKey="valor" />
+                </th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-slate-800 bg-slate-100/50 whitespace-nowrap w-[1%]" onClick={() => handleSort('qtd')}>
+                  Quantidade <SortIcon columnKey="qtd" />
+                </th>
+                <th className="py-3 px-3 border-b border-slate-200 w-full"></th>
+              </tr>
+            )}
+          </thead>
+          <tbody>
+            {currentViewData.length === 0 && (
+              <tr>
+                <td colSpan={selectedMotorista ? "5" : "9"} className="py-8 text-center text-slate-400 font-medium text-xs bg-white">
+                  Nenhum dado encontrado para os filtros selecionados.
+                </td>
+              </tr>
+            )}
+            
+            {/* RENDER NÍVEL 1 & 2 (FILIAIS E MOTORISTAS) */}
+            {!selectedMotorista && currentViewData.map((row, idx) => (
+              <tr 
+                key={`drill-${idx}`}
+                onClick={() => {
+                  if (!selectedFilial) {
+                    setSelectedFilial(row.filial);
+                    setSortConfig({ key: 'totalValor', direction: 'desc' });
+                  } else {
+                    setSelectedMotorista(row.motorista);
+                    setSortConfig({ key: 'valor', direction: 'desc' });
+                  }
+                }}
+                className="border-b border-slate-100 hover:bg-blue-50/50 cursor-pointer transition-colors group bg-white text-xs"
+              >
+                <td className="py-2.5 px-3 font-medium text-slate-700">
+                   {selectedFilial ? row.motorista : row.filial}
+                </td>
+                <td className="py-2.5 px-3 font-semibold text-right text-slate-800 bg-slate-50/30">{formatCurrency(row.totalValor)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-slate-600 bg-slate-50/30">{formatQtd(row.totalQtd)}</td>
+                
+                <td className="py-2.5 px-3 font-medium text-right text-blue-700 bg-blue-50/10">{formatCurrency(row.pnrValor)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-blue-600 bg-blue-50/10">{formatQtd(row.pnrQtd)}</td>
+                
+                <td className="py-2.5 px-3 font-medium text-right text-orange-700 bg-orange-50/10">{formatCurrency(row.lostValor)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-orange-600 bg-orange-50/10">{formatQtd(row.lostQtd)}</td>
+                
+                <td className="py-2.5 px-3 font-medium text-right text-slate-700">{formatCurrency(row.nvValor)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-slate-500">{formatQtd(row.nvQtd)}</td>
+              </tr>
+            ))}
+
+            {/* RENDER NÍVEL 3 (CASOS / IDs) */}
+            {selectedMotorista && currentViewData.map((caso, idx) => (
+              <tr key={`caso-${idx}`} className="border-b border-slate-100 bg-white hover:bg-slate-50 transition-colors text-xs">
+                <td className="py-2 px-3 whitespace-nowrap w-[1%]">
+                  <span className={`px-2 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
+                    caso.tipo === 'PNRs' ? 'bg-blue-50 text-blue-600' : 
+                    caso.tipo === 'Lost Packages' ? 'bg-orange-50 text-orange-600' : 
+                    'bg-slate-100 text-slate-600'
+                  }`}>{caso.tipo}</span>
+                </td>
+                <td className="py-2 px-3 text-slate-600 font-mono text-[11px] whitespace-nowrap w-[1%]">{caso.id_display}</td>
+                <td className="py-2 px-3 font-semibold text-right text-slate-800 bg-slate-50/30 whitespace-nowrap w-[1%]">{formatCurrency(caso.valor)}</td>
+                <td className="py-2 px-3 font-medium text-right text-slate-600 bg-slate-50/30 whitespace-nowrap w-[1%]">{formatQtd(caso.qtd)}</td>
+                <td className="w-full"></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// COMPONENTE: COMPARATIVO BSC (DIVERGÊNCIAS)
+// ============================================================================
+const ComparativoBscSection = ({ dataOp, dataBsc }) => {
+  const [sortConfig, setSortConfig] = useState({ key: 'absDiff', direction: 'desc' });
+  const [selectedFilial, setSelectedFilial] = useState(null);
+  const [selectedMotorista, setSelectedMotorista] = useState(null);
+
+  const handleSort = (key) => {
+    let direction = 'desc';
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+      direction = 'asc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const handleLevelUp = () => {
+    if (selectedMotorista) {
+      setSelectedMotorista(null);
+    } else if (selectedFilial) {
+      setSelectedFilial(null);
+    }
+    setSortConfig({ key: 'absDiff', direction: 'desc' });
+  };
+
+  const { mergedData, viewOp, viewBsc } = useMemo(() => {
+    const map = {};
+    let vOpSaldo = 0, vOpEntregues = 0, vBscSaldo = 0, vBscEntregues = 0;
+    const vOpRotas = new Set();
+    const vBscRotas = new Set();
+
+    let dataToGroupOp = dataOp;
+    let dataToGroupBsc = dataBsc;
+
+    if (selectedFilial) {
+      dataToGroupOp = dataToGroupOp.filter(d => d.filial === selectedFilial);
+      dataToGroupBsc = dataToGroupBsc.filter(d => d.filial === selectedFilial);
+    }
+    if (selectedMotorista) {
+      dataToGroupOp = dataToGroupOp.filter(d => d.motorista === selectedMotorista);
+      dataToGroupBsc = dataToGroupBsc.filter(d => d.motorista === selectedMotorista);
+    }
+
+    const getGroupingKey = (d) => {
+      if (!selectedFilial) return normalizeText(d.filial);
+      if (!selectedMotorista) return normalizeText(d.motorista);
+      return normalizeText(d.id_rota && d.id_rota !== '-' ? d.id_rota : `${d.quinzena}-SemID`);
+    };
+
+    const getDisplayLabel = (d) => {
+      if (!selectedFilial) return d.filial;
+      if (!selectedMotorista) return d.motorista;
+      return d.id_rota && d.id_rota !== '-' ? d.id_rota : 'Rota S/ ID';
+    };
+
+    dataToGroupOp.forEach(d => {
+      const k = getGroupingKey(d);
+      if (!map[k]) map[k] = { label: getDisplayLabel(d), opSaldo: 0, opEntregues: 0, bscSaldo: 0, bscEntregues: 0, opRotas: new Set(), bscRotas: new Set() };
+      
+      map[k].opSaldo += d.saldo;
+      map[k].opEntregues += d.entregues;
+      
+      const routeId = d.id_rota && d.id_rota !== '-' ? d.id_rota : `${d.quinzena}-${d.motorista}`; 
+      map[k].opRotas.add(routeId);
+      
+      vOpSaldo += d.saldo;
+      vOpEntregues += d.entregues;
+      vOpRotas.add(routeId);
+    });
+
+    dataToGroupBsc.forEach(d => {
+      const k = getGroupingKey(d);
+      if (!map[k]) map[k] = { label: getDisplayLabel(d), opSaldo: 0, opEntregues: 0, bscSaldo: 0, bscEntregues: 0, opRotas: new Set(), bscRotas: new Set() };
+      
+      map[k].bscSaldo += d.saldo;
+      map[k].bscEntregues += d.entregues;
+      
+      const routeId = d.id_rota && d.id_rota !== '-' ? d.id_rota : `${d.quinzena}-${d.motorista}`; 
+      map[k].bscRotas.add(routeId);
+      
+      vBscSaldo += d.saldo;
+      vBscEntregues += d.entregues;
+      vBscRotas.add(routeId);
+    });
+
+    const parsedData = Object.values(map).map(row => {
+      const opRotasCount = row.opRotas.size;
+      const bscRotasCount = row.bscRotas.size;
+      
+      const diffRotas = opRotasCount - bscRotasCount;
+      const diffSaldo = row.opSaldo - row.bscSaldo;
+      const diffEntregues = row.opEntregues - row.bscEntregues;
+      
+      const dsOp = row.opSaldo > 0 ? (row.opEntregues / row.opSaldo) * 100 : 0;
+      const dsBsc = row.bscSaldo > 0 ? (row.bscEntregues / row.bscSaldo) * 100 : 0;
+      const diffDs = dsOp - dsBsc;
+      
+      const absDiff = Math.abs(diffSaldo) + Math.abs(diffEntregues) + Math.abs(diffRotas);
+
+      return {
+        ...row, opRotasCount, bscRotasCount, diffRotas, diffSaldo, diffEntregues, dsOp, dsBsc, diffDs, absDiff
+      };
+    });
+
+    return {
+      mergedData: parsedData,
+      viewOp: { saldo: vOpSaldo, entregues: vOpEntregues, rotas: vOpRotas.size, ds: vOpSaldo > 0 ? (vOpEntregues / vOpSaldo) * 100 : 0 },
+      viewBsc: { saldo: vBscSaldo, entregues: vBscEntregues, rotas: vBscRotas.size, ds: vBscSaldo > 0 ? (vBscEntregues / vBscSaldo) * 100 : 0 }
+    };
+  }, [dataOp, dataBsc, selectedFilial, selectedMotorista]);
+
+  const sortedData = useMemo(() => {
+    return [...mergedData].sort((a, b) => {
+      let aVal = a[sortConfig.key];
+      let bVal = b[sortConfig.key];
+      if (typeof aVal === 'string') { aVal = aVal.toLowerCase(); bVal = bVal.toLowerCase(); }
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [mergedData, sortConfig]);
+
+  const renderBadge = (val, isPercent = false) => {
+    if (Math.abs(val) < 0.01) return <span className="bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded text-[10px]">OK</span>;
+    const isPositive = val > 0;
+    const text = isPositive ? `+${isPercent ? val.toFixed(2) : formatQtd(val)}` : `${isPercent ? val.toFixed(2) : formatQtd(val)}`;
+    const color = isPositive ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600';
+    return <span className={`${color} font-bold px-2 py-0.5 rounded text-[10px] whitespace-nowrap`}>{text}{isPercent ? '%' : ''}</span>;
+  };
+
+  const SortIcon = ({ columnKey }) => {
+    if (sortConfig.key !== columnKey) return <ArrowUpDown className="w-3 h-3 inline-block ml-1 opacity-30" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 inline-block ml-1 text-blue-600" /> : <ArrowDown className="w-3 h-3 inline-block ml-1 text-blue-600" />;
+  };
+
+  return (
+    <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <GitCompare className="w-6 h-6 text-violet-600 shrink-0" />
+          <div className="min-w-0">
+             <h2 className="text-xl md:text-2xl font-bold text-slate-800 truncate">
+               {selectedMotorista ? `Rotas do Motorista: ${selectedMotorista}` : selectedFilial ? `Motoristas: ${selectedFilial}` : 'Operacional vs BSC'}
+             </h2>
+             <p className="text-sm text-slate-500 font-medium truncate">Auditoria de divergências nas métricas (Filtros atuais aplicados).</p>
+          </div>
+        </div>
+        {(selectedFilial || selectedMotorista) && (
+           <button 
+             onClick={handleLevelUp}
+             className="flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm shrink-0"
+           >
+             ← Voltar
+           </button>
+        )}
+      </div>
+
+      {/* OVERVIEW CARDS (AJUSTADOS DINAMICAMENTE PARA FILIAL/MOTORISTA) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-2">
+        <div className="bg-slate-50 border border-slate-200 p-4 xl:p-5 rounded-2xl flex flex-col items-center">
+          <span className="text-[10px] xl:text-xs font-bold text-slate-500 uppercase mb-3 text-center">Diferença de Rotas</span>
+          <div className="flex gap-2 xl:gap-4 items-center">
+             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold text-blue-600">{formatQtd(viewOp.rotas)}</span></div>
+             <span className="text-slate-300 font-black text-lg">/</span>
+             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold text-blue-600">{formatQtd(viewBsc.rotas)}</span></div>
+          </div>
+          <div className="mt-3">{renderBadge(viewOp.rotas - viewBsc.rotas)}</div>
+        </div>
+        <div className="bg-slate-50 border border-slate-200 p-4 xl:p-5 rounded-2xl flex flex-col items-center">
+          <span className="text-[10px] xl:text-xs font-bold text-slate-500 uppercase mb-3 text-center">Diferença de Pacotes</span>
+          <div className="flex gap-2 xl:gap-4 items-center">
+             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold">{formatQtd(viewOp.saldo)}</span></div>
+             <span className="text-slate-300 font-black text-lg">/</span>
+             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold">{formatQtd(viewBsc.saldo)}</span></div>
+          </div>
+          <div className="mt-3">{renderBadge(viewOp.saldo - viewBsc.saldo)}</div>
+        </div>
+        <div className="bg-slate-50 border border-slate-200 p-4 xl:p-5 rounded-2xl flex flex-col items-center">
+          <span className="text-[10px] xl:text-xs font-bold text-slate-500 uppercase mb-3 text-center">Diferença de Entregues</span>
+          <div className="flex gap-2 xl:gap-4 items-center">
+             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold text-emerald-600">{formatQtd(viewOp.entregues)}</span></div>
+             <span className="text-slate-300 font-black text-lg">/</span>
+             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold text-emerald-600">{formatQtd(viewBsc.entregues)}</span></div>
+          </div>
+          <div className="mt-3">{renderBadge(viewOp.entregues - viewBsc.entregues)}</div>
+        </div>
+        <div className="bg-slate-50 border border-slate-200 p-4 xl:p-5 rounded-2xl flex flex-col items-center">
+          <span className="text-[10px] xl:text-xs font-bold text-slate-500 uppercase mb-3 text-center">Diferença do DS %</span>
+          <div className="flex gap-2 xl:gap-4 items-center">
+             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold text-violet-600">{formatDS(viewOp.ds)}</span></div>
+             <span className="text-slate-300 font-black text-lg">/</span>
+             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold text-violet-600">{formatDS(viewBsc.ds)}</span></div>
+          </div>
+          <div className="mt-3">{renderBadge(viewOp.ds - viewBsc.ds, true)}</div>
+        </div>
+      </div>
+      
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-sm w-full">
+        <table className="w-full text-left border-collapse min-w-[1000px]">
+          <thead className="bg-slate-50 sticky top-0 z-20 shadow-sm">
+             <tr className="text-[10px] uppercase tracking-wider text-slate-500 select-none">
+                <th className="py-3 px-3 font-bold border-b border-r border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors bg-white z-30" rowSpan={2} onClick={() => handleSort('label')}>
+                   {selectedMotorista ? 'Rota (ID)' : selectedFilial ? 'Motorista' : 'Filial'} <SortIcon columnKey="label" />
+                </th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center bg-blue-50/30" colSpan={3}>
+                   Rotas Únicas
+                </th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center bg-slate-100/50" colSpan={3}>
+                   Total de Pacotes (Saldo)
+                </th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center bg-emerald-50/30" colSpan={3}>
+                   Pacotes Entregues
+                </th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 text-center bg-violet-50/30" colSpan={3}>
+                   Delivery Success (DS)
+                </th>
+             </tr>
+             <tr className="text-[9px] uppercase tracking-wider text-slate-400 select-none">
+                {/* ROTAS */}
+                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-blue-50 transition-colors bg-blue-50/30 text-blue-700" onClick={() => handleSort('opRotasCount')}>Op. <SortIcon columnKey="opRotasCount" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-blue-50 transition-colors bg-blue-50/30 text-blue-700" onClick={() => handleSort('bscRotasCount')}>BSC <SortIcon columnKey="bscRotasCount" /></th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center cursor-pointer hover:bg-blue-50 transition-colors bg-blue-100/50 text-blue-800" onClick={() => handleSort('diffRotas')}>Diff <SortIcon columnKey="diffRotas" /></th>
+                {/* SALDO */}
+                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors bg-slate-100/50" onClick={() => handleSort('opSaldo')}>Op. <SortIcon columnKey="opSaldo" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors bg-slate-100/50" onClick={() => handleSort('bscSaldo')}>BSC <SortIcon columnKey="bscSaldo" /></th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center cursor-pointer hover:bg-slate-100 transition-colors bg-slate-100/80" onClick={() => handleSort('diffSaldo')}>Diff <SortIcon columnKey="diffSaldo" /></th>
+                {/* ENTREGUES */}
+                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-emerald-50 transition-colors bg-emerald-50/30 text-emerald-700" onClick={() => handleSort('opEntregues')}>Op. <SortIcon columnKey="opEntregues" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-emerald-50 transition-colors bg-emerald-50/30 text-emerald-700" onClick={() => handleSort('bscEntregues')}>BSC <SortIcon columnKey="bscEntregues" /></th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center cursor-pointer hover:bg-emerald-50 transition-colors bg-emerald-100/50 text-emerald-800" onClick={() => handleSort('diffEntregues')}>Diff <SortIcon columnKey="diffEntregues" /></th>
+                {/* DS */}
+                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-violet-50 transition-colors bg-violet-50/30 text-violet-700" onClick={() => handleSort('dsOp')}>Op. <SortIcon columnKey="dsOp" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-violet-50 transition-colors bg-violet-50/30 text-violet-700" onClick={() => handleSort('dsBsc')}>BSC <SortIcon columnKey="dsBsc" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 text-center cursor-pointer hover:bg-violet-50 transition-colors bg-violet-100/50 text-violet-800" onClick={() => handleSort('diffDs')}>Diff <SortIcon columnKey="diffDs" /></th>
+             </tr>
+          </thead>
+          <tbody>
+            {sortedData.length === 0 && (
+              <tr>
+                <td colSpan="13" className="py-8 text-center text-slate-400 font-medium text-xs bg-white">
+                  Nenhum dado encontrado para os filtros selecionados.
+                </td>
+              </tr>
+            )}
+            
+            {sortedData.map((row, idx) => (
+              <tr 
+                key={`comp-${idx}`} 
+                className={`border-b border-slate-100 transition-colors bg-white text-xs group ${selectedMotorista ? 'cursor-default hover:bg-white' : 'cursor-pointer hover:bg-slate-50'}`}
+                onClick={() => {
+                  if (!selectedFilial) {
+                    setSelectedFilial(row.label);
+                    setSortConfig({ key: 'absDiff', direction: 'desc' });
+                  } else if (!selectedMotorista) {
+                    setSelectedMotorista(row.label);
+                    setSortConfig({ key: 'absDiff', direction: 'desc' });
+                  }
+                }}
+              >
+                <td className="py-2.5 px-3 font-bold text-slate-700 border-r border-slate-100 bg-white sticky left-0 z-10 flex items-center gap-2">
+                   {!selectedMotorista && (
+                     <div className="p-1 rounded transition-colors bg-slate-100 text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600 shrink-0">
+                       <ChevronRight className="w-4 h-4" />
+                     </div>
+                   )}
+                   <span className="truncate">{row.label}</span>
+                </td>
+                
+                {/* ROTAS */}
+                <td className="py-2.5 px-3 font-medium text-right text-blue-600 bg-blue-50/10">{formatQtd(row.opRotasCount)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-blue-600 bg-blue-50/10">{formatQtd(row.bscRotasCount)}</td>
+                <td className="py-2.5 px-3 text-center border-r border-slate-100 bg-blue-50/30">{renderBadge(row.diffRotas)}</td>
+
+                {/* SALDO */}
+                <td className="py-2.5 px-3 font-medium text-right text-slate-500 bg-slate-50/10">{formatQtd(row.opSaldo)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-slate-500 bg-slate-50/10">{formatQtd(row.bscSaldo)}</td>
+                <td className="py-2.5 px-3 text-center border-r border-slate-100 bg-slate-50/40">{renderBadge(row.diffSaldo)}</td>
+
+                {/* ENTREGUES */}
+                <td className="py-2.5 px-3 font-medium text-right text-emerald-600 bg-emerald-50/10">{formatQtd(row.opEntregues)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-emerald-600 bg-emerald-50/10">{formatQtd(row.bscEntregues)}</td>
+                <td className="py-2.5 px-3 text-center border-r border-slate-100 bg-emerald-50/30">{renderBadge(row.diffEntregues)}</td>
+
+                {/* DS */}
+                <td className="py-2.5 px-3 font-bold text-right text-violet-600 bg-violet-50/10">{formatDS(row.dsOp)}</td>
+                <td className="py-2.5 px-3 font-bold text-right text-violet-600 bg-violet-50/10">{formatDS(row.dsBsc)}</td>
+                <td className="py-2.5 px-3 text-center bg-violet-50/30">{renderBadge(row.diffDs, true)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
 
 // ============================================================================
 // APP PRINCIPAL
 // ============================================================================
 export default function App() {
-// === SISTEMA DE LOGIN (COM EXPIRAÇÃO DE 10 MINUTOS) ===
   const verificarAcesso = React.useCallback(() => {
     const tempoSalvo = localStorage.getItem('dashopAuthTime');
     if (!tempoSalvo) return false;
-    
-    // Calcula quantos minutos se passaram desde o login
     const tempoPassado = Date.now() - parseInt(tempoSalvo, 10);
-    const dezMinutos = 10 * 60 * 1000; // 10 minutos em milissegundos
-    
+    const dezMinutos = 10 * 60 * 1000;
     if (tempoPassado > dezMinutos) {
       localStorage.removeItem('dashopAuthTime');
-      return false; // Expirou!
+      return false;
     }
-    return true; // Ainda tá no prazo!
+    return true; 
   }, []);
 
   const [isAuthenticated, setIsAuthenticated] = useState(verificarAcesso);
   const [senhaDigitada, setSenhaDigitada] = useState('');
   const [erroLogin, setErroLogin] = useState(false);
 
-  const SENHA_CORRETA = 'operacao2026'; // ⚠️ SUA SENHA AQUI
+  const SENHA_CORRETA = 'operacao2026';
 
-  // Checa a cada 5 segundos se o tempo de 10 minutos acabou para deslogar automaticamente
   React.useEffect(() => {
     let interval;
     if (isAuthenticated) {
@@ -755,7 +1867,7 @@ export default function App() {
   const handleLogin = (e) => {
     e.preventDefault();
     if (senhaDigitada === SENHA_CORRETA) {
-      localStorage.setItem('dashopAuthTime', Date.now().toString()); // Salva o carimbo de tempo atual
+      localStorage.setItem('dashopAuthTime', Date.now().toString());
       setIsAuthenticated(true);
       setErroLogin(false);
       setSenhaDigitada('');
@@ -763,38 +1875,47 @@ export default function App() {
       setErroLogin(true);
     }
   };
-  // =========================================================
+
   const [rawData, setRawData] = useState(initialParsedData);
   const [rawFaturamentoData, setRawFaturamentoData] = useState(initialFaturamentoData);
+  const [rawOperacionalData, setRawOperacionalData] = useState(initialOperacionalData);
+  const [rawBscData, setRawBscData] = useState(initialBscData);
   
   const [error, setError] = useState(null);
   const [sheetUrl, setSheetUrl] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=0#gid=0');
   const [sheetUrlFaturamento, setSheetUrlFaturamento] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=2143847273#gid=2143847273');
+  const [sheetUrlOperacional, setSheetUrlOperacional] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=1662689553#gid=1662689553');
+  const [sheetUrlBsc, setSheetUrlBsc] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=1187251925#gid=1187251925');
   
   const [isLoading, setIsLoading] = useState(false);
-  const [filtroQuinzena, setFiltroQuinzena] = useState('Todas');
-  const [filtroRegional, setFiltroRegional] = useState('Todas');
-  const [filtroSupervisor, setFiltroSupervisor] = useState('Todas');
-  const [filtroFilial, setFiltroFilial] = useState('Todas');
+  const [filtroQuinzenas, setFiltroQuinzenas] = useState([]);
+  const [filtroRegionais, setFiltroRegionais] = useState([]);
+  const [filtroSupervisores, setFiltroSupervisores] = useState([]);
+  const [filtroFiliais, setFiltroFiliais] = useState([]);
+  const [insucessosExcluidos, setInsucessosExcluidos] = useState([]);
   
-  const [activeMenu, setActiveMenu] = useState('resumo');
+  const [activeMenu, setActiveMenu] = useState('gestao_financeira');
   const [exportingType, setExportingType] = useState(null);
-
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
   const [selectedQuinzenaPareto, setSelectedQuinzenaPareto] = useState(null);
+  const [selectedQuinzenaDS, setSelectedQuinzenaDS] = useState(null);
+
+  // AUTO-SYNC STATE
+  const [hasInitialSynced, setHasInitialSynced] = useState(false);
 
   React.useEffect(() => {
     setSelectedQuinzenaPareto(null);
-  }, [filtroQuinzena, filtroFilial, filtroRegional, filtroSupervisor, activeMenu]);
+    setSelectedQuinzenaDS(null);
+  }, [filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores, activeMenu]);
 
   React.useEffect(() => {
-    setFiltroSupervisor('Todas');
-    setFiltroFilial('Todas');
-  }, [filtroRegional]);
+    setFiltroSupervisores([]);
+    setFiltroFiliais([]);
+  }, [filtroRegionais]);
 
   React.useEffect(() => {
-    setFiltroFilial('Todas');
-  }, [filtroSupervisor]);
+    setFiltroFiliais([]);
+  }, [filtroSupervisores]);
 
   const handleMenuChange = (menu) => {
     setActiveMenu(menu);
@@ -807,23 +1928,6 @@ export default function App() {
     setSortConfig({ key, direction });
   };
 
-  const getSortedData = (data) => {
-    if (!sortConfig.key || !data) return data;
-    return [...data].sort((a, b) => {
-      let aValue = a[sortConfig.key];
-      let bValue = b[sortConfig.key];
-      if (typeof aValue === 'string') { aValue = aValue.toLowerCase(); bValue = bValue.toLowerCase(); }
-      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    });
-  };
-
-  const SortIcon = ({ columnKey }) => {
-    if (sortConfig.key !== columnKey) return <ArrowUpDown className="w-3 h-3 inline-block ml-1 opacity-30" />;
-    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 inline-block ml-1 text-blue-600" /> : <ArrowDown className="w-3 h-3 inline-block ml-1 text-blue-600" />;
-  };
-
   const parseNumber = (val) => {
     if (!val) return 0;
     return parseFloat(val.replace(/R\$\s?/g, '').replace(/"/g, '').replace(/\./g, '').replace(',', '.')) || 0;
@@ -834,31 +1938,35 @@ export default function App() {
       const lines = text.split('\n').filter(line => line.trim() !== '');
       if (lines.length < 2) return;
       const delimiter = lines[0].includes(';') ? ';' : ',';
-      const headers = parseCSVLine(lines[0], delimiter).map(h => h.trim().toLowerCase());
+      const rawHeaders = parseCSVLine(lines[0], delimiter).map(h => h.trim());
+      const headers = rawHeaders.map(normalizeHeader);
       
-      const idxQuinzena = headers.findIndex(h => h.includes('quinzena') || h.includes('data') || h.includes('período') || h.includes('periodo'));
-      const idxRegional = 12; // Mapeamento fixo para a Coluna M da planilha de Penalidades
-      const idxSupervisor = headers.findIndex(h => h.includes('superv') || h.includes('gestor') || h.includes('coord'));
-      const idxFilial = headers.findIndex(h => h.includes('filial') || h.includes('base'));
-      const idxMotorista = headers.findIndex(h => h.includes('motorista') || h.includes('nome'));
+      const idxQuinzena = headers.findIndex(h => h.includes('quinzena') || h.includes('data') || h.includes('periodo'));
+      const idxRegional = headers.findIndex(h => h === 'regional' || h === 'regiao' || h.includes('regional')); 
+      const idxSupervisor = headers.findIndex(h => h === 'supervisor' || h.includes('superv') || h.includes('gestor') || h.includes('coord'));
+      const idxFilial = headers.findIndex(h => h.includes('filial') || h.includes('operacao') || h.includes('base') || h.includes('unidade'));
+      const idxMotorista = headers.findIndex(h => h.includes('motorista') || h.includes('nome') || h.includes('entregador'));
       
-      let idxTipo = headers.findIndex(h => h.includes('tipo') || h.includes('motivo') || h.includes('categoria') || h.includes('descri') || h.includes('infração') || h.includes('infracao') || h.includes('ocorr'));
+      const idxIdPacote = headers.findIndex(h => h.includes('pacote') || h.includes('tracking') || h.includes('awb') || h === 'id' || h.includes('pedido'));
+      const idxIdRota = headers.findIndex(h => h.includes('rota') || h.includes('route'));
+
+      let idxTipo = headers.findIndex(h => h.includes('tipo') || h.includes('motivo') || h.includes('categoria') || h.includes('descri') || h.includes('infracao') || h.includes('ocorr'));
       let idxValor = headers.findIndex(h => h.includes('valor') || h.includes('desconto') || h.includes('total') || h.includes('penalidade') || h.includes('custo') || h.includes('r$'));
 
       const parsed = [];
       for (let i = 1; i < lines.length; i++) {
         let cols = parseCSVLine(lines[i], delimiter);
-        
         const quinzena = idxQuinzena !== -1 ? normalizeQuinzena(cols[idxQuinzena]) : 'N/A';
         const regional = idxRegional !== -1 ? extractRegional(cols[idxRegional]) : 'N/A';
         const supervisor = idxSupervisor !== -1 ? cols[idxSupervisor] : 'N/A';
         const filial = idxFilial !== -1 ? cols[idxFilial] : 'N/A';
         const motorista = idxMotorista !== -1 ? cols[idxMotorista] : 'N/A';
-        
+        const id_pacote = idxIdPacote !== -1 ? cols[idxIdPacote] : '-';
+        const id_rota = idxIdRota !== -1 ? cols[idxIdRota] : '-';
+
         let rawTipo = idxTipo !== -1 ? cols[idxTipo] : ''; 
         let rawValor = idxValor !== -1 ? cols[idxValor] : ''; 
         
-        // Fallback
         if (!rawValor) {
           const foundValCol = cols.find(c => String(c).includes('R$'));
           if (foundValCol) rawValor = foundValCol;
@@ -871,12 +1979,14 @@ export default function App() {
         if (!quinzena || !rawTipo) continue;
         let valor = parseNumber(rawValor);
         let tipoFinal = 'Outros';
-        
         if (rawTipo.toLowerCase().includes('lost')) tipoFinal = 'Lost Packages';
         else if (rawTipo.toLowerCase().includes('pnr')) tipoFinal = 'PNRs';
         else if (rawTipo.toLowerCase().includes('not visited') || rawTipo.toLowerCase().includes('nv')) tipoFinal = 'Not Visited';
-
-        parsed.push({ quinzena, regional, supervisor, filial, motorista, tipo: tipoFinal, valor });
+        
+        parsed.push({ 
+          quinzena, regional, supervisor, filial, motorista, 
+          tipo: tipoFinal, valor, id_pacote, id_rota 
+        });
       }
       setRawData(parsed);
       setError(null);
@@ -888,22 +1998,23 @@ export default function App() {
       const lines = text.split('\n').filter(line => line.trim() !== '');
       if (lines.length < 2) return;
       const delimiter = lines[0].includes(';') ? ';' : ',';
-      const headers = parseCSVLine(lines[0], delimiter).map(h => h.trim().toLowerCase());
+      const rawHeaders = parseCSVLine(lines[0], delimiter).map(h => h.trim());
+      const headers = rawHeaders.map(normalizeHeader);
       
-      const idxQuinzena = headers.findIndex(h => h.includes('quinzena') || h.includes('data') || h.includes('período') || h.includes('periodo'));
-      const idxRegional = 6; // Mapeamento fixo para a Coluna G da planilha de Faturamento
-      const idxSupervisor = headers.findIndex(h => h.includes('superv') || h.includes('gestor') || h.includes('coord'));
-      const idxFilial = headers.findIndex(h => h.includes('filial') || h.includes('operacao') || h.includes('base'));
-      const idxMotorista = headers.findIndex(h => h.includes('motorista') || h.includes('nome'));
-      const idxIdRota = headers.findIndex(h => h.includes('rota') || h.includes('id'));
+      const idxQuinzena = headers.findIndex(h => h.includes('quinzena') || h.includes('data') || h.includes('periodo'));
+      const idxRegional = headers.findIndex(h => h === 'regional' || h === 'regiao' || h.includes('regional'));
+      const idxSupervisor = headers.findIndex(h => h === 'supervisor' || h.includes('superv') || h.includes('gestor') || h.includes('coord'));
+      const idxFilial = headers.findIndex(h => h.includes('filial') || h.includes('operacao') || h.includes('base') || h.includes('unidade'));
+      const idxMotorista = headers.findIndex(h => h.includes('motorista') || h.includes('nome') || h.includes('entregador'));
+      
+      const idxIdRota = headers.findIndex(h => h.includes('rota') || h.includes('route') || h.includes('viagem'));
+      
       const idxCategoria = headers.findIndex(h => h.includes('categoria') || h.includes('veiculo'));
-      
       let idxValor = headers.findIndex(h => h.includes('faturamento') || h.includes('valor') || h.includes('total') || h.includes('pagamento') || h.includes('r$'));
 
       const parsed = [];
       for (let i = 1; i < lines.length; i++) {
         let cols = parseCSVLine(lines[i], delimiter);
-        
         const quinzena = idxQuinzena !== -1 ? normalizeQuinzena(cols[idxQuinzena]) : 'N/A';
         const regional = idxRegional !== -1 ? extractRegional(cols[idxRegional]) : 'N/A';
         const supervisor = idxSupervisor !== -1 ? cols[idxSupervisor] : 'N/A';
@@ -911,17 +2022,12 @@ export default function App() {
         const motorista = idxMotorista !== -1 ? cols[idxMotorista] : 'N/A';
         const id_rota = idxIdRota !== -1 ? cols[idxIdRota] : '-';
         const categoria = idxCategoria !== -1 ? cols[idxCategoria] : '-';
-        
         let faturamentoRaw = idxValor !== -1 ? cols[idxValor] : '';
-        
-        // Fallback
         if (!faturamentoRaw) {
           const foundValCol = cols.find(c => String(c).includes('R$'));
           if (foundValCol) faturamentoRaw = foundValCol;
         }
-        
         let faturamento = parseNumber(faturamentoRaw);
-
         if (faturamento > 0) {
             parsed.push({ quinzena, regional, supervisor, filial, motorista, id_rota, categoria, faturamento });
         }
@@ -931,7 +2037,165 @@ export default function App() {
     } catch (err) { setError('Erro ao processar Faturamento. Verifique a planilha.'); }
   }, []);
 
-  const fetchFromGoogleSheets = async () => {
+  const processOperacionalData = useCallback((text) => {
+    try {
+      const lines = text.split('\n').filter(line => line.trim() !== '');
+      if (lines.length < 2) return;
+      const delimiter = lines[0].includes(';') ? ';' : ',';
+      const rawHeaders = parseCSVLine(lines[0], delimiter).map(h => h.trim());
+      const headers = rawHeaders.map(normalizeHeader);
+      
+      const idxQuinzena = headers.findIndex(h => h.includes('quinzena') || h.includes('data') || h.includes('periodo'));
+      
+      let idxRegional = -1;
+      let idxSupervisor = -1;
+      for (let j = headers.length - 1; j >= 0; j--) {
+          if (idxRegional === -1 && (headers[j] === 'regional' || headers[j] === 'regiao' || headers[j].includes('regional'))) idxRegional = j;
+          if (idxSupervisor === -1 && (headers[j] === 'supervisor' || headers[j].includes('superv') || headers[j].includes('gestor') || headers[j].includes('coord'))) idxSupervisor = j;
+      }
+
+      const idxFilial = headers.findIndex(h => h.includes('filial') || h.includes('operacao') || h.includes('base') || h.includes('unidade'));
+      const idxMotorista = headers.findIndex(h => h.includes('motorista') || h.includes('nome') || h.includes('entregador'));
+      
+      const idxIdRota = 1;
+
+      const idxSaldo = headers.findIndex(h => h === 'saldo' || h.includes('saldo') || h.includes('pacote') || h.includes('volume') || h.includes('total') || h.includes('envio'));
+      const idxEntregues = headers.findIndex(h => h === 'entregues' || h.includes('entreg') || h.includes('sucesso') || h.includes('realizado'));
+
+      const insucessosHeaders = [];
+      for (let j = 91; j <= 105; j++) {
+          if (rawHeaders[j] && rawHeaders[j].trim() !== '') {
+              insucessosHeaders.push({ index: j, name: rawHeaders[j].trim() });
+          }
+      }
+
+      const parsed = [];
+      for (let i = 1; i < lines.length; i++) {
+        let cols = parseCSVLine(lines[i], delimiter);
+        const filialRaw = idxFilial !== -1 ? cols[idxFilial] : 'N/A';
+        if (!filialRaw || filialRaw.trim().toUpperCase() === '#N/A') continue;
+        const filial = filialRaw;
+        
+        const quinzena = idxQuinzena !== -1 ? normalizeQuinzena(cols[idxQuinzena]) : 'N/A';
+        const regional = idxRegional !== -1 && cols[idxRegional] ? extractRegional(cols[idxRegional]) : 'N/A';
+        const supervisor = idxSupervisor !== -1 && cols[idxSupervisor] ? cols[idxSupervisor].trim() : 'N/A';
+        const motorista = idxMotorista !== -1 ? cols[idxMotorista] : 'N/A';
+        const id_rota = cols[idxIdRota] && String(cols[idxIdRota]).trim() !== '' ? String(cols[idxIdRota]).trim() : '-';
+        
+        const saldoRaw = idxSaldo !== -1 ? cols[idxSaldo] : cols[15];
+        const entreguesRaw = idxEntregues !== -1 ? cols[idxEntregues] : cols[17];
+        
+        let saldoOriginal = parseNumber(saldoRaw);
+        let entregues = parseNumber(entreguesRaw);
+
+        const insucessosDetalhados = {};
+        let qtdCancelados = 0;
+
+        insucessosHeaders.forEach(h => {
+            const v = parseNumber(cols[h.index]);
+            if (v > 0) {
+                if (h.index === 93 || normalizeHeader(h.name).includes('cancelado')) {
+                    qtdCancelados += v;
+                } else {
+                    insucessosDetalhados[h.name] = v;
+                }
+            }
+        });
+
+        let saldo = saldoOriginal - qtdCancelados;
+
+        const somaIns = Object.values(insucessosDetalhados).reduce((a,b) => a + b, 0);
+        if (saldo > 0 || entregues > 0 || somaIns > 0) {
+            parsed.push({ quinzena, regional, supervisor, filial, motorista, id_rota, saldo, entregues, insucessosDetalhados });
+        }
+      }
+      if(parsed.length > 0) setRawOperacionalData(parsed);
+      setError(null);
+    } catch (err) { setError('Erro ao processar Operacional. Verifique a planilha.'); }
+  }, []);
+
+  const processBscData = useCallback((text) => {
+    try {
+      const lines = text.split('\n').filter(line => line.trim() !== '');
+      if (lines.length < 2) return;
+      const delimiter = lines[0].includes(';') ? ';' : ',';
+      const rawHeaders = parseCSVLine(lines[0], delimiter).map(h => h.trim());
+      const headers = rawHeaders.map(normalizeHeader);
+      
+      const idxQuinzena = headers.findIndex(h => h.includes('quinzena') || h.includes('data') || h.includes('periodo'));
+      
+      const idxRegional = 38; 
+      const idxSupervisor = 39; 
+      
+      const idxFilial = headers.findIndex(h => h.includes('filial') || h.includes('operacao') || h.includes('base') || h.includes('unidade'));
+      
+      const idxMotorista = 12; 
+      const idxIdRota = 7;
+      
+      const idxSaldo = headers.findIndex(h => h === 'saldo' || h.includes('saldo') || h.includes('pacote') || h.includes('volume') || h.includes('total') || h.includes('envio'));
+      const idxEntregues = headers.findIndex(h => h === 'entregues' || h.includes('entreg') || h.includes('sucesso') || h.includes('realizado'));
+
+      const ignoreIndices = [idxQuinzena, idxRegional, idxSupervisor, idxFilial, idxMotorista, idxIdRota, idxSaldo, idxEntregues].filter(i => i !== -1);
+      const insucessosHeaders = [];
+      
+      const startIdxBsc = idxEntregues !== -1 ? idxEntregues + 1 : 25;
+      for (let j = startIdxBsc; j < headers.length; j++) {
+          if (rawHeaders[j] && rawHeaders[j].trim() !== '' && !ignoreIndices.includes(j)) {
+              const h = normalizeHeader(rawHeaders[j]);
+              const isInvalid = h.includes('%') || h === 'ds' || h.includes('meta') || h.includes('taxa') || h.includes('atingimento') || h.includes('farol') || h.includes('status') || h.includes('performance') || h.includes('sla');
+              
+              if (!isInvalid && !h.includes('regional') && !h.includes('supervisor') && !h.includes('quinzena') && !h.includes('filial') && !h.includes('motorista')) {
+                  insucessosHeaders.push({ index: j, name: rawHeaders[j].trim() });
+              }
+          }
+      }
+
+      const parsed = [];
+      for (let i = 1; i < lines.length; i++) {
+        let cols = parseCSVLine(lines[i], delimiter);
+        const filialRaw = idxFilial !== -1 ? cols[idxFilial] : 'N/A';
+        if (!filialRaw || filialRaw.trim().toUpperCase() === '#N/A') continue; 
+        const filial = filialRaw;
+        
+        const quinzena = idxQuinzena !== -1 ? normalizeQuinzena(cols[idxQuinzena]) : 'N/A';
+        const regional = cols[idxRegional] ? extractRegional(cols[idxRegional]) : 'N/A';
+        const supervisor = cols[idxSupervisor] ? cols[idxSupervisor].trim() : 'N/A';
+        const motorista = cols[idxMotorista] && String(cols[idxMotorista]).trim() !== '' ? String(cols[idxMotorista]).trim() : 'N/A';
+        const id_rota = cols[idxIdRota] && String(cols[idxIdRota]).trim() !== '' ? String(cols[idxIdRota]).trim() : '-';
+        
+        const saldoRaw = idxSaldo !== -1 ? cols[idxSaldo] : cols[15];
+        const entreguesRaw = idxEntregues !== -1 ? cols[idxEntregues] : cols[17];
+        
+        let saldoOriginal = parseNumber(saldoRaw);
+        let entregues = parseNumber(entreguesRaw);
+
+        const insucessosDetalhados = {};
+        let qtdCancelados = 0;
+
+        insucessosHeaders.forEach(h => {
+            const v = parseNumber(cols[h.index]);
+            if (v > 0) {
+                if (normalizeHeader(h.name).includes('cancelado')) {
+                    qtdCancelados += v;
+                } else {
+                    insucessosDetalhados[h.name] = v;
+                }
+            }
+        });
+
+        let saldo = saldoOriginal - qtdCancelados;
+
+        const somaIns = Object.values(insucessosDetalhados).reduce((a,b) => a + b, 0);
+        if (saldo > 0 || entregues > 0 || somaIns > 0) {
+            parsed.push({ quinzena, regional, supervisor, filial, motorista, id_rota, saldo, entregues, insucessosDetalhados });
+        }
+      }
+      if(parsed.length > 0) setRawBscData(parsed);
+      setError(null);
+    } catch (err) { setError('Erro ao processar Operacional BSC. Verifique a planilha.'); }
+  }, []);
+
+  const fetchFromGoogleSheets = useCallback(async () => {
     setIsLoading(true); setError(null);
     try {
       if (sheetUrl) {
@@ -954,23 +2218,44 @@ export default function App() {
           const res3 = await fetch(url3);
           if (res3.ok) processFaturamentoData(await res3.text());
       }
+      if (sheetUrlOperacional) {
+          let url4 = sheetUrlOperacional;
+          if (url4.includes('/edit')) {
+              const docId4 = url4.match(/\/d\/([a-zA-Z0-9-_]+)/);
+              const gid4 = url4.match(/gid=([0-9]+)/);
+              if (docId4) url4 = `https://docs.google.com/spreadsheets/d/${docId4[1]}/export?format=csv&gid=${gid4 ? gid4[1] : '0'}`;
+          }
+          const res4 = await fetch(url4);
+          if (res4.ok) processOperacionalData(await res4.text());
+      }
+      if (sheetUrlBsc) {
+          let url5 = sheetUrlBsc;
+          if (url5.includes('/edit')) {
+              const docId5 = url5.match(/\/d\/([a-zA-Z0-9-_]+)/);
+              const gid5 = url5.match(/gid=([0-9]+)/);
+              if (docId5) url5 = `https://docs.google.com/spreadsheets/d/${docId5[1]}/export?format=csv&gid=${gid5 ? gid5[1] : '0'}`;
+          }
+          const res5 = await fetch(url5);
+          if (res5.ok) processBscData(await res5.text());
+      }
     } catch (err) { setError('Falha no download das planilhas. Verifique os links.'); } 
     finally { setIsLoading(false); }
-  };
+  }, [sheetUrl, sheetUrlFaturamento, sheetUrlOperacional, sheetUrlBsc, processRawCSV, processFaturamentoData, processOperacionalData, processBscData]);
 
-  // ============================================================================
-  // MOTOR DE RATEIO SSC4
-  // ============================================================================
-  
+  React.useEffect(() => {
+    if (isAuthenticated && !hasInitialSynced) {
+      fetchFromGoogleSheets();
+      setHasInitialSynced(true);
+    }
+  }, [isAuthenticated, hasInitialSynced, fetchFromGoogleSheets]);
+
   const ssc4RatiosPerQuinzena = useMemo(() => {
     const ratios = {};
     const quinzenas = [...new Set(rawFaturamentoData.map(d => d.quinzena))];
-    
     quinzenas.forEach(q => {
         const fat4 = rawFaturamentoData.filter(d => d.quinzena === q && normalizeText(d.filial) === 'ESC4').reduce((a, b) => a + b.faturamento, 0);
         const fat5 = rawFaturamentoData.filter(d => d.quinzena === q && normalizeText(d.filial) === 'ESC5').reduce((a, b) => a + b.faturamento, 0);
         const fat9 = rawFaturamentoData.filter(d => d.quinzena === q && normalizeText(d.filial) === 'ESC9').reduce((a, b) => a + b.faturamento, 0);
-        
         const total = fat4 + fat5 + fat9;
         if (total > 0) {
             ratios[q] = { ESC4: fat4 / total, ESC5: fat5 / total, ESC9: fat9 / total };
@@ -986,9 +2271,7 @@ export default function App() {
             const ratios = ssc4RatiosPerQuinzena[d.quinzena];
             if (ratios) {
                 ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-                    if (ratios[target] > 0) {
-                        result.push({ ...d, filial: target, valor: d.valor * ratios[target], _pesoQtd: ratios[target] });
-                    }
+                    if (ratios[target] > 0) result.push({ ...d, filial: target, valor: d.valor * ratios[target], _pesoQtd: ratios[target] });
                 });
             } else { result.push({ ...d, _pesoQtd: 1 }); }
         } else { result.push({ ...d, _pesoQtd: 1 }); }
@@ -1003,9 +2286,7 @@ export default function App() {
             const ratios = ssc4RatiosPerQuinzena[d.quinzena];
             if (ratios) {
                 ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-                    if (ratios[target] > 0) {
-                        result.push({ ...d, filial: target, faturamento: d.faturamento * ratios[target] });
-                    }
+                    if (ratios[target] > 0) result.push({ ...d, filial: target, faturamento: d.faturamento * ratios[target] });
                 });
             } else { result.push(d); }
         } else { result.push(d); }
@@ -1013,68 +2294,202 @@ export default function App() {
     return result;
   }, [rawFaturamentoData, ssc4RatiosPerQuinzena]);
 
+  const distributedOperacional = useMemo(() => {
+    const result = [];
+    rawOperacionalData.forEach(d => {
+        if (normalizeText(d.filial) === 'SSC4') {
+            const ratios = ssc4RatiosPerQuinzena[d.quinzena];
+            if (ratios) {
+                ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
+                    if (ratios[target] > 0) {
+                        const newIns = {};
+                        if (d.insucessosDetalhados) {
+                            Object.entries(d.insucessosDetalhados).forEach(([k, v]) => newIns[k] = v * ratios[target]);
+                        }
+                        result.push({ ...d, filial: target, saldo: d.saldo * ratios[target], entregues: d.entregues * ratios[target], insucessosDetalhados: newIns });
+                    }
+                });
+            } else { result.push(d); }
+        } else { result.push(d); }
+    });
+    return result;
+  }, [rawOperacionalData, ssc4RatiosPerQuinzena]);
 
-  // ============================================================================
-  // CÁLCULOS E AGREGAÇÕES GERAIS 
-  // ============================================================================
+  const distributedBsc = useMemo(() => {
+    const result = [];
+    rawBscData.forEach(d => {
+        if (normalizeText(d.filial) === 'SSC4') {
+            const ratios = ssc4RatiosPerQuinzena[d.quinzena];
+            if (ratios) {
+                ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
+                    if (ratios[target] > 0) {
+                        const newIns = {};
+                        if (d.insucessosDetalhados) {
+                            Object.entries(d.insucessosDetalhados).forEach(([k, v]) => newIns[k] = v * ratios[target]);
+                        }
+                        result.push({ ...d, filial: target, saldo: d.saldo * ratios[target], entregues: d.entregues * ratios[target], insucessosDetalhados: newIns });
+                    }
+                });
+            } else { result.push(d); }
+        } else { result.push(d); }
+    });
+    return result;
+  }, [rawBscData, ssc4RatiosPerQuinzena]);
+
   const quinzenasDisponiveis = useMemo(() => {
     const q1 = distributedDados.map(d => d.quinzena);
     const q3 = distributedFaturamento.map(d => d.quinzena);
-    return [...new Set([...q1, ...q3])].sort().reverse();
-  }, [distributedDados, distributedFaturamento]);
+    const q4 = distributedOperacional.map(d => d.quinzena);
+    const q5 = distributedBsc.map(d => d.quinzena);
+    return [...new Set([...q1, ...q3, ...q4, ...q5])].sort().reverse();
+  }, [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc]);
   
   const regionaisDisponiveis = useMemo(() => {
     const r1 = distributedDados.map(d => d.regional);
     const r2 = distributedFaturamento.map(d => d.regional);
-    return [...new Set([...r1, ...r2].filter(r => r && r !== 'N/A'))].sort();
-  }, [distributedDados, distributedFaturamento]);
+    const r3 = distributedOperacional.map(d => d.regional);
+    const r4 = distributedBsc.map(d => d.regional);
+    return [...new Set([...r1, ...r2, ...r3, ...r4].filter(r => r && r !== 'N/A'))].sort();
+  }, [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc]);
 
   const supervisoresDisponiveis = useMemo(() => {
-    const s1 = distributedDados.filter(d => filtroRegional === 'Todas' || d.regional === filtroRegional).map(d => d.supervisor);
-    const s2 = distributedFaturamento.filter(d => filtroRegional === 'Todas' || d.regional === filtroRegional).map(d => d.supervisor);
-    return [...new Set([...s1, ...s2].filter(s => s && s !== 'N/A'))].sort();
-  }, [distributedDados, distributedFaturamento, filtroRegional]);
+    const matchReg = (r) => filtroRegionais.length === 0 || filtroRegionais.includes(r);
+    const s1 = distributedDados.filter(d => matchReg(d.regional)).map(d => d.supervisor);
+    const s2 = distributedFaturamento.filter(d => matchReg(d.regional)).map(d => d.supervisor);
+    const s3 = distributedOperacional.filter(d => matchReg(d.regional)).map(d => d.supervisor);
+    const s4 = distributedBsc.filter(d => matchReg(d.regional)).map(d => d.supervisor);
+    return [...new Set([...s1, ...s2, ...s3, ...s4].filter(s => s && s !== 'N/A'))].sort();
+  }, [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc, filtroRegionais]);
 
   const filiaisDisponiveis = useMemo(() => {
-    const f1 = distributedDados.filter(d => 
-      (filtroRegional === 'Todas' || d.regional === filtroRegional) &&
-      (filtroSupervisor === 'Todas' || d.supervisor === filtroSupervisor)
-    ).map(d => d.filial);
-    const f2 = distributedFaturamento.filter(d => 
-      (filtroRegional === 'Todas' || d.regional === filtroRegional) &&
-      (filtroSupervisor === 'Todas' || d.supervisor === filtroSupervisor)
-    ).map(d => d.filial);
-    return [...new Set([...f1, ...f2].filter(f => f && f !== 'N/A'))].sort();
-  }, [distributedDados, distributedFaturamento, filtroRegional, filtroSupervisor]);
+    const matchReg = (r) => filtroRegionais.length === 0 || filtroRegionais.includes(r);
+    const matchSup = (s) => filtroSupervisores.length === 0 || filtroSupervisores.includes(s);
+    
+    const f1 = distributedDados.filter(d => matchReg(d.regional) && matchSup(d.supervisor)).map(d => d.filial);
+    const f2 = distributedFaturamento.filter(d => matchReg(d.regional) && matchSup(d.supervisor)).map(d => d.filial);
+    const f3 = distributedOperacional.filter(d => matchReg(d.regional) && matchSup(d.supervisor)).map(d => d.filial);
+    const f4 = distributedBsc.filter(d => matchReg(d.regional) && matchSup(d.supervisor)).map(d => d.filial);
+    return [...new Set([...f1, ...f2, ...f3, ...f4].filter(f => f && f !== 'N/A'))].sort();
+  }, [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc, filtroRegionais, filtroSupervisores]);
+
+  const matchFiltro = (val, arr) => arr.length === 0 || arr.includes(val);
 
   const dadosFiltrados = useMemo(() => {
     return distributedDados.filter(d => 
-      (filtroQuinzena === 'Todas' || d.quinzena === filtroQuinzena) && 
-      (filtroFilial === 'Todas' || d.filial === filtroFilial) &&
-      (filtroRegional === 'Todas' || d.regional === filtroRegional) &&
-      (filtroSupervisor === 'Todas' || d.supervisor === filtroSupervisor)
+      matchFiltro(d.quinzena, filtroQuinzenas) && 
+      matchFiltro(d.filial, filtroFiliais) &&
+      matchFiltro(d.regional, filtroRegionais) &&
+      matchFiltro(d.supervisor, filtroSupervisores)
     );
-  }, [distributedDados, filtroQuinzena, filtroFilial, filtroRegional, filtroSupervisor]);
+  }, [distributedDados, filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores]);
 
   const faturamentoFiltrado = useMemo(() => {
     return distributedFaturamento.filter(d => 
-      (filtroQuinzena === 'Todas' || d.quinzena === filtroQuinzena) && 
-      (filtroFilial === 'Todas' || d.filial === filtroFilial) &&
-      (filtroRegional === 'Todas' || d.regional === filtroRegional) &&
-      (filtroSupervisor === 'Todas' || d.supervisor === filtroSupervisor)
+      matchFiltro(d.quinzena, filtroQuinzenas) && 
+      matchFiltro(d.filial, filtroFiliais) &&
+      matchFiltro(d.regional, filtroRegionais) &&
+      matchFiltro(d.supervisor, filtroSupervisores)
     );
-  }, [distributedFaturamento, filtroQuinzena, filtroFilial, filtroRegional, filtroSupervisor]);
+  }, [distributedFaturamento, filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores]);
+
+  const operacionalFiltrado = useMemo(() => {
+    return distributedOperacional.filter(d => 
+      matchFiltro(d.quinzena, filtroQuinzenas) && 
+      matchFiltro(d.filial, filtroFiliais) &&
+      matchFiltro(d.regional, filtroRegionais) &&
+      matchFiltro(d.supervisor, filtroSupervisores)
+    );
+  }, [distributedOperacional, filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores]);
+
+  const bscFiltrado = useMemo(() => {
+    return distributedBsc.filter(d => 
+      matchFiltro(d.quinzena, filtroQuinzenas) && 
+      matchFiltro(d.filial, filtroFiliais) &&
+      matchFiltro(d.regional, filtroRegionais) &&
+      matchFiltro(d.supervisor, filtroSupervisores)
+    );
+  }, [distributedBsc, filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores]);
+
+  const insucessosDisponiveis = useMemo(() => {
+    const keys = new Set();
+    if (activeMenu === 'gestao_bsc' || activeMenu === 'comparativo_bsc') {
+      bscFiltrado.forEach(d => {
+        if (d.insucessosDetalhados) {
+          Object.keys(d.insucessosDetalhados).forEach(k => keys.add(k));
+        }
+      });
+    } else {
+      operacionalFiltrado.forEach(d => {
+        if (d.insucessosDetalhados) {
+          Object.keys(d.insucessosDetalhados).forEach(k => keys.add(k));
+        }
+      });
+    }
+    return Array.from(keys).sort();
+  }, [operacionalFiltrado, bscFiltrado, activeMenu]);
+
+  const operacionalSimulado = useMemo(() => {
+    return operacionalFiltrado.map(d => {
+        let insucessosDesconsiderados = 0;
+        const newInsucessosDetalhados = {};
+
+        if (d.insucessosDetalhados) {
+            Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+                if (insucessosExcluidos.includes(k)) {
+                    insucessosDesconsiderados += v;
+                } else {
+                    newInsucessosDetalhados[k] = v;
+                }
+            });
+        }
+        
+        const saldoReconciliado = d.saldo - insucessosDesconsiderados;
+
+        return {
+            ...d,
+            saldoOriginal: d.saldo,
+            saldo: saldoReconciliado,
+            insucessosDesconsiderados,
+            insucessosDetalhados: newInsucessosDetalhados
+        };
+    });
+  }, [operacionalFiltrado, insucessosExcluidos]);
+
+  const bscSimulado = useMemo(() => {
+    return bscFiltrado.map(d => {
+        let insucessosDesconsiderados = 0;
+        const newInsucessosDetalhados = {};
+
+        if (d.insucessosDetalhados) {
+            Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+                if (insucessosExcluidos.includes(k)) {
+                    insucessosDesconsiderados += v;
+                } else {
+                    newInsucessosDetalhados[k] = v;
+                }
+            });
+        }
+        
+        const saldoReconciliado = d.saldo - insucessosDesconsiderados;
+
+        return {
+            ...d,
+            saldoOriginal: d.saldo,
+            saldo: saldoReconciliado,
+            insucessosDesconsiderados,
+            insucessosDetalhados: newInsucessosDetalhados
+        };
+    });
+  }, [bscFiltrado, insucessosExcluidos]);
 
   const resumoMetrics = useMemo(() => {
     return dadosFiltrados.reduce((acc, curr) => {
       const category = curr.tipo || 'Outros';
-      
       if (!acc.categories[category]) {
         acc.categories[category] = { valor: 0, qtd: 0 };
       }
       acc.categories[category].valor += (curr.valor || 0);
       acc.categories[category].qtd += (curr._pesoQtd !== undefined ? curr._pesoQtd : 1);
-      
       acc.total += (curr.valor || 0);
       acc.qtdTotal += (curr._pesoQtd !== undefined ? curr._pesoQtd : 1);
       return acc;
@@ -1085,10 +2500,24 @@ export default function App() {
       return faturamentoFiltrado.reduce((acc, curr) => acc + (curr.faturamento || 0), 0);
   }, [faturamentoFiltrado]);
 
-  // ============================================================================
-  // BASE PARA O RUN RATE E QUINZENA ANTERIOR
-  // ============================================================================
-  const targetQuinzenaRunRate = filtroQuinzena !== 'Todas' ? filtroQuinzena : quinzenasDisponiveis[0];
+  const pnrTot = resumoMetrics.categories?.['PNRs'] || { valor: 0, qtd: 0 };
+  const lostTot = resumoMetrics.categories?.['Lost Packages'] || { valor: 0, qtd: 0 };
+  const nvTot = resumoMetrics.categories?.['Not Visited'] || { valor: 0, qtd: 0 };
+
+  const targetQuinzenaRunRate = useMemo(() => {
+    if (filtroQuinzenas.length > 0) return filtroQuinzenas[0];
+    
+    let relevantData = [];
+    if (activeMenu === 'gestao_financeira') relevantData = faturamentoFiltrado;
+    else if (activeMenu === 'gestao_bsc' || activeMenu === 'comparativo_bsc') relevantData = bscFiltrado;
+    else relevantData = operacionalFiltrado;
+    
+    if (relevantData.length > 0) {
+      const qs = [...new Set(relevantData.map(d => d.quinzena))].sort().reverse();
+      if (qs.length > 0) return qs[0];
+    }
+    return quinzenasDisponiveis.length > 0 ? quinzenasDisponiveis[0] : 'N/A';
+  }, [filtroQuinzenas, activeMenu, faturamentoFiltrado, bscFiltrado, operacionalFiltrado, quinzenasDisponiveis]);
 
   const prevQuinzenaName = useMemo(() => {
     if (!targetQuinzenaRunRate || quinzenasDisponiveis.length < 2) return null;
@@ -1102,7 +2531,6 @@ export default function App() {
   const prevQuinzenaStats = useMemo(() => {
     if (!prevQuinzenaName) return null;
     let fat = 0, pen = 0, pnr = 0, lost = 0, nv = 0;
-    
     faturamentoFiltrado.filter(d => d.quinzena === prevQuinzenaName).forEach(d => fat += d.faturamento);
     dadosFiltrados.filter(d => d.quinzena === prevQuinzenaName).forEach(d => {
         pen += d.valor;
@@ -1110,14 +2538,12 @@ export default function App() {
         else if (d.tipo === 'Lost Packages') lost += d.valor;
         else if (d.tipo === 'Not Visited') nv += d.valor;
     });
-
     return { name: prevQuinzenaName, fat, pen, pnr, lost, nv };
   }, [dadosFiltrados, faturamentoFiltrado, prevQuinzenaName]);
 
   const baseRunRateData = useMemo(() => {
     if (!targetQuinzenaRunRate) return [];
     const map = {};
-    
     faturamentoFiltrado.filter(d => d.quinzena === targetQuinzenaRunRate).forEach(d => {
         const key = normalizeText(d.filial);
         if (!map[key]) map[key] = { filial: d.filial, regional: d.regional || 'N/A', supervisor: d.supervisor || 'N/A', faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
@@ -1125,7 +2551,6 @@ export default function App() {
         if (d.supervisor && d.supervisor !== 'N/A') map[key].supervisor = d.supervisor;
         map[key].faturamento += d.faturamento;
     });
-    
     dadosFiltrados.filter(d => d.quinzena === targetQuinzenaRunRate).forEach(d => {
         const key = normalizeText(d.filial);
         if (!map[key]) map[key] = { filial: d.filial, regional: d.regional || 'N/A', supervisor: d.supervisor || 'N/A', faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
@@ -1136,14 +2561,47 @@ export default function App() {
         else if (d.tipo === 'Lost Packages') map[key].lost += d.valor;
         else if (d.tipo === 'Not Visited') map[key].notVisited += d.valor;
     });
-
     return Object.values(map);
   }, [dadosFiltrados, faturamentoFiltrado, targetQuinzenaRunRate]);
 
+  const baseBscRunRateData = useMemo(() => {
+    if (!targetQuinzenaRunRate) return [];
+    const map = {};
+    bscSimulado.filter(d => d.quinzena === targetQuinzenaRunRate).forEach(d => {
+        const key = normalizeText(d.filial);
+        if (!map[key]) map[key] = { filial: d.filial, regional: d.regional || 'N/A', supervisor: d.supervisor || 'N/A', saldo: 0, entregues: 0, insucessosDetalhados: {} };
+        if (d.regional && d.regional !== 'N/A') map[key].regional = d.regional;
+        if (d.supervisor && d.supervisor !== 'N/A') map[key].supervisor = d.supervisor;
+        map[key].saldo += d.saldo;
+        map[key].entregues += d.entregues;
+        if (d.insucessosDetalhados) {
+            Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+                map[key].insucessosDetalhados[k] = (map[key].insucessosDetalhados[k] || 0) + v;
+            });
+        }
+    });
+    return Object.values(map);
+  }, [bscSimulado, targetQuinzenaRunRate]);
 
-  // ============================================================================
-  // DADOS PARA O GRÁFICO DE PARETO (RESUMO OPERACIONAL - DRILL DOWN)
-  // ============================================================================
+  const baseOperacionalRunRateData = useMemo(() => {
+    if (!targetQuinzenaRunRate) return [];
+    const map = {};
+    operacionalSimulado.filter(d => d.quinzena === targetQuinzenaRunRate).forEach(d => {
+        const key = normalizeText(d.filial);
+        if (!map[key]) map[key] = { filial: d.filial, regional: d.regional || 'N/A', supervisor: d.supervisor || 'N/A', saldo: 0, entregues: 0, insucessosDetalhados: {} };
+        if (d.regional && d.regional !== 'N/A') map[key].regional = d.regional;
+        if (d.supervisor && d.supervisor !== 'N/A') map[key].supervisor = d.supervisor;
+        map[key].saldo += d.saldo;
+        map[key].entregues += d.entregues;
+        if (d.insucessosDetalhados) {
+            Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+                map[key].insucessosDetalhados[k] = (map[key].insucessosDetalhados[k] || 0) + v;
+            });
+        }
+    });
+    return Object.values(map);
+  }, [operacionalSimulado, targetQuinzenaRunRate]);
+
   const paretoQuinzenaData = useMemo(() => {
     const map = {};
     faturamentoFiltrado.forEach(d => {
@@ -1159,7 +2617,6 @@ export default function App() {
         else if (d.tipo === 'Lost Packages') map[key].lost += d.valor;
         else if (d.tipo === 'Not Visited') map[key].notVisited += d.valor;
     });
-
     return Object.values(map).map(item => ({
         ...item,
         representatividade: item.faturamento > 0 ? (item.penalidades / item.faturamento) * 100 : (item.penalidades > 0 ? Infinity : 0)
@@ -1169,13 +2626,11 @@ export default function App() {
   const paretoFilialDrilldownData = useMemo(() => {
     if (!selectedQuinzenaPareto) return [];
     const map = {};
-    
     faturamentoFiltrado.filter(d => d.quinzena === selectedQuinzenaPareto).forEach(d => {
         const key = normalizeText(d.filial);
         if (!map[key]) map[key] = { filial: d.filial, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
         map[key].faturamento += d.faturamento;
     });
-    
     dadosFiltrados.filter(d => d.quinzena === selectedQuinzenaPareto).forEach(d => {
         const key = normalizeText(d.filial);
         if (!map[key]) map[key] = { filial: d.filial, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
@@ -1184,232 +2639,94 @@ export default function App() {
         else if (d.tipo === 'Lost Packages') map[key].lost += d.valor;
         else if (d.tipo === 'Not Visited') map[key].notVisited += d.valor;
     });
-
     return Object.values(map).map(item => ({
         ...item,
         representatividade: item.faturamento > 0 ? (item.penalidades / item.faturamento) * 100 : (item.penalidades > 0 ? Infinity : 0)
     })).sort((a, b) => b.faturamento - a.faturamento); 
   }, [dadosFiltrados, faturamentoFiltrado, selectedQuinzenaPareto]);
 
+  const isBscView = activeMenu === 'gestao_bsc';
+  const isOpOrBscView = activeMenu === 'gestao_operacional' || activeMenu === 'gestao_bsc';
+  
+  let globalBscSaldo = 0;
+  let globalBscEntregues = 0;
+  bscSimulado.forEach(d => {
+    globalBscSaldo += d.saldo;
+    globalBscEntregues += d.entregues;
+  });
+  const dsGlobalBscAtual = globalBscSaldo > 0 ? (globalBscEntregues / globalBscSaldo) * 100 : 0;
 
-  // ============================================================================
-  // HIERARQUIA PARA PENALIDADES
-  // ============================================================================
-  const aggregatePenaltiesHierarchical = useCallback((data, keys, nameKey) => {
-    const agrupado = {};
-    data.forEach(d => {
-      const key = keys.map(k => d[k]).join('|');
-      if (!agrupado[key]) {
-          agrupado[key] = {
-              name: d[nameKey],
-              regional: d.regional || 'N/A',
-              supervisor: d.supervisor || 'N/A',
-              PNRs: { valor: 0, qtd: 0 },
-              'Lost Packages': { valor: 0, qtd: 0 },
-              'Not Visited': { valor: 0, qtd: 0 },
-              total: { valor: 0, qtd: 0 }
-          };
-          keys.forEach(k => agrupado[key][k] = d[k]);
-      }
-      agrupado[key].regional = agrupado[key].regional !== 'N/A' ? agrupado[key].regional : (d.regional || 'N/A');
-      agrupado[key].supervisor = agrupado[key].supervisor !== 'N/A' ? agrupado[key].supervisor : (d.supervisor || 'N/A');
+  let globalOperacionalSaldo = 0;
+  let globalOperacionalEntregues = 0;
+  operacionalSimulado.forEach(d => {
+    globalOperacionalSaldo += d.saldo;
+    globalOperacionalEntregues += d.entregues;
+  });
+  const dsGlobalAtual = globalOperacionalSaldo > 0 ? (globalOperacionalEntregues / globalOperacionalSaldo) * 100 : 0;
 
-      if (!agrupado[key][d.tipo]) {
-          agrupado[key][d.tipo] = { valor: 0, qtd: 0 };
-      }
-      
-      agrupado[key][d.tipo].valor += (d.valor || 0);
-      agrupado[key][d.tipo].qtd += (d._pesoQtd !== undefined ? d._pesoQtd : 1);
-      agrupado[key].total.valor += (d.valor || 0);
-      agrupado[key].total.qtd += (d._pesoQtd !== undefined ? d._pesoQtd : 1);
-    });
-    return Object.values(agrupado);
-  }, []);
+  const currentGlobalSaldo = isBscView ? globalBscSaldo : globalOperacionalSaldo;
+  const currentGlobalEntregues = isBscView ? globalBscEntregues : globalOperacionalEntregues;
+  const currentDsGlobalAtual = isBscView ? dsGlobalBscAtual : dsGlobalAtual;
+  
+  const currentOpRunRateData = isBscView ? baseBscRunRateData : baseOperacionalRunRateData;
+  const titlePrefix = isBscView ? 'BSC' : 'Operacional';
+  const IconOverview = isBscView ? Target : PackageCheck;
 
-  const getChartData = useCallback((base, metric) => {
-    return base.map(item => {
-      let pnr = 0, lost = 0, nv = 0, total = 0;
-      
-      const pnrData = item.PNRs || { valor: 0, qtd: 0 };
-      const lostData = item['Lost Packages'] || { valor: 0, qtd: 0 };
-      const nvData = item['Not Visited'] || { valor: 0, qtd: 0 };
-      const totalData = item.total || { valor: 0, qtd: 0 };
-
-      if (metric === 'valor') {
-        pnr = pnrData.valor; lost = lostData.valor; nv = nvData.valor; total = totalData.valor;
-      } else if (metric === 'qtd') {
-        pnr = pnrData.qtd; lost = lostData.qtd; nv = nvData.qtd; total = totalData.qtd;
-      } else if (metric === 'tm') {
-        pnr = pnrData.qtd ? pnrData.valor / pnrData.qtd : 0;
-        lost = lostData.qtd ? lostData.valor / lostData.qtd : 0;
-        nv = 0; 
-        const totalVal = pnrData.valor + lostData.valor;
-        const totalQtd = pnrData.qtd + lostData.qtd;
-        total = totalQtd ? totalVal / totalQtd : 0;
-      }
-      return { ...item, name: item.name, 'PNRs': pnr, 'Lost Packages': lost, 'Not Visited': nv, total: total, raw: item };
-    }).sort((a, b) => {
-      if (a.quinzena && b.quinzena && a.quinzena !== b.quinzena) {
-          return String(b.quinzena).localeCompare(String(a.quinzena));
-      }
-      return b.total - a.total;
-    });
-  }, []);
-
-  const penFilialHierarchicalBase = useMemo(() => aggregatePenaltiesHierarchical(dadosFiltrados, ['quinzena', 'regional', 'supervisor', 'filial'], 'filial'), [dadosFiltrados, aggregatePenaltiesHierarchical]);
-  const penMotoristaHierarchicalBase = useMemo(() => aggregatePenaltiesHierarchical(dadosFiltrados, ['quinzena', 'regional', 'supervisor', 'filial', 'motorista'], 'motorista'), [dadosFiltrados, aggregatePenaltiesHierarchical]);
-
-  const chartFiliaisValor = useMemo(() => getChartData(penFilialHierarchicalBase, 'valor').slice(0, 50), [penFilialHierarchicalBase, getChartData]);
-  const chartFiliaisQtd = useMemo(() => getChartData(penFilialHierarchicalBase, 'qtd').slice(0, 50), [penFilialHierarchicalBase, getChartData]);
-  const chartFiliaisTM = useMemo(() => getChartData(penFilialHierarchicalBase, 'tm').slice(0, 50), [penFilialHierarchicalBase, getChartData]);
-  const chartPenMotoristaValor = useMemo(() => getChartData(penMotoristaHierarchicalBase, 'valor').slice(0, 50), [penMotoristaHierarchicalBase, getChartData]);
-
-  const crossFilialData = useMemo(() => {
+  const globalInsucessosArray = useMemo(() => {
     const map = {};
-    faturamentoFiltrado.forEach(d => {
-        const key = `${d.quinzena}|${normalizeText(d.filial)}`;
-        if (!map[key]) map[key] = { quinzena: d.quinzena, regional: d.regional || 'N/A', supervisor: d.supervisor || 'N/A', filial: d.filial, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
-        map[key].faturamento += d.faturamento;
+    const dataToUse = isBscView ? bscSimulado : operacionalSimulado;
+    dataToUse.forEach(d => {
+      if (d.insucessosDetalhados) {
+        Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+          map[k] = (map[k] || 0) + v;
+        });
+      }
     });
-    dadosFiltrados.forEach(d => {
-        const key = `${d.quinzena}|${normalizeText(d.filial)}`;
-        if (!map[key]) map[key] = { quinzena: d.quinzena, regional: d.regional || 'N/A', supervisor: d.supervisor || 'N/A', filial: d.filial, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
-        map[key].penalidades += d.valor;
-        if (d.tipo === 'PNRs') map[key].pnr += d.valor;
-        else if (d.tipo === 'Lost Packages') map[key].lost += d.valor;
-        else if (d.tipo === 'Not Visited') map[key].notVisited += d.valor;
-    });
+    return Object.entries(map).sort((a,b) => b[1] - a[1]);
+  }, [isBscView, bscSimulado, operacionalSimulado]);
 
+  const dsQuinzenaData = useMemo(() => {
+    const dataToUse = isBscView ? bscSimulado : operacionalSimulado;
+    const map = {};
+    dataToUse.forEach(d => {
+        const key = d.quinzena || 'N/A';
+        if (!map[key]) map[key] = { name: key, quinzena: key, saldo: 0, entregues: 0, insucessosDetalhados: {} };
+        map[key].saldo += d.saldo;
+        map[key].entregues += d.entregues;
+        if (d.insucessosDetalhados) {
+            Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+                map[key].insucessosDetalhados[k] = (map[key].insucessosDetalhados[k] || 0) + v;
+            });
+        }
+    });
     return Object.values(map).map(item => ({
         ...item,
-        representatividade: item.faturamento > 0 ? (item.penalidades / item.faturamento) * 100 : (item.penalidades > 0 ? Infinity : 0)
-    })).sort((a, b) => {
-        if (a.quinzena !== b.quinzena) return String(b.quinzena).localeCompare(String(a.quinzena));
-        return b.representatividade - a.representatividade;
+        ds: item.saldo > 0 ? (item.entregues / item.saldo) * 100 : 0
+    })).sort((a, b) => String(b.quinzena).localeCompare(String(a.quinzena))); 
+  }, [isBscView, bscSimulado, operacionalSimulado]);
+
+  const dsFilialDrilldownData = useMemo(() => {
+    if (!selectedQuinzenaDS) return [];
+    const dataToUse = isBscView ? bscSimulado : operacionalSimulado;
+    const map = {};
+    dataToUse.filter(d => d.quinzena === selectedQuinzenaDS).forEach(d => {
+        const key = normalizeText(d.filial);
+        if (!map[key]) map[key] = { name: d.filial, filial: d.filial, saldo: 0, entregues: 0, insucessosDetalhados: {} };
+        map[key].saldo += d.saldo;
+        map[key].entregues += d.entregues;
+        if (d.insucessosDetalhados) {
+            Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+                map[key].insucessosDetalhados[k] = (map[key].insucessosDetalhados[k] || 0) + v;
+            });
+        }
     });
-  }, [dadosFiltrados, faturamentoFiltrado]);
+    return Object.values(map).map(item => ({
+        ...item,
+        ds: item.saldo > 0 ? (item.entregues / item.saldo) * 100 : 0
+    })).sort((a, b) => a.ds - b.ds); 
+  }, [isBscView, bscSimulado, operacionalSimulado, selectedQuinzenaDS]);
 
-  // ============================================================================
-  // COMPONENTES DE SEÇÕES ESPECÍFICAS (ALOCADOS INTERNAMENTE PARA ACESSO AOS HOOKS DE SORT)
-  // ============================================================================
-
-  const PenaltiesHierarchicalSection = ({ title, listData, groupBy, metricType, themeColor }) => {
-    const isQtd = metricType === 'qtd';
-    const isTM = metricType === 'tm';
-    const theme = getThemeColors(themeColor);
-    const sortedListData = getSortedData(listData);
-
-    return (
-      <div className="flex flex-col gap-6 lg:gap-8 h-full">
-        <div className={`w-full rounded-3xl p-6 lg:p-8 border flex flex-col shrink-0 ${theme.bg} ${theme.border}`}>
-          <div className="flex items-center gap-3 mb-4">
-              <h3 className={`text-xl lg:text-2xl font-bold ${theme.text}`}>{title}</h3>
-              <span className="text-xs font-bold bg-white text-slate-500 px-3 py-1 rounded-full border border-slate-200 shadow-sm">Hierarquia Ativa</span>
-          </div>
-          <div className="overflow-x-auto bg-white rounded-2xl border border-slate-100 shadow-sm">
-            <table className="w-full text-left border-collapse min-w-[700px]">
-              <thead>
-                <tr className={`border-b-2 ${theme.tableHead} text-slate-500 text-xs sm:text-sm uppercase tracking-wider bg-slate-50/50 select-none`}>
-                  <th className="py-3 px-4 font-bold w-12 text-center">#</th>
-                  {groupBy.map((key, idx) => (
-                    <th key={`th-pen-${key}-${idx}`} className="py-3 px-4 font-bold cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort(key)}>
-                      {columnLabelsMap[key]} <SortIcon columnKey={key} />
-                    </th>
-                  ))}
-                  <th className="py-3 px-4 font-bold text-center">Detalhamento (PNR / Lost / NV)</th>
-                  <th className="py-3 px-4 font-bold text-right w-32 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('total')}>Total <SortIcon columnKey="total" /></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedListData.map((item, i) => (
-                  <tr key={`pen-row-${i}`} className="border-b border-slate-100 hover:bg-slate-50 transition-colors last:border-0">
-                    <td className="py-3 px-4 font-bold text-slate-400 text-center">{i + 1}</td>
-                    {groupBy.map((key, kIdx) => (
-                      <td key={`td-pen-${key}-${kIdx}`} className="py-3 px-4 font-bold text-slate-800">{item[key]}</td>
-                    ))}
-                    <td className="py-3 px-4"><BreakdownLabels raw={item.raw} isQtd={isQtd} isTM={isTM} /></td>
-                    <td className={`py-3 px-4 font-black text-right ${theme.high}`}>
-                      {isQtd ? `${formatQtd(item.total)} un.` : formatCurrency(item.total)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div className="w-full border border-slate-200 rounded-3xl p-6 lg:p-8 bg-white flex flex-col flex-1 min-h-[500px]">
-          <NativeBarChart data={sortedListData} metricType={metricType} heightClass="flex-1" />
-        </div>
-      </div>
-    );
-  };
-
-  const CrossReportSection = ({ title, listData, themeColor = 'violet' }) => {
-    const theme = getThemeColors(themeColor);
-    const sortedListData = getSortedData(listData);
-
-    return (
-      <div className="flex flex-col gap-6 lg:gap-8 h-full">
-        <div className={`w-full rounded-3xl p-6 lg:p-8 border flex flex-col shrink-0 ${theme.bg} ${theme.border} h-full overflow-hidden`}>
-          <div className="flex items-center gap-3 mb-6">
-              <Scale className={`w-6 h-6 ${theme.high}`} />
-              <h3 className={`text-xl lg:text-2xl font-bold ${theme.text}`}>{title}</h3>
-          </div>
-          <div className="overflow-x-auto bg-white rounded-2xl border border-slate-100 shadow-sm flex-1">
-            <table className="w-full text-left border-collapse min-w-[1100px]">
-              <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur select-none">
-                <tr className={`border-b-2 ${theme.tableHead} text-slate-500 text-xs sm:text-sm uppercase tracking-wider`}>
-                  <th className="py-4 px-4 font-bold w-12 text-center">#</th>
-                  <th className="py-4 px-4 font-bold cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('quinzena')}>Quinzena <SortIcon columnKey="quinzena" /></th>
-                  <th className="py-4 px-4 font-bold cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('regional')}>Regional <SortIcon columnKey="regional" /></th>
-                  <th className="py-4 px-4 font-bold cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('supervisor')}>Supervisor <SortIcon columnKey="supervisor" /></th>
-                  <th className="py-4 px-4 font-bold cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('filial')}>Filial <SortIcon columnKey="filial" /></th>
-                  
-                  <th className="py-4 px-4 font-bold text-center border-l border-slate-200">Detalhamento (PNR / Lost / NV)</th>
-                  <th className="py-4 px-4 font-bold text-right border-l border-slate-200 bg-emerald-50/30 text-emerald-700 cursor-pointer hover:bg-emerald-100/50 transition-colors" onClick={() => handleSort('faturamento')}>Faturamento (R$) <SortIcon columnKey="faturamento" /></th>
-                  <th className="py-4 px-4 font-bold text-right bg-red-50/30 text-red-700 cursor-pointer hover:bg-red-100/50 transition-colors" onClick={() => handleSort('penalidades')}>Penalidades (R$) <SortIcon columnKey="penalidades" /></th>
-                  <th className="py-4 px-4 font-bold text-right bg-violet-50/30 text-violet-700 cursor-pointer hover:bg-violet-100/50 transition-colors" onClick={() => handleSort('representatividade')}>% Representatividade <SortIcon columnKey="representatividade" /></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedListData.length === 0 && <tr><td colSpan="9" className="py-10 text-center text-slate-400 font-medium">Nenhum dado cruzado encontrado.</td></tr>}
-                {sortedListData.map((item, i) => (
-                  <tr key={`cross-row-${i}`} className="border-b border-slate-100 hover:bg-slate-50 transition-colors last:border-0">
-                    <td className="py-3 px-4 font-bold text-slate-400 text-center">{i + 1}</td>
-                    <td className="py-3 px-4 font-bold text-slate-800">{item.quinzena}</td>
-                    <td className="py-3 px-4 font-bold text-slate-800">{item.regional}</td>
-                    <td className="py-3 px-4 font-bold text-slate-800">{item.supervisor}</td>
-                    <td className="py-3 px-4 font-bold text-slate-800">{item.filial}</td>
-                    
-                    <td className="py-3 px-4 border-l border-slate-50 bg-slate-50/10">
-                      <BreakdownLabels raw={{ 'PNRs': {valor: item.pnr}, 'Lost Packages': {valor: item.lost}, 'Not Visited': {valor: item.notVisited} }} isQtd={false} isTM={false} />
-                    </td>
-
-                    <td className="py-3 px-4 text-emerald-600 font-bold text-right border-l border-slate-50 bg-emerald-50/10">
-                      {formatCurrency(item.faturamento)}
-                    </td>
-                    <td className="py-3 px-4 text-red-600 font-bold text-right bg-red-50/10">
-                      {formatCurrency(item.penalidades)}
-                    </td>
-                    <td className={`py-3 px-4 font-black text-right bg-violet-50/10 ${item.representatividade > 5 ? 'text-red-500' : 'text-violet-600'}`}>
-                      {item.representatividade === Infinity ? 'N/A (S/ Fat.)' : `${item.representatividade.toFixed(2)}%`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-
-  // ============================================================================
-  // EXPORTAÇÕES (EXCEL APENAS)
-  // ============================================================================
-
-  const handleDownloadExcel = async (type) => {
+  const handleDownloadExcel = async (type, options = {}) => {
     setExportingType(`excel-${type}`);
     try {
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
@@ -1417,85 +2734,90 @@ export default function App() {
       const wb = XLSX.utils.book_new();
 
       if (type === 'penalidades') {
-        const pnrTot = resumoMetrics.categories['PNRs'] || { valor: 0, qtd: 0 };
-        const lostTot = resumoMetrics.categories['Lost Packages'] || { valor: 0, qtd: 0 };
-        const nvTot = resumoMetrics.categories['Not Visited'] || { valor: 0, qtd: 0 };
+        const isEvent = options && (options.nativeEvent || options._reactName);
+        const { filial, motorista } = isEvent ? {} : (options || {});
         
-        const resumoData = [
-          { Metrica: "Total Geral", Valor_Reais: resumoMetrics.total, Quantidade: formatQtd(resumoMetrics.qtdTotal) },
-          { Metrica: "Total Faturamento", Valor_Reais: faturamentoTotalMetrics, Quantidade: faturamentoFiltrado.length },
-          { Metrica: "PNRs", Valor_Reais: pnrTot.valor, Quantidade: formatQtd(pnrTot.qtd) },
-          { Metrica: "Lost Packages", Valor_Reais: lostTot.valor, Quantidade: formatQtd(lostTot.qtd) },
-          { Metrica: "Not Visited", Valor_Reais: nvTot.valor, Quantidade: formatQtd(nvTot.qtd) }
-        ];
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumoData), "Resumo Penalidades");
+        const filiaisMap = {};
+        const motoristasMap = {};
+        const casosMap = [];
 
-        const formatDetailedSheet = (baseData, hasQuinzena = false) => {
-          return baseData.map(item => {
-            const row = {};
-            if (hasQuinzena) row['Quinzena'] = item.quinzena || '-';
-            row['Regional'] = item.regional || '-';
-            row['Supervisor'] = item.supervisor || '-';
-            row['Nome'] = item.name;
-            row['Filial'] = item.filial;
-            
-            const pnrVal = (item.PNRs && item.PNRs.valor) || 0;
-            const pnrQtd = (item.PNRs && item.PNRs.qtd) || 0;
-            const lostVal = (item['Lost Packages'] && item['Lost Packages'].valor) || 0;
-            const lostQtd = (item['Lost Packages'] && item['Lost Packages'].qtd) || 0;
-            const nvVal = (item['Not Visited'] && item['Not Visited'].valor) || 0;
-            const nvQtd = (item['Not Visited'] && item['Not Visited'].qtd) || 0;
-            const totVal = (item.total && item.total.valor) || 0;
-            const totQtd = (item.total && item.total.qtd) || 0;
+        let exportData = dadosFiltrados;
+        if (filial) exportData = exportData.filter(d => normalizeText(d.filial) === normalizeText(filial));
+        if (motorista) exportData = exportData.filter(d => normalizeText(d.motorista) === normalizeText(motorista));
 
-            row['Total_Reais'] = totVal;
-            row['Total_Qtd'] = formatQtd(totQtd);
-            row['Ticket_Medio_Reais_PNR_Lost'] = (pnrQtd + lostQtd) > 0 ? (pnrVal + lostVal) / (pnrQtd + lostQtd) : 0;
-            row['PNR_Reais'] = pnrVal;
-            row['PNR_Qtd'] = formatQtd(pnrQtd);
-            row['Lost_Reais'] = lostVal;
-            row['Lost_Qtd'] = formatQtd(lostQtd);
-            row['Not_Visited_Reais'] = nvVal;
-            row['Not_Visited_Qtd'] = formatQtd(nvQtd);
-            return row;
-          }).sort((a, b) => {
-            if (hasQuinzena && a.Quinzena !== b.Quinzena) {
-              return String(b.Quinzena).localeCompare(String(a.Quinzena));
-            }
-            return b.Total_Reais - a.Total_Reais;
+        exportData.forEach(d => {
+          const fKey = d.filial || 'N/A';
+          const mKey = d.motorista || 'N/A';
+          const reg = d.regional || 'N/A';
+          const sup = d.supervisor || 'N/A';
+          const qtd = d._pesoQtd !== undefined ? d._pesoQtd : 1;
+          const valor = d.valor || 0;
+
+          if (!filiaisMap[fKey]) {
+            filiaisMap[fKey] = {
+              "Filial": fKey, "Regional": reg, "Supervisor": sup,
+              "Total (R$)": 0, "Total (Qtd)": 0,
+              "PNR (R$)": 0, "PNR (Qtd)": 0,
+              "Lost (R$)": 0, "Lost (Qtd)": 0,
+              "NV (R$)": 0, "NV (Qtd)": 0
+            };
+          }
+          filiaisMap[fKey]["Total (R$)"] += valor;
+          filiaisMap[fKey]["Total (Qtd)"] += qtd;
+          if (d.tipo === 'PNRs') { filiaisMap[fKey]["PNR (R$)"] += valor; filiaisMap[fKey]["PNR (Qtd)"] += qtd; }
+          else if (d.tipo === 'Lost Packages') { filiaisMap[fKey]["Lost (R$)"] += valor; filiaisMap[fKey]["Lost (Qtd)"] += qtd; }
+          else if (d.tipo === 'Not Visited') { filiaisMap[fKey]["NV (R$)"] += valor; filiaisMap[fKey]["NV (Qtd)"] += qtd; }
+
+          const mUniqueKey = `${fKey}-${mKey}`;
+          if (!motoristasMap[mUniqueKey]) {
+            motoristasMap[mUniqueKey] = {
+              "Motorista": mKey, "Filial": fKey, "Regional": reg, "Supervisor": sup,
+              "Total (R$)": 0, "Total (Qtd)": 0,
+              "PNR (R$)": 0, "PNR (Qtd)": 0,
+              "Lost (R$)": 0, "Lost (Qtd)": 0,
+              "NV (R$)": 0, "NV (Qtd)": 0
+            };
+          }
+          motoristasMap[mUniqueKey]["Total (R$)"] += valor;
+          motoristasMap[mUniqueKey]["Total (Qtd)"] += qtd;
+          if (d.tipo === 'PNRs') { motoristasMap[mUniqueKey]["PNR (R$)"] += valor; motoristasMap[mUniqueKey]["PNR (Qtd)"] += qtd; }
+          else if (d.tipo === 'Lost Packages') { motoristasMap[mUniqueKey]["Lost (R$)"] += valor; motoristasMap[mUniqueKey]["Lost (Qtd)"] += qtd; }
+          else if (d.tipo === 'Not Visited') { motoristasMap[mUniqueKey]["NV (R$)"] += valor; motoristasMap[mUniqueKey]["NV (Qtd)"] += qtd; }
+
+          casosMap.push({
+            "Filial": fKey, 
+            "Regional": reg, 
+            "Supervisor": sup, 
+            "Motorista": mKey,
+            "Tipo Penalidade": d.tipo,
+            "ID (Pacote/Rota)": d.tipo === 'Not Visited' ? (d.id_rota || '-') : (d.id_pacote || '-'),
+            "Valor (R$)": valor,
+            "Quantidade": qtd
           });
-        };
-        
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatDetailedSheet(penFilialHierarchicalBase, true)), "Base Filiais (Penalidades)");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatDetailedSheet(penMotoristaHierarchicalBase, true)), "Motoristas Ofensores");
+        });
 
-        if (crossFilialData.length > 0) {
-          const crossF = crossFilialData.map(item => ({
-             Quinzena: item.quinzena, Regional: item.regional, Supervisor: item.supervisor, Filial: item.filial,
-             "Faturamento_R$": item.faturamento, "Penalidades_R$": item.penalidades,
-             "%_Representatividade": item.representatividade === Infinity ? "S/ Faturamento" : item.representatividade
-          }));
-          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crossF), "Cruzamento Filial");
+        const filiaisData = Object.values(filiaisMap).sort((a, b) => b["Total (R$)"] - a["Total (R$)"]);
+        const motoristasData = Object.values(motoristasMap).sort((a, b) => b["Total (R$)"] - a["Total (R$)"]);
+        const casosData = casosMap.sort((a, b) => b["Valor (R$)"] - a["Valor (R$)"]);
+
+        if (!filial && !motorista) {
+            if (filiaisData.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filiaisData), "Por Filial");
+            if (motoristasData.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(motoristasData), "Por Motorista");
+        } else if (filial && !motorista) {
+            if (motoristasData.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(motoristasData), "Por Motorista");
+            if (casosData.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(casosData), "Detalhamento Casos");
+        } else if (motorista) {
+            if (casosData.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(casosData), "Detalhamento Casos");
         }
 
-        const acumuladoQuinzenaMap = {};
-        distributedDados.forEach(d => {
-          if (!acumuladoQuinzenaMap[d.quinzena]) acumuladoQuinzenaMap[d.quinzena] = { Quinzena: d.quinzena, "Penalidades (R$)": 0, "Qtd Infrações": 0, "Faturamento (R$)": 0 };
-          acumuladoQuinzenaMap[d.quinzena]["Penalidades (R$)"] += d.valor;
-          acumuladoQuinzenaMap[d.quinzena]["Qtd Infrações"] += d._pesoQtd;
-        });
-        distributedFaturamento.forEach(d => {
-          if (!acumuladoQuinzenaMap[d.quinzena]) acumuladoQuinzenaMap[d.quinzena] = { Quinzena: d.quinzena, "Penalidades (R$)": 0, "Qtd Infrações": 0, "Faturamento (R$)": 0 };
-          acumuladoQuinzenaMap[d.quinzena]["Faturamento (R$)"] += d.faturamento;
-        });
+        const baseNameLabel = filtroQuinzenas.length === 1 ? filtroQuinzenas[0] : (filtroQuinzenas.length > 0 ? 'Filtrado' : 'Todas');
+        let fileName = `Detalhamento_Financeiro_${baseNameLabel}.xlsx`;
         
-        const acumuladoQuinzenaArray = Object.values(acumuladoQuinzenaMap).sort((a, b) => String(b.Quinzena).localeCompare(String(a.Quinzena)));
-        if (acumuladoQuinzenaArray.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(acumuladoQuinzenaArray), "Acumulado Histórico");
+        if (motorista) fileName = `Casos_${motorista.replace(/[^a-zA-Z0-9]/g, '_')}_${baseNameLabel}.xlsx`;
+        else if (filial) fileName = `Motoristas_${filial.replace(/[^a-zA-Z0-9]/g, '_')}_${baseNameLabel}.xlsx`;
 
-        XLSX.writeFile(wb, `Relatorio_Penalidades_Faturamento_${filtroQuinzena}.xlsx`);
-
+        XLSX.writeFile(wb, fileName);
       }
-
     } catch (err) { 
       console.error("Erro na exportação Excel:", err);
       setError('Ocorreu um erro ao gerar o Excel.'); 
@@ -1503,50 +2825,41 @@ export default function App() {
     finally { setExportingType(null); }
   };
 
-  const pnrTot = resumoMetrics.categories && resumoMetrics.categories['PNRs'] ? resumoMetrics.categories['PNRs'] : { valor: 0, qtd: 0 };
-  const lostTot = resumoMetrics.categories && resumoMetrics.categories['Lost Packages'] ? resumoMetrics.categories['Lost Packages'] : { valor: 0, qtd: 0 };
-  const nvTot = resumoMetrics.categories && resumoMetrics.categories['Not Visited'] ? resumoMetrics.categories['Not Visited'] : { valor: 0, qtd: 0 };
-
-// ⚠️ CORREÇÃO: O useEffect DEVE vir antes da tela de login!
-  React.useEffect(() => {
-    if (isAuthenticated) {
-      fetchFromGoogleSheets();
-    }
-  }, [sheetUrl, sheetUrlFaturamento, isAuthenticated]);
-
-  // === TELA DE LOGIN ===
   if (!isAuthenticated) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-900 px-4">
-        <form onSubmit={handleLogin} className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full flex flex-col items-center animate-in fade-in zoom-in duration-500">
-          <div className="bg-blue-100 p-4 rounded-full mb-6">
-            <Lock className="w-8 h-8 text-blue-600" />
+      <div className="flex h-screen w-full items-center justify-center bg-slate-900 font-sans">
+        <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-sm w-full border border-slate-200">
+          <div className="flex flex-col items-center justify-center mb-8">
+            <div className="bg-blue-600 p-4 rounded-2xl mb-4 shadow-lg">
+              <Lock className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-black text-slate-800">DashOp</h1>
+            <p className="text-sm text-slate-500 font-medium mt-1">Acesso Restrito</p>
           </div>
-          <h1 className="text-2xl font-black text-slate-800 mb-2">Acesso Restrito</h1>
-          <p className="text-sm text-slate-500 text-center mb-6">Sua sessão expira a cada 10 minutos por segurança.</p>
 
-          <input
-            type="password"
-            value={senhaDigitada}
-            onChange={(e) => setSenhaDigitada(e.target.value)}
-            placeholder="Sua senha..."
-            className="w-full border border-slate-300 rounded-xl px-4 py-3 mb-4 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-700 text-center tracking-widest"
-          />
-
-          {erroLogin && <p className="text-xs text-red-500 font-bold mb-4 bg-red-50 px-3 py-1.5 rounded-lg w-full text-center">Senha incorreta. Tente novamente.</p>}
-
-          <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors shadow-md">
-            Acessar DashOp
-          </button>
-        </form>
+          <form onSubmit={handleLogin} className="flex flex-col gap-4">
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Senha de Acesso</label>
+              <input 
+                type="password" 
+                value={senhaDigitada} 
+                onChange={(e) => setSenhaDigitada(e.target.value)}
+                placeholder="Insira a senha..."
+                className={`w-full border ${erroLogin ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-slate-50'} rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-800 transition-all`}
+              />
+              {erroLogin && <p className="text-xs text-red-500 mt-1.5 font-bold">Senha incorreta. Tente novamente.</p>}
+            </div>
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition-colors mt-2">
+              Acessar Painel
+            </button>
+          </form>
+        </div>
       </div>
     );
   }
-  // ==================================================================
 
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
-      
       {/* SIDEBAR */}
       <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 overflow-y-auto hidden md:flex border-r border-slate-800">
         <div className="p-6 bg-slate-950 border-b border-slate-800 sticky top-0 z-10">
@@ -1556,65 +2869,69 @@ export default function App() {
           </h1>
         </div>
         <nav className="flex-1 py-6 flex flex-col gap-6 px-4">
-          <div>
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3 px-2">Visão Geral</p>
-            <button onClick={() => handleMenuChange('resumo')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'resumo' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}><LayoutDashboard className="w-4 h-4"/> Resumo Operacional</button>
+          <div className="flex flex-col gap-1">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 px-3">Visão Geral</p>
+            <button onClick={() => handleMenuChange('gestao_financeira')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_financeira' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <LayoutDashboard className="w-4 h-4 shrink-0"/> 
+              <span className="truncate">Gestão Financeira</span>
+            </button>
+            <button onClick={() => handleMenuChange('gestao_operacional')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_operacional' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Box className="w-4 h-4 shrink-0"/> 
+              <span className="truncate">Gestão Operacional</span>
+            </button>
+            <button onClick={() => handleMenuChange('gestao_bsc')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_bsc' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Target className="w-4 h-4 shrink-0"/> 
+              <span className="truncate">Gestão Operacional BSC</span>
+            </button>
           </div>
-          <div>
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3 px-2">Penalidades</p>
-            <button onClick={() => handleMenuChange('filiais_valor')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'filiais_valor' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}><DollarSign className="w-4 h-4"/> Impacto (R$) por Filial</button>
-            <button onClick={() => handleMenuChange('filiais_qtd')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors mt-1 ${activeMenu === 'filiais_qtd' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}><Hash className="w-4 h-4"/> Volume (Qtd) por Filial</button>
-            <button onClick={() => handleMenuChange('filiais_tm')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors mt-1 ${activeMenu === 'filiais_tm' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}><Calculator className="w-4 h-4"/> Ticket Médio</button>
-            <button onClick={() => handleMenuChange('pen_motorista')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors mt-1 ${activeMenu === 'pen_motorista' ? 'bg-red-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}><Users className="w-4 h-4"/> Motoristas Ofensores</button>
+          
+          <div className="flex flex-col gap-1">
+            <p className="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-2 px-3 bg-blue-900/30 py-1 rounded inline-block mx-3">Detalhamento</p>
+            <button onClick={() => handleMenuChange('detalhe_financeiro')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'detalhe_financeiro' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <DollarSign className="w-4 h-4 shrink-0"/> 
+              <span className="truncate">Detalhe Financeiro</span>
+            </button>
+            <button onClick={() => handleMenuChange('comparativo_bsc')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'comparativo_bsc' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <GitCompare className="w-4 h-4 shrink-0"/> 
+              <span className="truncate">Comparativo BSC</span>
+            </button>
           </div>
-          <div>
-            <p className="text-[11px] font-bold text-violet-400 uppercase tracking-wider mb-3 px-2 bg-violet-900/30 py-1 rounded inline-block">Fat. vs Penalidades</p>
-            <button onClick={() => handleMenuChange('cross_filial')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors mt-1 ${activeMenu === 'cross_filial' ? 'bg-violet-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}><Building2 className="w-4 h-4"/> Visão por Filial</button>
+
+          <div className="mt-auto border-t border-slate-800 pt-6 flex flex-col gap-1">
+            <button onClick={() => handleMenuChange('database')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'database' ? 'bg-slate-700 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Database className="w-4 h-4 shrink-0"/> 
+              <span className="truncate">Base de Dados</span>
+            </button>
           </div>
         </nav>
       </aside>
 
       {/* HEADER & MAIN */}
       <main className="flex-1 flex flex-col h-full relative overflow-hidden">
-        <header className="bg-white border-b border-slate-200 p-4 md:px-8 flex flex-col xl:flex-row justify-between items-center gap-4 shrink-0 shadow-sm z-20">
-          <div className="flex flex-wrap items-center gap-4 w-full xl:w-auto">
-            <div className="flex items-center gap-2 w-full sm:w-auto bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-              <span className="text-xs font-bold text-slate-500 uppercase px-2">Quinzena:</span>
-              <select value={filtroQuinzena} onChange={(e) => setFiltroQuinzena(e.target.value)} className="bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none font-bold cursor-pointer shadow-sm max-w-[150px]">
-                <option value="Todas">Todas</option>
-                {quinzenasDisponiveis.map((q, idx) => <option key={`q-${idx}`} value={q}>{q}</option>)}
-              </select>
+        <header className="bg-white border-b border-slate-200 p-4 md:px-6 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 shrink-0 shadow-sm z-50">
+          
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+            <div className="flex items-center gap-2 text-slate-500">
+              <Filter className="w-4 h-4" />
+              <span className="text-xs font-bold uppercase tracking-wider hidden sm:block">Filtros</span>
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-              <span className="text-xs font-bold text-slate-500 uppercase px-2">Regional:</span>
-              <select value={filtroRegional} onChange={(e) => setFiltroRegional(e.target.value)} className="bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none font-bold cursor-pointer shadow-sm max-w-[150px]">
-                <option value="Todas">Todas</option>
-                {regionaisDisponiveis.map((r, idx) => <option key={`r-${idx}`} value={r}>{r}</option>)}
-              </select>
-            </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-              <span className="text-xs font-bold text-slate-500 uppercase px-2">Supervisor:</span>
-              <select value={filtroSupervisor} onChange={(e) => setFiltroSupervisor(e.target.value)} className="bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none font-bold cursor-pointer shadow-sm max-w-[200px]">
-                <option value="Todas">Todos</option>
-                {supervisoresDisponiveis.map((s, idx) => <option key={`s-${idx}`} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-              <span className="text-xs font-bold text-slate-500 uppercase px-2">Filial:</span>
-              <select value={filtroFilial} onChange={(e) => setFiltroFilial(e.target.value)} className="bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none font-bold cursor-pointer shadow-sm max-w-[150px]">
-                <option value="Todas">Todas</option>
-                {filiaisDisponiveis.map((f, idx) => <option key={`f-${idx}`} value={f}>{f}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="flex gap-4 w-full xl:w-auto overflow-x-auto pb-2 xl:pb-0">
-            <div className="flex flex-col gap-1 shrink-0">
-              <span className="text-[10px] font-bold text-slate-400 uppercase">Exportar Penalidades e Fat.</span>
-              <div className="flex gap-2">
-                <button onClick={() => handleDownloadExcel('penalidades')} disabled={exportingType !== null} className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors disabled:opacity-50 shadow-sm w-full">
-                  {exportingType === 'excel-penalidades' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <FileSpreadsheet className="w-3 h-3" />} Gerar Excel
-                </button>
-              </div>
+            
+            <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-200">
+              <MultiSelectDropdown label="Quinzena" options={quinzenasDisponiveis} selected={filtroQuinzenas} onChange={setFiltroQuinzenas} />
+              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
+              <MultiSelectDropdown label="Regional" options={regionaisDisponiveis} selected={filtroRegionais} onChange={setFiltroRegionais} />
+              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
+              <MultiSelectDropdown label="Supervisor" options={supervisoresDisponiveis} selected={filtroSupervisores} onChange={setFiltroSupervisores} />
+              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
+              <MultiSelectDropdown label="Filial" options={filiaisDisponiveis} selected={filtroFiliais} onChange={setFiltroFiliais} />
+              
+              {/* FILTRO DE SIMULAÇÃO (EXCLUSÃO DE INSUCESSOS) */}
+              {isOpOrBscView && (
+                <>
+                  <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
+                  <MultiSelectDropdown label="Ignorar Insucesso" options={insucessosDisponiveis} selected={insucessosExcluidos} onChange={setInsucessosExcluidos} />
+                </>
+              )}
             </div>
           </div>
         </header>
@@ -1622,32 +2939,10 @@ export default function App() {
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-7xl mx-auto h-full flex flex-col gap-6">
             
-            {activeMenu === 'resumo' && (
+            {/* GESTÃO FINANCEIRA */}
+            {activeMenu === 'gestao_financeira' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col gap-4">
-                  <h2 className="text-xl font-bold text-slate-800">Bases de Dados (Nuvem)</h2>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs font-bold text-slate-500 uppercase">Penalidades Base (R$)</span>
-                      <input type="text" value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="Link plan. Penalidades..." className="border border-slate-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 bg-slate-50"/>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs font-bold text-slate-500 uppercase">Faturamento (R$)</span>
-                      <input type="text" value={sheetUrlFaturamento} onChange={(e) => setSheetUrlFaturamento(e.target.value)} placeholder="Link plan. Faturamento..." className="border border-slate-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-violet-500 bg-slate-50"/>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-2 flex justify-end">
-                    <button onClick={fetchFromGoogleSheets} disabled={isLoading} className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
-                        {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : 'Sincronizar Todas as Bases'}
-                    </button>
-                  </div>
-                  {error && <p className="text-sm text-red-600 mt-2 flex items-center gap-2 bg-red-50 p-3 rounded-lg border border-red-100"><AlertCircle className="w-4 h-4 shrink-0"/>{error}</p>}
-                </div>
-
                 <div className="grid grid-cols-1 gap-8 mb-8">
-                  {/* CARD PENALIDADES */}
                   <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
                     <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
                     <div>
@@ -1667,8 +2962,7 @@ export default function App() {
                   </div>
                 </div>
                 
-                {/* PROJEÇÃO DE FECHAMENTO E ANÁLISE */}
-                <RunRateSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} />
+                <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} />
 
                 <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200">
                   <div className="flex items-center justify-between mb-2">
@@ -1676,8 +2970,8 @@ export default function App() {
                       <Scale className="w-6 h-6 text-violet-600" />
                       <h2 className="text-xl md:text-2xl font-bold text-slate-800">
                         {selectedQuinzenaPareto 
-                          ? `Detalhamento de Filiais - ${selectedQuinzenaPareto}` 
-                          : 'Evolução por Quinzena'}
+                          ? `Detalhamento de Filiais Financeiro - ${selectedQuinzenaPareto}` 
+                          : 'Evolução Financeira por Quinzena'}
                       </h2>
                     </div>
                     {selectedQuinzenaPareto && (
@@ -1692,7 +2986,7 @@ export default function App() {
                   <p className="text-sm text-slate-500 font-medium mb-8">
                     {selectedQuinzenaPareto 
                       ? 'Detalhamento do período selecionado.' 
-                      : 'Clique sobre a barra de uma quinzena para abrir o detalhamento das filiais que compõem o resultado (Drill-down).'}
+                      : 'Clique sobre a barra de uma quinzena para abrir o detalhamento das filiais que compõem o resultado financeiro (Drill-down).'}
                   </p>
                   
                   <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
@@ -1715,14 +3009,148 @@ export default function App() {
               </div>
             )}
 
-            {/* VIEWS DE PENALIDADES */}
-            {activeMenu === 'filiais_valor' && <div className="animate-in fade-in h-full"><PenaltiesHierarchicalSection title="Filiais Ofensoras em R$" listData={chartFiliaisValor} groupBy={['quinzena', 'regional', 'supervisor', 'filial']} metricType="valor" themeColor="blue" /></div>}
-            {activeMenu === 'filiais_qtd' && <div className="animate-in fade-in h-full"><PenaltiesHierarchicalSection title="Filiais com mais Ocorrências" listData={chartFiliaisQtd} groupBy={['quinzena', 'regional', 'supervisor', 'filial']} metricType="qtd" themeColor="orange" /></div>}
-            {activeMenu === 'filiais_tm' && <div className="animate-in fade-in h-full"><PenaltiesHierarchicalSection title="Ticket Médio (R$/un) por Filial" listData={chartFiliaisTM} groupBy={['quinzena', 'regional', 'supervisor', 'filial']} metricType="tm" themeColor="emerald" /></div>}
-            {activeMenu === 'pen_motorista' && <div className="animate-in fade-in h-full"><PenaltiesHierarchicalSection title="Ranking de Motoristas Ofensores" listData={chartPenMotoristaValor} groupBy={['quinzena', 'regional', 'supervisor', 'filial', 'motorista']} metricType="valor" themeColor="red" /></div>}
+            {/* DETALHE FINANCEIRO (NOVA ABA) */}
+            {activeMenu === 'detalhe_financeiro' && (
+               <DetalheFinanceiroSection 
+                 dadosFiltrados={dadosFiltrados} 
+                 onExport={(options) => handleDownloadExcel('penalidades', options)}
+                 isExporting={exportingType === 'excel-penalidades'}
+               />
+            )}
 
-            {/* VIEWS CRUZAMENTO (FATURAMENTO VS PENALIDADES) */}
-            {activeMenu === 'cross_filial' && <div className="animate-in fade-in h-full"><CrossReportSection title="Faturamento vs Penalidades por Filial" listData={crossFilialData} themeColor="violet" /></div>}
+            {/* COMPARATIVO BSC (NOVA ABA) */}
+            {activeMenu === 'comparativo_bsc' && (
+               <ComparativoBscSection 
+                 dataOp={operacionalSimulado} 
+                 dataBsc={bscSimulado} 
+               />
+            )}
+
+            {/* GESTÃO OPERACIONAL E BSC (VISÃO UNIFICADA E DINÂMICA) */}
+            {isOpOrBscView && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                
+                <div className="grid grid-cols-1 gap-8 mb-8">
+                  <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
+                    <div className="absolute -right-10 -top-10 opacity-5"><IconOverview className="w-64 h-64" /></div>
+                    <div>
+                      <h2 className="text-sm md:text-base font-bold text-emerald-400 mb-2 z-10 tracking-widest uppercase">Overview {titlePrefix} (DS)</h2>
+                      <div className="flex flex-col mb-8 z-10">
+                        <span className={`text-5xl font-black leading-tight tracking-tight ${currentDsGlobalAtual >= 98.5 ? 'text-emerald-400' : (currentDsGlobalAtual >= 95 ? 'text-orange-400' : 'text-red-400')}`}>{formatDS(currentDsGlobalAtual)}</span>
+                        <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Delivery Success Atual (Meta: 98.5%)</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
+                      <div className="flex justify-between items-center"><span className="text-slate-400 font-bold">Total de Pacotes</span> <span className="font-mono">{formatQtd(currentGlobalSaldo)} un.</span></div>
+                      <div className="flex justify-between items-center"><span className="text-emerald-400 font-bold">Pacotes Entregues</span> <span className="font-mono text-emerald-400">{formatQtd(currentGlobalEntregues)} un.</span></div>
+                      <div className="flex justify-between items-center"><span className="text-red-400 font-bold">Total de Insucessos</span> <span className="font-mono text-red-400">{formatQtd(currentGlobalSaldo - currentGlobalEntregues)} un.</span></div>
+                      
+                      {globalInsucessosArray.length > 0 && (
+                         <div className="mt-2 pt-4 border-t border-slate-700/50">
+                            <span className="text-slate-400 font-bold text-[10px] uppercase tracking-wider mb-3 block">Detalhamento dos Insucessos Globais</span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                               {globalInsucessosArray.slice(0, 8).map(([motivo, qtd], idx) => (
+                                  <div key={idx} className="flex justify-between items-center bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-700/50">
+                                     <span className="text-red-300 text-[10px] font-medium truncate pr-2" title={motivo}>{motivo}</span>
+                                     <span className="font-mono text-red-400 text-[10px] font-bold">{formatQtd(qtd)}</span>
+                                  </div>
+                               ))}
+                            </div>
+                         </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                
+                <RunRateOperacionalSection baseData={currentOpRunRateData} targetQuinzena={targetQuinzenaRunRate} titlePrefix={titlePrefix} />
+
+                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <IconOverview className="w-6 h-6 text-emerald-600" />
+                      <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+                        {selectedQuinzenaDS 
+                          ? `Detalhamento de Filiais ${titlePrefix} - ${selectedQuinzenaDS}` 
+                          : `Evolução de DS ${titlePrefix} por Quinzena`}
+                      </h2>
+                    </div>
+                    {selectedQuinzenaDS && (
+                      <button 
+                        onClick={() => setSelectedQuinzenaDS(null)}
+                        className="text-xs md:text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
+                      >
+                        ← Voltar para Visão Geral
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-500 font-medium mb-8">
+                    {selectedQuinzenaDS 
+                      ? 'Detalhamento operacional do período selecionado.' 
+                      : 'Clique sobre a barra de uma quinzena para abrir o detalhamento das filiais (Drill-down).'}
+                  </p>
+                  
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                    {!selectedQuinzenaDS ? (
+                      <NativeDSChart 
+                        data={dsQuinzenaData} 
+                        labelKey="quinzena" 
+                        heightClass="h-[400px]" 
+                        onBarClick={(q) => setSelectedQuinzenaDS(q)}
+                      />
+                    ) : (
+                      <NativeDSChart 
+                        data={dsFilialDrilldownData} 
+                        labelKey="filial" 
+                        heightClass="h-[400px]" 
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* VIEWS BASE DE DADOS */}
+            {activeMenu === 'database' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col gap-6">
+                  <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+                    <Database className="w-6 h-6 text-blue-600" />
+                    <h2 className="text-xl md:text-2xl font-bold text-slate-800">Conexão de Bases de Dados</h2>
+                  </div>
+                  
+                  <p className="text-sm text-slate-500 font-medium">
+                    Insira os links das planilhas do Google Sheets para sincronizar os dados do painel. Certifique-se de que os links possuam permissão de leitura.
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500"></div> Penalidades Base (R$)</label>
+                      <input type="text" value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="Link plan. Penalidades..." className="border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 bg-slate-50 font-medium text-slate-700"/>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-violet-500"></div> Faturamento (R$)</label>
+                      <input type="text" value={sheetUrlFaturamento} onChange={(e) => setSheetUrlFaturamento(e.target.value)} placeholder="Link plan. Faturamento..." className="border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-violet-500 bg-slate-50 font-medium text-slate-700"/>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Operacional (Saldo/Entregas)</label>
+                      <input type="text" value={sheetUrlOperacional} onChange={(e) => setSheetUrlOperacional(e.target.value)} placeholder="Link plan. Operacional..." className="border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-emerald-500 bg-slate-50 font-medium text-slate-700"/>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-teal-500"></div> Operacional BSC</label>
+                      <input type="text" value={sheetUrlBsc} onChange={(e) => setSheetUrlBsc(e.target.value)} placeholder="Link plan. BSC..." className="border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-teal-500 bg-slate-50 font-medium text-slate-700"/>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-6 flex justify-end pt-6 border-t border-slate-100">
+                    <button onClick={fetchFromGoogleSheets} disabled={isLoading} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3.5 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors disabled:opacity-50 shadow-md">
+                        {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+                        {isLoading ? 'Sincronizando...' : 'Sincronizar Todas as Bases'}
+                    </button>
+                  </div>
+                  {error && <p className="text-sm text-red-600 mt-2 flex items-center gap-2 bg-red-50 p-4 rounded-xl border border-red-100 font-medium"><AlertCircle className="w-5 h-5 shrink-0"/>{error}</p>}
+                </div>
+              </div>
+            )}
 
           </div>
         </div>
