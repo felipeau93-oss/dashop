@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { 
   Lock, 
   LayoutDashboard, 
@@ -22,11 +22,14 @@ import {
   ChevronDown,
   ChevronRight,
   DollarSign,
-  GitCompare
+  GitCompare,
+  PieChart,
+  Moon,
+  Sun
 } from 'lucide-react';
 
 // ============================================================================
-// DADOS PRÉ-PROCESSADOS (MOCK)
+// DADOS PRÉ-PROCESSADOS (MOCK VAZIO)
 // ============================================================================
 const initialParsedData = [];
 const initialFaturamentoData = [];
@@ -36,7 +39,6 @@ const initialBscData = [];
 // ============================================================================
 // FUNÇÕES AUXILIARES GLOBAIS
 // ============================================================================
-
 const parseCSVLine = (line, delimiter) => {
   const result = [];
   let current = '';
@@ -56,52 +58,30 @@ const parseCSVLine = (line, delimiter) => {
   return result;
 };
 
-const formatCurrency = (value) => {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-};
-
-const formatQtd = (value) => {
-  if (value === undefined || value === null) return 0;
-  return Number.isInteger(value) ? value : Number(value).toFixed(2);
-};
-
-const formatDS = (value) => {
-  if (value === undefined || value === null) return '0%';
-  return Number(value.toFixed(2)) + '%';
-};
-
+const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+const formatQtd = (value) => value === undefined || value === null ? 0 : new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(Number(value));
+const formatDS = (value) => value === undefined || value === null ? '0%' : (Number(value.toFixed(2)) + '%');
 const normalizeText = (str) => String(str).trim().toUpperCase();
-
-const normalizeHeader = (str) => {
-  if (!str) return '';
-  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-};
+const normalizeHeader = (str) => (!str ? '' : str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim());
 
 const normalizeQuinzena = (val) => {
   if (!val) return 'N/A';
   const cleanVal = String(val).trim();
-  
   if (/^\d{4}\d{2}Q[12]$/i.test(cleanVal)) return cleanVal.toUpperCase();
-  
   const dateMatchBR = cleanVal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   if (dateMatchBR) {
     const day = parseInt(dateMatchBR[1], 10);
     const month = parseInt(dateMatchBR[2], 10).toString().padStart(2, '0');
     let year = parseInt(dateMatchBR[3], 10);
     if (year < 100) year += 2000;
-    const q = day <= 15 ? 'Q1' : 'Q2';
-    return `${year}${month}${q}`;
+    return `${year}${month}${day <= 15 ? 'Q1' : 'Q2'}`;
   }
-
   const dateMatchUS = cleanVal.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (dateMatchUS) {
     const year = parseInt(dateMatchUS[1], 10);
     const month = parseInt(dateMatchUS[2], 10).toString().padStart(2, '0');
-    const day = parseInt(dateMatchUS[3], 10);
-    const q = day <= 15 ? 'Q1' : 'Q2';
-    return `${year}${month}${q}`;
+    return `${year}${month}${parseInt(dateMatchUS[3], 10) <= 15 ? 'Q1' : 'Q2'}`;
   }
-
   return cleanVal;
 };
 
@@ -123,60 +103,49 @@ const loadScript = (src) => {
   });
 };
 
+const verificarAcesso = () => {
+  const tempoSalvo = localStorage.getItem('dashopAuthTime');
+  if (!tempoSalvo) return false;
+  const tempoPassado = Date.now() - parseInt(tempoSalvo, 10);
+  const dezMinutos = 10 * 60 * 1000;
+  if (tempoPassado > dezMinutos) {
+    localStorage.removeItem('dashopAuthTime');
+    return false;
+  }
+  return true; 
+};
+
 // ============================================================================
-// COMPONENTE MULTI-SELECT DE FILTROS
+// COMPONENTES AUXILIARES E GRÁFICOS
 // ============================================================================
 const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
 
-  const toggleOption = (opt) => {
-    if (selected.includes(opt)) {
-      onChange(selected.filter(i => i !== opt));
-    } else {
-      onChange([...selected, opt]);
-    }
-  };
-
+  const toggleOption = (opt) => selected.includes(opt) ? onChange(selected.filter(i => i !== opt)) : onChange([...selected, opt]);
   const selectAll = () => onChange([]);
-
-  const displayText = selected.length === 0 
-    ? 'Todas' 
-    : selected.length === 1 
-      ? selected[0] 
-      : `${selected.length} selecionadas`;
+  const displayText = selected.length === 0 ? 'Todas' : (selected.length === 1 ? selected[0] : `${selected.length} selecionadas`);
 
   return (
     <div className="relative shrink-0 flex items-center z-50">
-      <span className="text-[10px] font-bold text-slate-500 uppercase px-2 hidden sm:block">{label}:</span>
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className={`bg-white border text-sm rounded-xl px-3 py-1.5 outline-none font-bold cursor-pointer shadow-sm flex items-center justify-between min-w-[120px] max-w-[180px] transition-all duration-200 ${isOpen ? 'border-blue-500 ring-2 ring-blue-500/20 text-blue-700' : 'border-slate-300 text-slate-700 hover:border-blue-400'}`}
-      >
+      <span className="text-[10px] font-bold text-slate-500 uppercase px-2 hidden sm:block dark:text-slate-400">{label}:</span>
+      <button onClick={() => setIsOpen(!isOpen)} className={`bg-white border text-sm rounded-xl px-3 py-1.5 outline-none font-bold cursor-pointer shadow-sm flex items-center justify-between min-w-[120px] max-w-[180px] transition-all duration-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 ${isOpen ? 'border-blue-500 ring-2 ring-blue-500/20 text-blue-700 dark:ring-blue-500/50' : 'border-slate-300 text-slate-700 hover:border-blue-400'}`}>
         <span className="truncate">{displayText}</span>
         <ArrowDown className={`w-3 h-3 ml-2 shrink-0 transition-transform ${isOpen ? 'rotate-180 text-blue-500' : 'text-slate-400'}`} />
       </button>
-      
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)}></div>
-          <div className="absolute top-full mt-2 w-64 max-h-72 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-100">
-            <button 
-              onClick={selectAll}
-              className={`text-left px-3 py-2.5 rounded-lg text-sm font-bold transition-colors ${selected.length === 0 ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
+          <div className="absolute top-full mt-2 w-64 max-h-72 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-100 dark:bg-slate-800 dark:border-slate-700">
+            <button onClick={selectAll} className={`text-left px-3 py-2.5 rounded-lg text-sm font-bold transition-colors ${selected.length === 0 ? 'bg-blue-50 text-blue-700 dark:bg-slate-700/50 dark:text-blue-400' : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/50'}`}>
               {selected.length === 0 ? '✓ Todas Selecionadas' : 'Selecionar Todas'}
             </button>
-            <div className="h-px bg-slate-100 my-1"></div>
+            <div className="h-px bg-slate-100 my-1 dark:bg-slate-700"></div>
             {options.map((opt, idx) => (
-              <div 
-                key={idx} 
-                onClick={() => toggleOption(opt)}
-                className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors group"
-              >
-                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0 ${selected.includes(opt) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 group-hover:border-blue-400'}`}>
+              <div key={idx} onClick={() => toggleOption(opt)} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors group dark:hover:bg-slate-700/50">
+                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0 ${selected.includes(opt) ? 'bg-blue-600 border-blue-600' : 'border-slate-300 dark:border-slate-600 group-hover:border-blue-400'}`}>
                   {selected.includes(opt) && <Check className="w-3 h-3 text-white" />}
                 </div>
-                <span className={`text-sm truncate ${selected.includes(opt) ? 'font-bold text-slate-800' : 'font-medium text-slate-600'}`} title={opt}>{opt}</span>
+                <span className={`text-sm truncate ${selected.includes(opt) ? 'font-bold text-slate-800 dark:text-white' : 'font-medium text-slate-600 dark:text-slate-300'}`} title={opt}>{opt}</span>
               </div>
             ))}
           </div>
@@ -186,23 +155,14 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
   );
 };
 
-// ============================================================================
-// COMPONENTES DE GRÁFICOS (NATIVOS)
-// ============================================================================
-
 const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]" }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
-
-  React.useEffect(() => {
-    setHoveredIndex(null);
-  }, [data]);
-
+  React.useEffect(() => setHoveredIndex(null), [data]);
   const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
   if (safeData.length === 0) return <div className={`w-full ${heightClass} flex items-center justify-center text-slate-400`}>Nenhum dado disponível.</div>;
   
   const maxFat = Math.max(1, ...safeData.map(d => Math.max(d.faturamento || 0, d.penalidades || 0)));
   const maxRep = Math.max(10, ...safeData.map(d => d.representatividade !== Infinity && d.representatividade ? d.representatividade : 0)); 
-  
   const log10 = (val) => Math.log10(Math.max(val, 0) + 1);
   const logMaxFat = log10(maxFat);
 
@@ -218,114 +178,71 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
     <div className={`w-full ${heightClass} flex flex-col pt-6 pb-20 relative`}>
       <div className="absolute top-0 left-0 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Escala Logarítmica (R$)</div>
       <div className="absolute top-0 right-0 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Linear (%)</div>
-      
       <div className="flex-1 flex relative mt-2">
-        
         <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
           {yAxisSteps.map((step, idx) => {
             const valAtStep = Math.pow(10, logMaxFat * (step / 4)) - 1;
             return (
-              <div key={`y-axis-${idx}`} className="w-full border-t border-slate-100 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 4 ? '-10px' : '0' }}>
-                <span className="text-[10px] font-medium text-emerald-600 bg-white pr-2 -translate-y-1/2">
-                  {formatAxisVal(valAtStep)}
-                </span>
-                <span className="text-[10px] font-bold text-violet-500 bg-white pl-2 -translate-y-1/2">
-                  {`${((maxRep * (step / 4))).toFixed(1)}%`}
-                </span>
+              <div key={`y-axis-${idx}`} className="w-full border-t border-slate-100 dark:border-slate-700/50 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 4 ? '-10px' : '0' }}>
+                <span className="text-[10px] font-medium text-emerald-600 bg-white dark:bg-slate-800 pr-2 -translate-y-1/2">{formatAxisVal(valAtStep)}</span>
+                <span className="text-[10px] font-bold text-violet-500 bg-white dark:bg-slate-800 pl-2 -translate-y-1/2">{`${((maxRep * (step / 4))).toFixed(1)}%`}</span>
               </div>
             );
           })}
         </div>
-
-        <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 ml-12 mr-10 border-b border-slate-300 relative">
-          
+        <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 ml-12 mr-10 border-b border-slate-300 dark:border-slate-700 relative">
           <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <polyline 
-              points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100)}`).join(' ')} 
-              fill="none" 
-              stroke="#7c3aed" 
-              strokeWidth="2.5" 
-              vectorEffect="non-scaling-stroke" 
-            />
+            <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#7c3aed" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
           </svg>
-
           {hoveredIndex !== null && safeData[hoveredIndex] && (
-            <div 
-              className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 opacity-80 z-10 pointer-events-none transition-all duration-200" 
-              style={{ 
-                bottom: `${Math.min(Math.max(((safeData[hoveredIndex].representatividade || 0) / maxRep) * 100, 0), 100)}%` 
-              }}
-            />
+            <div className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 dark:border-white opacity-80 z-10 pointer-events-none transition-all duration-200" style={{ bottom: `${Math.min(Math.max(((safeData[hoveredIndex].representatividade || 0) / maxRep) * 100, 0), 100)}%` }} />
           )}
-
           {safeData.map((d, i) => {
             const fatPct = (log10(d.faturamento || 0) / logMaxFat) * 100;
             const penPct = (log10(d.penalidades || 0) / logMaxFat) * 100;
             const repPct = Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100);
-
             const pnrRatio = d.penalidades > 0 ? ((d.pnr || 0) / d.penalidades) * 100 : 0;
             const lostRatio = d.penalidades > 0 ? ((d.lost || 0) / d.penalidades) * 100 : 0;
             const nvRatio = d.penalidades > 0 ? ((d.notVisited || 0) / d.penalidades) * 100 : 0;
 
             return (
-              <div 
-                key={`bar-${i}`} 
-                className={`flex-1 flex flex-col justify-end h-full relative group max-w-[60px] ${onBarClick ? 'cursor-pointer' : ''}`} 
-                onClick={() => onBarClick && onBarClick(d[labelKey])}
-                onMouseEnter={() => setHoveredIndex(i)}
-                onMouseLeave={() => setHoveredIndex(null)}
-              >
+              <div key={`bar-${i}`} className={`flex-1 flex flex-col justify-end h-full relative group max-w-[60px] ${onBarClick ? 'cursor-pointer' : ''}`} onClick={() => onBarClick && onBarClick(d[labelKey])} onMouseEnter={() => setHoveredIndex(i)} onMouseLeave={() => setHoveredIndex(null)}>
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 hidden group-hover:block z-50 w-60 bg-slate-900 text-white text-xs rounded-lg p-4 shadow-xl pointer-events-none">
                   <p className="font-bold border-b border-slate-700 pb-2 mb-3 text-center">{d[labelKey]}</p>
                   <div className="flex justify-between mb-1.5"><span className="text-emerald-400">Faturamento</span><span className="font-mono">{formatCurrency(d.faturamento || 0)}</span></div>
-                  
                   <div className="flex justify-between mt-2 pt-2 border-t border-slate-700 mb-1"><span className="text-slate-300 font-bold">Total Penalidades</span><span className="font-mono text-red-400 font-bold">{formatCurrency(d.penalidades || 0)}</span></div>
                   <div className="flex justify-between mb-0.5 pl-2"><span className="text-blue-400 text-[10px]">↳ PNRs</span><span className="font-mono text-[10px]">{formatCurrency(d.pnr || 0)}</span></div>
-                  <div className="flex justify-between mb-0.5 pl-2"><span className="text-orange-400 text-[10px]">↳ Lost Packages</span><span className="font-mono text-[10px]">{formatCurrency(d.lost || 0)}</span></div>
+                  <div className="flex justify-between mb-0.5 pl-2"><span className="text-orange-400 text-[10px]">↳ Lost</span><span className="font-mono text-[10px]">{formatCurrency(d.lost || 0)}</span></div>
                   <div className="flex justify-between mb-1.5 pl-2"><span className="text-slate-400 text-[10px]">↳ Not Visited</span><span className="font-mono text-[10px]">{formatCurrency(d.notVisited || 0)}</span></div>
-
                   <div className="flex justify-between font-bold border-t border-slate-700 pt-2 mt-2">
                      <span className="text-violet-300">Representatividade</span>
                      <span className="text-violet-400">{d.representatividade === Infinity || !d.representatividade ? 'S/ Fat.' : `${d.representatividade.toFixed(2)}%`}</span>
                   </div>
                 </div>
-
                 <div className="w-full flex items-end justify-center h-full gap-[1px]">
                   <div className="bg-emerald-400 w-1/2 rounded-t-sm hover:opacity-80 transition-opacity" style={{ height: `${fatPct}%` }}></div>
                   <div className="w-1/2 flex flex-col justify-end hover:opacity-80 transition-opacity" style={{ height: `${penPct}%` }}>
-                    {nvRatio > 0 && <div className="bg-slate-300 w-full" style={{ height: `${nvRatio}%`, borderTopLeftRadius: nvRatio > 0 ? '0.125rem' : '0', borderTopRightRadius: nvRatio > 0 ? '0.125rem' : '0' }}></div>}
-                    {lostRatio > 0 && <div className="bg-orange-500 w-full" style={{ height: `${lostRatio}%`, borderTopLeftRadius: nvRatio === 0 && lostRatio > 0 ? '0.125rem' : '0', borderTopRightRadius: nvRatio === 0 && lostRatio > 0 ? '0.125rem' : '0' }}></div>}
-                    {pnrRatio > 0 && <div className="bg-blue-500 w-full" style={{ height: `${pnrRatio}%`, borderTopLeftRadius: nvRatio === 0 && lostRatio === 0 ? '0.125rem' : '0', borderTopRightRadius: nvRatio === 0 && lostRatio === 0 ? '0.125rem' : '0' }}></div>}
+                    {nvRatio > 0 && <div className="bg-slate-300 w-full" style={{ height: `${nvRatio}%` }}></div>}
+                    {lostRatio > 0 && <div className="bg-orange-500 w-full" style={{ height: `${lostRatio}%` }}></div>}
+                    {pnrRatio > 0 && <div className="bg-blue-500 w-full" style={{ height: `${pnrRatio}%` }}></div>}
                   </div>
                 </div>
-
                 <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-white rounded-full border-2 border-violet-600 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${repPct}% - 4px)` }}>
-                  <span className="absolute bottom-full mb-1 text-[9px] font-bold text-violet-700 bg-white/90 px-1 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none">
-                    {d[labelKey]}
-                  </span>
+                  <span className="absolute bottom-full mb-1 text-[9px] font-bold text-violet-700 bg-white/90 px-1 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none">{d[labelKey]}</span>
                 </div>
-
                 <div className="absolute top-full mt-3 w-full text-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <p className="text-[9px] sm:text-[10px] text-slate-600 font-bold truncate">{d[labelKey]}</p>
+                  <p className="text-[9px] sm:text-[10px] text-slate-600 dark:text-slate-400 font-bold truncate">{d[labelKey]}</p>
                 </div>
               </div>
             );
           })}
         </div>
       </div>
-      
-      <div className="absolute bottom-2 left-0 w-full flex justify-center gap-4 sm:gap-6 text-xs font-bold text-slate-600 flex-wrap">
+      <div className="absolute bottom-2 left-0 w-full flex justify-center gap-4 sm:gap-6 text-xs font-bold text-slate-600 dark:text-slate-400 flex-wrap">
         <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-emerald-400 rounded-sm"></div> Faturamento</span>
         <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-500 rounded-sm"></div> PNRs</span>
         <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-orange-500 rounded-sm"></div> Lost Packages</span>
         <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-slate-300 rounded-sm"></div> Not Visited</span>
-        <span className="flex items-center gap-1.5 ml-2">
-          <div className="flex items-center justify-center w-5 relative">
-            <div className="w-full h-0.5 bg-violet-600 absolute"></div>
-            <div className="w-2.5 h-2.5 bg-white border-2 border-violet-600 rounded-full z-10"></div>
-          </div> 
-          % Representatividade
-        </span>
       </div>
     </div>
   );
@@ -333,25 +250,18 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
 
 const NativeDSChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]" }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
-
-  React.useEffect(() => {
-    setHoveredIndex(null);
-  }, [data]);
-
+  React.useEffect(() => setHoveredIndex(null), [data]);
   const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
   if (safeData.length === 0) return <div className={`w-full ${heightClass} flex items-center justify-center text-slate-400`}>Nenhum dado disponível.</div>;
 
   const maxVol = Math.max(1, ...safeData.map(d => d.saldo || 0));
-  
   const log10 = (val) => Math.log10(Math.max(val, 0) + 1);
   const logMaxVol = log10(maxVol);
-
   const formatAxisVal = (val) => {
     if (val < 1) return '0';
     if (val >= 1000) return `${(val / 1000).toFixed(1)}k`;
     return `${Math.round(val)}`;
   };
-
   const yAxisSteps = [4, 3, 2, 1, 0];
   const dsSteps = [100, 95, 90, 85, 80];
 
@@ -359,87 +269,49 @@ const NativeDSChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[
     <div className={`w-full ${heightClass} flex flex-col pt-6 pb-20 relative`}>
       <div className="absolute top-0 left-0 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Escala Logarítmica (Vol.)</div>
       <div className="absolute top-0 right-0 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Linear (DS %)</div>
-      
       <div className="flex-1 flex relative mt-2">
-        
-        {/* Eixos Verticais */}
         <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
           {yAxisSteps.map((step, idx) => {
             const valAtStep = Math.pow(10, logMaxVol * (step / 4)) - 1;
             const dsAtStep = dsSteps[idx];
             return (
-              <div key={`y-axis-${idx}`} className="w-full border-t border-slate-100 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 4 ? '-10px' : '0' }}>
-                <span className="text-[10px] font-medium text-slate-500 bg-white pr-2 -translate-y-1/2">
-                  {formatAxisVal(valAtStep)}
-                </span>
-                <span className="text-[10px] font-bold text-emerald-600 bg-white pl-2 -translate-y-1/2">
-                  {`${dsAtStep}%`}
-                </span>
+              <div key={`y-axis-${idx}`} className="w-full border-t border-slate-100 dark:border-slate-700/50 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 4 ? '-10px' : '0' }}>
+                <span className="text-[10px] font-medium text-slate-500 bg-white dark:bg-slate-800 pr-2 -translate-y-1/2">{formatAxisVal(valAtStep)}</span>
+                <span className="text-[10px] font-bold text-emerald-600 bg-white dark:bg-slate-800 pl-2 -translate-y-1/2">{`${dsAtStep}%`}</span>
               </div>
             );
           })}
         </div>
-
-        <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 ml-12 mr-10 border-b border-slate-300 relative">
-          
-          {/* Linha de Meta: 98.5% */}
-          <div className="absolute w-full border-t-[3px] border-dashed border-slate-800 z-10 pointer-events-none opacity-60 flex items-center" style={{ bottom: `${((98.5 - 80) / 20) * 100}%` }}>
-             <span className="absolute left-0 -ml-12 text-[10px] font-black text-white bg-slate-800 px-1.5 py-0.5 rounded shadow-sm">META</span>
+        <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 ml-12 mr-10 border-b border-slate-300 dark:border-slate-700 relative">
+          <div className="absolute w-full border-t-[3px] border-dashed border-slate-800 dark:border-slate-500 z-10 pointer-events-none opacity-60 flex items-center" style={{ bottom: `${((98.5 - 80) / 20) * 100}%` }}>
+             <span className="absolute left-0 -ml-12 text-[10px] font-black text-white bg-slate-800 dark:bg-slate-600 px-1.5 py-0.5 rounded shadow-sm">META</span>
           </div>
-
           <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <polyline 
-              points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max((((d.ds || 0) - 80) / 20) * 100, 0), 100)}`).join(' ')} 
-              fill="none" 
-              stroke="#0f766e" 
-              strokeWidth="4" 
-              vectorEffect="non-scaling-stroke" 
-            />
+            <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max((((d.ds || 0) - 80) / 20) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#0f766e" strokeWidth="4" vectorEffect="non-scaling-stroke" />
           </svg>
-
           {hoveredIndex !== null && safeData[hoveredIndex] && (
-            <div 
-              className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 opacity-80 z-10 pointer-events-none transition-all duration-200" 
-              style={{ 
-                bottom: `${Math.min(Math.max((((safeData[hoveredIndex].ds || 0) - 80) / 20) * 100, 0), 100)}%` 
-              }}
-            />
+            <div className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 dark:border-white opacity-80 z-10 pointer-events-none transition-all duration-200" style={{ bottom: `${Math.min(Math.max((((safeData[hoveredIndex].ds || 0) - 80) / 20) * 100, 0), 100)}%` }} />
           )}
-
           {safeData.map((d, i) => {
             const saldoPct = (log10(d.saldo || 0) / logMaxVol) * 85;
             const dsDisplayPct = Math.min(Math.max((((d.ds || 0) - 80) / 20) * 100, 0), 100);
-
             const entreguesRatio = d.saldo > 0 ? ((d.entregues || 0) / d.saldo) * 100 : 0;
-            const insucessosTotais = (d.saldo || 0) - (d.entregues || 0);
+            const insucessosTotais = Math.max(0, (d.saldo || 0) - (d.entregues || 0));
             const insucessosRatio = d.saldo > 0 ? (insucessosTotais / d.saldo) * 100 : 0;
-            
             const dotColor = (d.ds || 0) >= 98.5 ? 'border-emerald-500' : ((d.ds || 0) >= 95 ? 'border-orange-500' : 'border-red-500');
-
             const insDetalhes = d.insucessosDetalhados || {};
-            const sortedInsucessos = Object.entries(insDetalhes)
-              .sort((a,b) => b[1] - a[1])
-              .filter(item => item[1] > 0);
-
+            const sortedInsucessos = Object.entries(insDetalhes).sort((a,b) => b[1] - a[1]).filter(item => item[1] > 0);
             const topIns = sortedInsucessos.slice(0, 5);
             const outrosVal = sortedInsucessos.slice(5).reduce((acc, curr) => acc + curr[1], 0);
 
             return (
-              <div 
-                key={`bar-ds-${i}`} 
-                className={`flex-1 flex flex-col justify-end h-full relative group max-w-[60px] ${onBarClick ? 'cursor-pointer' : ''}`}
-                onClick={() => onBarClick && onBarClick(d[labelKey])}
-                onMouseEnter={() => setHoveredIndex(i)}
-                onMouseLeave={() => setHoveredIndex(null)}
-              >
+              <div key={`bar-ds-${i}`} className={`flex-1 flex flex-col justify-end h-full relative group max-w-[60px] ${onBarClick ? 'cursor-pointer' : ''}`} onClick={() => onBarClick && onBarClick(d[labelKey])} onMouseEnter={() => setHoveredIndex(i)} onMouseLeave={() => setHoveredIndex(null)}>
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 hidden group-hover:block z-50 w-64 bg-slate-900 text-white text-xs rounded-lg p-4 shadow-xl pointer-events-none">
                   <p className="font-bold border-b border-slate-700 pb-2 mb-3 text-center">{d[labelKey]}</p>
                   <div className="flex justify-between mb-1.5"><span className="text-blue-400">Total de Pacotes</span><span className="font-mono">{formatQtd(d.saldo || 0)}</span></div>
-                  
                   <div className="flex justify-between mt-2 pt-2 border-t border-slate-700 mb-1"><span className="text-slate-300 font-bold">Composição Operacional</span></div>
                   <div className="flex justify-between mb-0.5 pl-2"><span className="text-emerald-400 text-[10px]">↳ Entregues</span><span className="font-mono text-[10px]">{formatQtd(d.entregues || 0)}</span></div>
                   <div className="flex justify-between mb-1.5 pl-2"><span className="text-red-400 text-[10px]">↳ Insucessos Totais</span><span className="font-mono text-[10px] font-bold">{formatQtd(insucessosTotais)}</span></div>
-                  
                   {(topIns.length > 0) && (
                     <>
                       <div className="flex justify-between mt-2 pt-2 border-t border-slate-700 mb-1">
@@ -459,88 +331,48 @@ const NativeDSChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[
                       )}
                     </>
                   )}
-
                   <div className="flex justify-between font-bold border-t border-slate-700 pt-2 mt-2">
                      <span className="text-emerald-300">Delivery Success (DS)</span>
                      <span className={(d.ds||0) >= 98.5 ? 'text-emerald-400' : ((d.ds||0) >= 95 ? 'text-orange-400' : 'text-red-400')}>{formatDS(d.ds)}</span>
                   </div>
                 </div>
-
                 <div className="w-full flex items-end justify-center h-full gap-[1px]">
                   <div className="bg-blue-400 w-1/2 rounded-t-sm hover:opacity-80 transition-opacity" style={{ height: `${saldoPct}%` }}></div>
                   <div className="w-1/2 flex flex-col justify-end hover:opacity-80 transition-opacity" style={{ height: `${saldoPct}%` }}>
-                    {insucessosRatio > 0 && <div className="bg-red-500 w-full" style={{ height: `${insucessosRatio}%`, borderTopLeftRadius: insucessosRatio > 0 ? '0.125rem' : '0', borderTopRightRadius: insucessosRatio > 0 ? '0.125rem' : '0' }}></div>}
-                    {entreguesRatio > 0 && <div className="bg-emerald-500 w-full" style={{ height: `${entreguesRatio}%`, borderTopLeftRadius: insucessosRatio === 0 && entreguesRatio > 0 ? '0.125rem' : '0', borderTopRightRadius: insucessosRatio === 0 && entreguesRatio > 0 ? '0.125rem' : '0' }}></div>}
+                    {insucessosRatio > 0 && <div className="bg-red-500 w-full" style={{ height: `${insucessosRatio}%` }}></div>}
+                    {entreguesRatio > 0 && <div className="bg-emerald-500 w-full" style={{ height: `${entreguesRatio}%` }}></div>}
                   </div>
                 </div>
-
                 <div className={`absolute w-3 h-3 sm:w-3.5 sm:h-3.5 bg-white rounded-full border-[3px] shadow-md left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center ${dotColor}`} style={{ bottom: `calc(${dsDisplayPct}% - 6px)` }}>
-                  <span className="absolute bottom-full mb-1 text-[9px] font-bold text-slate-700 bg-white/95 px-1 py-0.5 rounded shadow-sm border border-slate-200 pointer-events-none">
-                    {d[labelKey]}
-                  </span>
+                  <span className="absolute bottom-full mb-1 text-[9px] font-bold text-slate-700 bg-white/95 px-1 py-0.5 rounded shadow-sm border border-slate-200 pointer-events-none">{d[labelKey]}</span>
                 </div>
-
                 <div className="absolute top-full mt-3 w-full text-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <p className="text-[9px] sm:text-[10px] text-slate-600 font-bold truncate">{d[labelKey]}</p>
+                  <p className="text-[9px] sm:text-[10px] text-slate-600 dark:text-slate-400 font-bold truncate">{d[labelKey]}</p>
                 </div>
               </div>
             );
           })}
         </div>
       </div>
-      
-      <div className="absolute bottom-2 left-0 w-full flex justify-center gap-4 sm:gap-6 text-xs font-bold text-slate-600 flex-wrap">
+      <div className="absolute bottom-2 left-0 w-full flex justify-center gap-4 sm:gap-6 text-xs font-bold text-slate-600 dark:text-slate-400 flex-wrap">
         <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-400 rounded-sm"></div> Total de Pacotes</span>
         <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-emerald-500 rounded-sm"></div> Entregues</span>
         <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-red-500 rounded-sm"></div> Insucessos</span>
-        <span className="flex items-center gap-1.5 ml-2">
-          <div className="flex items-center justify-center w-5 relative">
-            <div className="w-full h-[3px] border-t-[3px] border-dashed border-slate-800 absolute"></div>
-          </div> 
-          Meta (98.5%)
-        </span>
-        <span className="flex items-center gap-1.5 ml-2">
-          <div className="flex items-center justify-center w-5 relative">
-            <div className="w-full h-1 bg-teal-700 absolute"></div>
-            <div className="w-3 h-3 bg-white border-[3px] border-teal-700 rounded-full z-10"></div>
-          </div> 
-          % DS
-        </span>
       </div>
     </div>
   );
 };
 
-const NativeRunRateChart = ({ 
-  diasOperados, totalDias, 
-  currentSaldo, currentEntregues, 
-  projSaldo, projEntregues 
-}) => {
+const NativeRunRateChart = ({ diasOperados, totalDias, currentSaldo, currentEntregues, projSaldo, projEntregues }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
-
-  const currentInsucessos = currentSaldo - currentEntregues;
-  const projInsucessos = projSaldo - projEntregues;
-  
+  const currentInsucessos = Math.max(0, currentSaldo - currentEntregues);
+  const projInsucessos = Math.max(0, projSaldo - projEntregues);
   const currentDS = currentSaldo > 0 ? (currentEntregues / currentSaldo) * 100 : 0;
   const projDS = projSaldo > 0 ? (projEntregues / projSaldo) * 100 : 0;
 
   const data = [
-    { 
-      label: `Realizado (D-${diasOperados})`, 
-      saldo: currentSaldo, 
-      entregues: currentEntregues, 
-      insucessos: currentInsucessos, 
-      ds: currentDS, 
-      isProj: false 
-    },
-    { 
-      label: `Projeção (D-${totalDias})`, 
-      saldo: projSaldo, 
-      entregues: projEntregues, 
-      insucessos: projInsucessos, 
-      ds: projDS, 
-      isProj: true 
-    }
+    { label: `Realizado (D-${diasOperados})`, saldo: currentSaldo, entregues: currentEntregues, insucessos: currentInsucessos, ds: currentDS, isProj: false },
+    { label: `Projeção (D-${totalDias})`, saldo: projSaldo, entregues: projEntregues, insucessos: projInsucessos, ds: projDS, isProj: true }
   ];
 
   const maxVol = Math.max(1, projSaldo) * 1.2;
@@ -556,67 +388,34 @@ const NativeRunRateChart = ({
 
   const dsToY = (ds) => Math.min(Math.max((((ds || 0) - 80) / 20) * 100, 0), 100);
 
-  const targetY = dsToY(98.5);
-  const currentY = dsToY(currentDS);
-  const projY = dsToY(projDS);
-
   return (
     <div className="w-full h-[320px] flex flex-col pt-6 pb-12 relative">
       <div className="absolute top-0 left-0 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Linear (Volume)</div>
       <div className="absolute top-0 right-0 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Linear (DS %)</div>
-      
       <div className="flex-1 flex relative mt-2">
-        
-        {/* Eixos Verticais */}
         <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
-          {yAxisSteps.map((step, idx) => {
-            const valAtStep = maxVol * (step / 4);
-            const dsAtStep = dsSteps[idx];
-            return (
-              <div key={`y-axis-${idx}`} className="w-full border-t border-slate-100 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 4 ? '-10px' : '0' }}>
-                <span className="text-[10px] font-medium text-slate-500 bg-white pr-2 -translate-y-1/2">
-                  {formatAxisVal(valAtStep)}
-                </span>
-                <span className="text-[10px] font-bold text-emerald-600 bg-white pl-2 -translate-y-1/2">
-                  {`${dsAtStep}%`}
-                </span>
+          {yAxisSteps.map((step, idx) => (
+              <div key={`y-axis-${idx}`} className="w-full border-t border-slate-100 dark:border-slate-700/50 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 4 ? '-10px' : '0' }}>
+                <span className="text-[10px] font-medium text-slate-500 bg-slate-50/40 dark:bg-slate-800 pr-2 -translate-y-1/2">{formatAxisVal(maxVol * (step / 4))}</span>
+                <span className="text-[10px] font-bold text-emerald-600 bg-slate-50/40 dark:bg-slate-800 pl-2 -translate-y-1/2">{`${dsSteps[idx]}%`}</span>
               </div>
-            );
-          })}
+          ))}
         </div>
-
-        <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 ml-12 mr-10 border-b border-slate-300 relative">
-          
-          {/* Linha de Meta: 98.5% */}
-          <div className="absolute w-full border-t-[3px] border-dashed border-slate-800 z-10 pointer-events-none opacity-60 flex items-center" style={{ bottom: `${targetY}%` }}>
-             <span className="absolute left-0 -ml-12 text-[10px] font-black text-white bg-slate-800 px-1.5 py-0.5 rounded shadow-sm">META</span>
+        <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 ml-12 mr-10 border-b border-slate-300 dark:border-slate-700 relative">
+          <div className="absolute w-full border-t-[3px] border-dashed border-slate-800 dark:border-slate-500 z-10 pointer-events-none opacity-60 flex items-center" style={{ bottom: `${dsToY(98.5)}%` }}>
+             <span className="absolute left-0 -ml-12 text-[10px] font-black text-white bg-slate-800 dark:bg-slate-600 px-1.5 py-0.5 rounded shadow-sm">META</span>
           </div>
-
-          {/* SVG overlay para a linha de Trajetória do DS */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <line 
-              x1="25" y1={100 - currentY} 
-              x2="75" y2={100 - projY} 
-              stroke="#0f766e" strokeWidth="4" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" 
-            />
+            <line x1="25" y1={100 - dsToY(currentDS)} x2="75" y2={100 - dsToY(projDS)} stroke="#0f766e" strokeWidth="4" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
           </svg>
-
           {data.map((d, i) => {
             const saldoPct = (d.saldo / maxVol) * 100;
             const entreguesRatio = d.saldo > 0 ? (d.entregues / d.saldo) * 100 : 0;
             const insucessosRatio = d.saldo > 0 ? (d.insucessos / d.saldo) * 100 : 0;
-            
             const dotColor = d.ds >= 98.5 ? 'border-emerald-500' : (d.ds >= 95 ? 'border-orange-500' : 'border-red-500');
-            const dsDisplayPct = dsToY(d.ds);
 
             return (
-              <div 
-                key={i} 
-                className="flex-1 flex flex-col justify-end h-full relative group max-w-[120px] cursor-pointer"
-                onMouseEnter={() => setHoveredIndex(i)}
-                onMouseLeave={() => setHoveredIndex(null)}
-              >
-                {/* Tooltip */}
+              <div key={i} className="flex-1 flex flex-col justify-end h-full relative group max-w-[120px] cursor-pointer" onMouseEnter={() => setHoveredIndex(i)} onMouseLeave={() => setHoveredIndex(null)}>
                 {hoveredIndex === i && (
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-50 w-56 bg-slate-900 text-white text-xs rounded-lg p-4 shadow-xl pointer-events-none">
                     <p className="font-bold border-b border-slate-700 pb-2 mb-3 text-center">{d.label}</p>
@@ -629,24 +428,14 @@ const NativeRunRateChart = ({
                     </div>
                   </div>
                 )}
-
-                {/* Stacked Bar */}
                 <div className={`w-full flex flex-col justify-end transition-opacity hover:opacity-100 ${d.isProj ? 'opacity-60' : 'opacity-90'}`} style={{ height: `${saldoPct}%` }}>
-                  {insucessosRatio > 0 && <div className="bg-red-500 w-full" style={{ height: `${insucessosRatio}%`, borderTopLeftRadius: '0.125rem', borderTopRightRadius: '0.125rem' }}></div>}
-                  {entreguesRatio > 0 && <div className="bg-emerald-500 w-full" style={{ height: `${entreguesRatio}%`, borderTopLeftRadius: insucessosRatio === 0 ? '0.125rem' : '0', borderTopRightRadius: insucessosRatio === 0 ? '0.125rem' : '0' }}></div>}
+                  {insucessosRatio > 0 && <div className="bg-red-500 w-full" style={{ height: `${insucessosRatio}%` }}></div>}
+                  {entreguesRatio > 0 && <div className="bg-emerald-500 w-full" style={{ height: `${entreguesRatio}%` }}></div>}
                 </div>
-
-                {/* DS Dot */}
-                <div className={`absolute w-4 h-4 bg-white rounded-full border-[4px] shadow-lg left-1/2 -translate-x-1/2 z-30 transition-transform group-hover:scale-125 flex justify-center ${dotColor}`} style={{ bottom: `calc(${dsDisplayPct}% - 8px)` }}>
-                  <span className="absolute bottom-full mb-1 text-[10px] font-bold text-slate-700 bg-white/95 px-1.5 py-0.5 rounded shadow-sm border border-slate-200 pointer-events-none">
-                    {formatDS(d.ds)}
-                  </span>
+                <div className={`absolute w-4 h-4 bg-white rounded-full border-[4px] shadow-lg left-1/2 -translate-x-1/2 z-30 transition-transform group-hover:scale-125 flex justify-center ${dotColor}`} style={{ bottom: `calc(${dsToY(d.ds)}% - 8px)` }}>
+                  <span className="absolute bottom-full mb-1 text-[10px] font-bold text-slate-700 bg-white/95 px-1.5 py-0.5 rounded shadow-sm border border-slate-200 pointer-events-none">{formatDS(d.ds)}</span>
                 </div>
-
-                {/* Label */}
-                <div className="absolute top-full mt-4 w-full text-center">
-                  <p className="text-[10px] sm:text-xs text-slate-600 font-bold truncate">{d.label}</p>
-                </div>
+                <div className="absolute top-full mt-4 w-full text-center"><p className="text-[10px] sm:text-xs text-slate-600 dark:text-slate-400 font-bold truncate">{d.label}</p></div>
               </div>
             );
           })}
@@ -657,7 +446,7 @@ const NativeRunRateChart = ({
 };
 
 // ============================================================================
-// COMPONENTE: PROJEÇÃO FINANCEIRA (RUN RATE)
+// COMPONENTE: PROJEÇÃO FINANCEIRA
 // ============================================================================
 const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats }) => {
   const { totalDias, diasOperados } = useMemo(() => {
@@ -665,31 +454,19 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats }) => {
     const year = parseInt(targetQuinzena.substring(0, 4));
     const month = parseInt(targetQuinzena.substring(4, 6)) - 1;
     const q = targetQuinzena.substring(6, 8);
-    
     const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    const currentDate = now.getDate();
-    
-    const isCurrentMonth = (year === currentYear && month === currentMonth);
+    const isCurrentMonth = (year === now.getFullYear() && month === now.getMonth());
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
     const total = q === 'Q1' ? 15 : (daysInMonth - 15);
     let operados = total;
 
     if (isCurrentMonth) {
-      if (q === 'Q1' && currentDate <= 15) {
-        operados = currentDate - 1; // Cálculo D-1
-      } else if (q === 'Q2' && currentDate > 15) {
-        operados = (currentDate - 15) - 1; // Cálculo D-1
-      } else if (q === 'Q1' && currentDate > 15) {
-        operados = 15;
-      } else if (q === 'Q2' && currentDate <= 15) {
-        operados = 1;
-      }
-    } else {
-      const targetDate = new Date(year, month, 1);
-      if (now < targetDate) operados = 1;
+      if (q === 'Q1' && now.getDate() <= 15) operados = now.getDate() - 1; 
+      else if (q === 'Q2' && now.getDate() > 15) operados = (now.getDate() - 15) - 1;
+      else if (q === 'Q1' && now.getDate() > 15) operados = 15;
+      else if (q === 'Q2' && now.getDate() <= 15) operados = 1;
+    } else if (now < new Date(year, month, 1)) {
+      operados = 1;
     }
     return { totalDias: total, diasOperados: Math.max(1, operados) };
   }, [targetQuinzena]);
@@ -698,11 +475,9 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats }) => {
 
   if (!baseData || baseData.length === 0) {
     return (
-      <div className="bg-slate-50 p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col items-center justify-center text-center gap-3">
+      <div className="bg-slate-50 dark:bg-slate-800 p-8 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 mb-8 flex flex-col items-center justify-center text-center gap-3">
         <AlertCircle className="w-8 h-8 text-slate-400" />
-        <p className="text-slate-500 font-medium max-w-md">
-          Nenhuma informação financeira disponível para a quinzena <strong>{targetQuinzena}</strong>. Verifique se a base possui dados para este período ou altere o filtro.
-        </p>
+        <p className="text-slate-500 dark:text-slate-400 font-medium max-w-md">Nenhuma informação financeira disponível para a quinzena <strong>{targetQuinzena}</strong>.</p>
       </div>
     );
   }
@@ -710,72 +485,35 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats }) => {
   const mult = diasOperados > 0 ? totalDias / diasOperados : 1;
 
   let globalFat = 0, globalPen = 0, globalPnr = 0, globalLost = 0, globalNv = 0;
-  baseData.forEach(d => {
-    globalFat += d.faturamento;
-    globalPen += d.penalidades;
-    globalPnr += d.pnr;
-    globalLost += d.lost;
-    globalNv += d.notVisited;
-  });
+  baseData.forEach(d => { globalFat += d.faturamento; globalPen += d.penalidades; globalPnr += d.pnr; globalLost += d.lost; globalNv += d.notVisited; });
 
   const projFilialData = baseData.map(d => {
     const pFat = d.faturamento * mult;
     const pPen = d.penalidades * mult;
-    return {
-      ...d,
-      faturamento: pFat,
-      penalidades: pPen,
-      pnr: d.pnr * mult,
-      lost: d.lost * mult,
-      notVisited: d.notVisited * mult,
-      representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0)
-    };
+    return { ...d, faturamento: pFat, penalidades: pPen, pnr: d.pnr * mult, lost: d.lost * mult, notVisited: d.notVisited * mult, representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0) };
   }).sort((a, b) => b.penalidades - a.penalidades); 
 
-  // Agregação para Projeção por Regional
   const regionalMap = {};
   baseData.forEach(d => {
     const regName = d.regional && d.regional !== 'N/A' ? `Regional ${d.regional}` : 'Sem Regional';
     const supName = d.supervisor && d.supervisor !== 'N/A' ? d.supervisor : '';
     const r = supName && regName !== 'Sem Regional' ? `${regName} - ${supName}` : regName;
     if (!regionalMap[r]) regionalMap[r] = { name: r, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
-    regionalMap[r].faturamento += d.faturamento;
-    regionalMap[r].penalidades += d.penalidades;
-    regionalMap[r].pnr += d.pnr;
-    regionalMap[r].lost += d.lost;
-    regionalMap[r].notVisited += d.notVisited;
+    regionalMap[r].faturamento += d.faturamento; regionalMap[r].penalidades += d.penalidades;
+    regionalMap[r].pnr += d.pnr; regionalMap[r].lost += d.lost; regionalMap[r].notVisited += d.notVisited;
   });
 
   const projRegionalData = Object.values(regionalMap).map(r => {
-    const pFat = r.faturamento * mult;
-    const pPen = r.penalidades * mult;
-    return {
-      ...r,
-      faturamento: pFat,
-      penalidades: pPen,
-      pnr: r.pnr * mult,
-      lost: r.lost * mult,
-      notVisited: r.notVisited * mult,
-      representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0)
-    };
+    const pFat = r.faturamento * mult; const pPen = r.penalidades * mult;
+    return { ...r, faturamento: pFat, penalidades: pPen, pnr: r.pnr * mult, lost: r.lost * mult, notVisited: r.notVisited * mult, representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0) };
   }).sort((a, b) => b.penalidades - a.penalidades);
 
-  const projFatGlob = globalFat * mult;
-  const projPenGlob = globalPen * mult;
-
-  const topOfensores = [...projFilialData]
-    .filter(d => d.penalidades > 0)
-    .sort((a, b) => b.representatividade - a.representatividade)
-    .slice(0, 6);
-    
-  const regionalDrilldownData = selectedRegional 
-    ? projFilialData.filter(d => {
+  const topOfensores = [...projFilialData].filter(d => d.penalidades > 0).sort((a, b) => b.representatividade - a.representatividade).slice(0, 6);
+  const regionalDrilldownData = selectedRegional ? projFilialData.filter(d => {
         const regName = d.regional && d.regional !== 'N/A' ? `Regional ${d.regional}` : 'Sem Regional';
         const supName = d.supervisor && d.supervisor !== 'N/A' ? d.supervisor : '';
-        const rName = supName && regName !== 'Sem Regional' ? `${regName} - ${supName}` : regName;
-        return rName === selectedRegional;
-      }).sort((a, b) => b.representatividade - a.representatividade)
-    : [];
+        return (supName && regName !== 'Sem Regional' ? `${regName} - ${supName}` : regName) === selectedRegional;
+      }).sort((a, b) => b.representatividade - a.representatividade) : [];
 
   const getInsightTag = (variacao, isExpense = false) => {
     if (variacao === 0) return <span className="text-slate-400 font-bold">0.00%</span>;
@@ -793,6 +531,9 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats }) => {
     );
   };
 
+  const projFatGlob = globalFat * mult;
+  const projPenGlob = globalPen * mult;
+
   let fatVar = 0, penVar = 0, pnrVar = 0, lostVar = 0, nvVar = 0, repVar = 0, repPrev = 0, repProj = 0;
   
   if (prevStats) {
@@ -807,81 +548,37 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats }) => {
   }
 
   return (
-    <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 mb-8">
+    <div className="bg-white dark:bg-slate-800 p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 mb-8 transition-colors">
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div className="flex items-center gap-3">
-          <Activity className="w-6 h-6 text-blue-600" />
-          <div>
-            <h2 className="text-xl md:text-2xl font-bold text-slate-800">
-              Projeção de Fechamento Financeiro (Run Rate) - {targetQuinzena}
-            </h2>
-            <p className="text-sm text-slate-500 font-medium mt-1">
-              Cálculo automático baseado nos dias operados da quinzena atual.
-            </p>
-          </div>
+          <Activity className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+          <div><h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white">Projeção de Fechamento Financeiro (Run Rate) - {targetQuinzena}</h2></div>
         </div>
-
-        <div className="flex flex-col sm:flex-row gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full lg:w-auto">
+        <div className="flex flex-col sm:flex-row gap-4 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 w-full lg:w-auto">
           <div className="flex flex-col gap-1 items-center justify-center px-4">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cálculo Automático</span>
-            <span className="text-sm font-black text-blue-600 bg-blue-100 px-4 py-1.5 rounded-full border border-blue-200 shadow-sm">
-              {diasOperados} / {totalDias} Dias Operados
-            </span>
+            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cálculo Automático</span>
+            <span className="text-sm font-black text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-4 py-1.5 rounded-full border border-blue-200 dark:border-blue-800 shadow-sm">{diasOperados} / {totalDias} Dias Operados</span>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl flex flex-col justify-center items-center">
-          <span className="text-xs font-bold text-emerald-600 uppercase mb-1">Faturamento Projetado</span>
-          <span className="text-2xl font-black text-emerald-700">{formatCurrency(projFatGlob)}</span>
-        </div>
-        <div className="bg-red-50 border border-red-100 p-5 rounded-2xl flex flex-col justify-center items-center text-center">
-          <span className="text-xs font-bold text-red-600 uppercase mb-1">Penalidades Projetadas</span>
-          <span className="text-2xl font-black text-red-700 mb-1">{formatCurrency(projPenGlob)}</span>
-          <div className="flex gap-2 text-[10px] font-bold text-slate-500 justify-center flex-wrap">
-            <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">PNR: {formatCurrency(globalPnr * mult)}</span>
-            <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">Lost: {formatCurrency(globalLost * mult)}</span>
-          </div>
-        </div>
-        <div className="bg-violet-50 border border-violet-100 p-5 rounded-2xl flex flex-col justify-center items-center">
-          <span className="text-xs font-bold text-violet-600 uppercase mb-1">Representatividade Estimada</span>
-          <span className="text-3xl font-black text-violet-700">{projFatGlob > 0 ? ((projPenGlob / projFatGlob) * 100).toFixed(2) : 0}%</span>
-        </div>
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/30 p-5 rounded-2xl flex flex-col justify-center items-center"><span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase mb-1">Faturamento Projetado</span><span className="text-2xl font-black text-emerald-700 dark:text-emerald-500">{formatCurrency(globalFat * mult)}</span></div>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/30 p-5 rounded-2xl flex flex-col justify-center items-center text-center"><span className="text-xs font-bold text-red-600 dark:text-red-400 uppercase mb-1">Penalidades Projetadas</span><span className="text-2xl font-black text-red-700 dark:text-red-500 mb-1">{formatCurrency(globalPen * mult)}</span></div>
+        <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-800/30 p-5 rounded-2xl flex flex-col justify-center items-center"><span className="text-xs font-bold text-violet-600 dark:text-violet-400 uppercase mb-1">Representatividade Estimada</span><span className="text-3xl font-black text-violet-700 dark:text-violet-400">{globalFat > 0 ? (((globalPen * mult) / (globalFat * mult)) * 100).toFixed(2) : 0}%</span></div>
       </div>
 
       {topOfensores.length > 0 && (
-        <div className="mb-8 p-6 bg-red-50/40 border border-red-100 rounded-2xl">
-          <h3 className="text-sm font-black text-red-600 mb-4 uppercase tracking-wider flex items-center gap-2">
-            <AlertCircle className="w-5 h-5" /> Alerta de Risco Financeiro: Top 6 Maiores Impactos na Margem
-          </h3>
+        <div className="mb-8 p-6 bg-red-50/40 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-2xl">
+          <h3 className="text-sm font-black text-red-600 dark:text-red-400 mb-4 uppercase tracking-wider flex items-center gap-2"><AlertCircle className="w-5 h-5" /> Alerta de Risco Financeiro: Top 6 Maiores Impactos na Margem</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {topOfensores.map((filial, idx) => (
-              <div key={idx} className="bg-white p-5 rounded-xl border border-red-100 shadow-sm flex flex-col relative overflow-hidden">
+              <div key={idx} className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-red-100 dark:border-red-900/30 shadow-sm flex flex-col relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
-                <div className="flex justify-between items-start mb-2">
-                   <div>
-                     <span className="font-black text-slate-800 text-lg block">{filial.filial}</span>
-                     <span className="text-xs font-bold text-slate-500">{filial.regional && filial.regional !== 'N/A' ? `Regional ${filial.regional}` : 'Sem Regional'}</span>
-                   </div>
-                   <span className="text-xs font-black text-white bg-red-500 px-2 py-0.5 rounded-full shadow-sm">#{idx + 1}</span>
-                </div>
-                
-                <div className="flex flex-col gap-1.5 my-3 px-3 py-2.5 bg-slate-50 rounded-lg border border-slate-100">
-                    <div className="flex justify-between items-center text-[10px] font-bold"><span className="text-blue-500 uppercase">PNRs</span><span className="text-slate-700">{formatCurrency(filial.pnr)}</span></div>
-                    <div className="flex justify-between items-center text-[10px] font-bold"><span className="text-orange-500 uppercase">Lost Packages</span><span className="text-slate-700">{formatCurrency(filial.lost)}</span></div>
-                    <div className="flex justify-between items-center text-[10px] font-bold"><span className="text-slate-400 uppercase">Not Visited</span><span className="text-slate-700">{formatCurrency(filial.notVisited)}</span></div>
-                </div>
-
-                <div className="flex justify-between items-end mt-auto pt-3 border-t border-slate-100">
-                  <div className="flex flex-col">
-                     <span className="text-[10px] text-slate-400 uppercase font-bold">Margem Comprometida</span>
-                     <span className="text-lg font-black text-red-600">{filial.representatividade === Infinity ? 'N/A' : `${filial.representatividade.toFixed(1)}%`}</span>
-                  </div>
-                  <div className="flex flex-col items-end">
-                     <span className="text-[10px] text-slate-400 uppercase font-bold">Projeção (Total)</span>
-                     <span className="text-sm font-black text-violet-600">{formatCurrency(filial.penalidades)}</span>
-                  </div>
+                <div className="flex justify-between items-start mb-2"><div><span className="font-black text-slate-800 dark:text-white text-lg block">{filial.filial}</span><span className="text-xs font-bold text-slate-500 dark:text-slate-400">{filial.regional && filial.regional !== 'N/A' ? `Regional ${filial.regional}` : 'Sem Regional'}</span></div><span className="text-xs font-black text-white bg-red-500 px-2 py-0.5 rounded-full shadow-sm">#{idx + 1}</span></div>
+                <div className="flex justify-between items-end mt-auto pt-3 border-t border-slate-100 dark:border-slate-700">
+                  <div className="flex flex-col"><span className="text-[10px] text-slate-400 uppercase font-bold">Margem Comprometida</span><span className="text-lg font-black text-red-600 dark:text-red-400">{filial.representatividade === Infinity ? 'N/A' : `${filial.representatividade.toFixed(1)}%`}</span></div>
+                  <div className="flex flex-col items-end"><span className="text-[10px] text-slate-400 uppercase font-bold">Projeção (Total)</span><span className="text-sm font-black text-violet-600 dark:text-violet-400">{formatCurrency(filial.penalidades)}</span></div>
                 </div>
               </div>
             ))}
@@ -890,47 +587,15 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats }) => {
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
-          <div className="flex items-center justify-between mb-4 px-2 pt-2">
-            <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider">
-              {selectedRegional ? `Filiais: ${selectedRegional}` : 'Projeção por Regional'}
-            </h3>
-            {selectedRegional && (
-              <button 
-                onClick={() => setSelectedRegional(null)}
-                className="text-[10px] sm:text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded hover:bg-blue-200 transition-colors"
-              >
-                ← Voltar
-              </button>
-            )}
-          </div>
-          {!selectedRegional ? (
-            <NativeComboChart 
-              data={projRegionalData} 
-              labelKey="name" 
-              heightClass="h-[350px]" 
-              onBarClick={(r) => setSelectedRegional(r)}
-            />
-          ) : (
-            <NativeComboChart 
-              data={regionalDrilldownData} 
-              labelKey="filial" 
-              heightClass="h-[350px]" 
-            />
-          )}
+        <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 flex flex-col">
+          <div className="flex items-center justify-between mb-4 px-2 pt-2"><h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">{selectedRegional ? `Filiais: ${selectedRegional}` : 'Projeção por Regional'}</h3>{selectedRegional && (<button onClick={() => setSelectedRegional(null)} className="text-[10px] sm:text-xs font-bold text-blue-600 bg-blue-100 dark:bg-blue-900/40 dark:text-blue-400 px-2 py-1 rounded hover:bg-blue-200 transition-colors">← Voltar</button>)}</div>
+          {!selectedRegional ? <NativeComboChart data={projRegionalData} labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" />}
         </div>
-        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
-          <h3 className="text-sm font-bold text-slate-600 text-center mb-2 pt-2 uppercase tracking-wider">Projeção por Filial (Maiores Descontos)</h3>
-          <NativeComboChart 
-            data={projFilialData.slice(0, 15)} 
-            labelKey="filial" 
-            heightClass="h-[350px]" 
-          />
-        </div>
+        <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 flex flex-col"><h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 text-center mb-2 pt-2 uppercase tracking-wider">Projeção por Filial (Maiores Descontos)</h3><NativeComboChart data={projFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" /></div>
       </div>
 
       {prevStats && (
-        <div className="mt-8 bg-slate-900 rounded-3xl p-6 md:p-8 text-slate-300 shadow-xl border border-slate-800 relative overflow-hidden">
+        <div className="mt-8 bg-slate-900 dark:bg-slate-950 rounded-3xl p-6 md:p-8 text-slate-300 shadow-xl border border-slate-800 relative overflow-hidden">
             <div className="absolute top-0 right-0 p-8 opacity-5">
                 <Scale className="w-32 h-32 text-white" />
             </div>
@@ -972,7 +637,7 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats }) => {
 };
 
 // ============================================================================
-// COMPONENTE: PROJEÇÃO OPERACIONAL E SIMULADOR (RUN RATE)
+// COMPONENTE: PROJEÇÃO OPERACIONAL E SIMULADOR
 // ============================================================================
 const RunRateOperacionalSection = ({ baseData, targetQuinzena, titlePrefix = "Operacional" }) => {
   const { totalDias, diasOperados } = useMemo(() => {
@@ -980,70 +645,33 @@ const RunRateOperacionalSection = ({ baseData, targetQuinzena, titlePrefix = "Op
     const year = parseInt(targetQuinzena.substring(0, 4));
     const month = parseInt(targetQuinzena.substring(4, 6)) - 1;
     const q = targetQuinzena.substring(6, 8);
-    
     const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    const currentDate = now.getDate();
-    
-    const isCurrentMonth = (year === currentYear && month === currentMonth);
+    const isCurrentMonth = (year === now.getFullYear() && month === now.getMonth());
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
     const total = q === 'Q1' ? 15 : (daysInMonth - 15);
     let operados = total;
-
     if (isCurrentMonth) {
-      if (q === 'Q1' && currentDate <= 15) {
-        operados = currentDate - 1; // Cálculo D-1
-      } else if (q === 'Q2' && currentDate > 15) {
-        operados = (currentDate - 15) - 1; // Cálculo D-1
-      } else if (q === 'Q1' && currentDate > 15) {
-        operados = 15;
-      } else if (q === 'Q2' && currentDate <= 15) {
-        operados = 1;
-      }
-    } else {
-      const targetDate = new Date(year, month, 1);
-      if (now < targetDate) operados = 1;
+      if (q === 'Q1' && now.getDate() <= 15) operados = now.getDate() - 1; 
+      else if (q === 'Q2' && now.getDate() > 15) operados = (now.getDate() - 15) - 1;
+      else if (q === 'Q1' && now.getDate() > 15) operados = 15;
+      else if (q === 'Q2' && now.getDate() <= 15) operados = 1;
+    } else if (now < new Date(year, month, 1)) {
+      operados = 1;
     }
     return { totalDias: total, diasOperados: Math.max(1, operados) };
   }, [targetQuinzena]);
 
   const [selectedRegional, setSelectedRegional] = useState(null);
-
-  if (!baseData || baseData.length === 0) {
-    return (
-      <div className="bg-slate-50 p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col items-center justify-center text-center gap-3">
-        <AlertCircle className="w-8 h-8 text-slate-400" />
-        <p className="text-slate-500 font-medium max-w-md">
-          Nenhuma informação de projeção disponível para a quinzena <strong>{targetQuinzena}</strong>. Verifique se a base possui dados para este período ou altere o filtro.
-        </p>
-      </div>
-    );
-  }
+  if (!baseData || baseData.length === 0) return (<div className="bg-slate-50 dark:bg-slate-800 p-8 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 mb-8 flex flex-col items-center justify-center text-center gap-3"><AlertCircle className="w-8 h-8 text-slate-400" /><p className="text-slate-500 font-medium max-w-md dark:text-slate-400">Nenhuma informação disponível para {targetQuinzena}.</p></div>);
 
   const mult = diasOperados > 0 ? totalDias / diasOperados : 1;
-
   let globalSaldo = 0, globalEntregues = 0;
-  baseData.forEach(d => {
-    globalSaldo += d.saldo;
-    globalEntregues += d.entregues;
-  });
+  baseData.forEach(d => { globalSaldo += d.saldo; globalEntregues += d.entregues; });
 
   const projFilialData = baseData.map(d => {
-    const pSaldo = d.saldo * mult;
-    const pEntregues = d.entregues * mult;
-    const pIns = {};
-    if (d.insucessosDetalhados) {
-        Object.entries(d.insucessosDetalhados).forEach(([k, v]) => pIns[k] = v * mult);
-    }
-    return {
-      ...d,
-      saldo: pSaldo,
-      entregues: pEntregues,
-      ds: pSaldo > 0 ? (pEntregues / pSaldo) * 100 : 0,
-      insucessosDetalhados: pIns
-    };
+    const pSaldo = d.saldo * mult; const pEntregues = d.entregues * mult;
+    const pIns = {}; if (d.insucessosDetalhados) { Object.entries(d.insucessosDetalhados).forEach(([k, v]) => pIns[k] = v * mult); }
+    return { ...d, saldo: pSaldo, entregues: pEntregues, ds: Math.min(100, pSaldo > 0 ? (pEntregues / pSaldo) * 100 : 0), insucessosDetalhados: pIns };
   }).sort((a, b) => a.ds - b.ds); 
 
   const regionalMap = {};
@@ -1052,215 +680,79 @@ const RunRateOperacionalSection = ({ baseData, targetQuinzena, titlePrefix = "Op
     const supName = d.supervisor && d.supervisor !== 'N/A' ? d.supervisor : '';
     const r = supName && regName !== 'Sem Regional' ? `${regName} - ${supName}` : regName;
     if (!regionalMap[r]) regionalMap[r] = { name: r, saldo: 0, entregues: 0, insucessosDetalhados: {} };
-    regionalMap[r].saldo += d.saldo;
-    regionalMap[r].entregues += d.entregues;
-    if (d.insucessosDetalhados) {
-        Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
-            regionalMap[r].insucessosDetalhados[k] = (regionalMap[r].insucessosDetalhados[k] || 0) + v;
-        });
-    }
+    regionalMap[r].saldo += d.saldo; regionalMap[r].entregues += d.entregues;
+    if (d.insucessosDetalhados) { Object.entries(d.insucessosDetalhados).forEach(([k, v]) => { regionalMap[r].insucessosDetalhados[k] = (regionalMap[r].insucessosDetalhados[k] || 0) + v; }); }
   });
 
   const projRegionalData = Object.values(regionalMap).map(r => {
-    const pSaldo = r.saldo * mult;
-    const pEntregues = r.entregues * mult;
-    const pIns = {};
-    if (r.insucessosDetalhados) {
-        Object.entries(r.insucessosDetalhados).forEach(([k, v]) => pIns[k] = v * mult);
-    }
-    return {
-      ...r,
-      saldo: pSaldo,
-      entregues: pEntregues,
-      ds: pSaldo > 0 ? (pEntregues / pSaldo) * 100 : 0,
-      insucessosDetalhados: pIns
-    };
+    const pSaldo = r.saldo * mult; const pEntregues = r.entregues * mult;
+    const pIns = {}; if (r.insucessosDetalhados) { Object.entries(r.insucessosDetalhados).forEach(([k, v]) => pIns[k] = v * mult); }
+    return { ...r, saldo: pSaldo, entregues: pEntregues, ds: Math.min(100, pSaldo > 0 ? (pEntregues / pSaldo) * 100 : 0), insucessosDetalhados: pIns };
   }).sort((a, b) => a.ds - b.ds);
 
-  const projSaldoGlob = globalSaldo * mult;
-  const projEntreguesGlob = globalEntregues * mult;
-  const dsGlobal = projSaldoGlob > 0 ? (projEntreguesGlob / projSaldoGlob) * 100 : 0;
-
+  const projSaldoGlob = globalSaldo * mult; const projEntreguesGlob = globalEntregues * mult;
+  const dsGlobal = Math.min(100, projSaldoGlob > 0 ? (projEntreguesGlob / projSaldoGlob) * 100 : 0);
   const atingiuMetaDS = dsGlobal >= 98.5;
-
-  const topOfensores = [...projFilialData]
-    .filter(d => d.saldo > 0)
-    .slice(0, 6);
+  const topOfensores = [...projFilialData].filter(d => d.saldo > 0).slice(0, 6);
     
-  const regionalDrilldownData = selectedRegional 
-    ? projFilialData.filter(d => {
+  const regionalDrilldownData = selectedRegional ? projFilialData.filter(d => {
         const regName = d.regional && d.regional !== 'N/A' ? `Regional ${d.regional}` : 'Sem Regional';
         const supName = d.supervisor && d.supervisor !== 'N/A' ? d.supervisor : '';
-        const rName = supName && regName !== 'Sem Regional' ? `${regName} - ${supName}` : regName;
-        return rName === selectedRegional;
-      })
-    : [];
+        return (supName && regName !== 'Sem Regional' ? `${regName} - ${supName}` : regName) === selectedRegional;
+      }) : [];
 
   return (
-    <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 mb-8">
+    <div className="bg-white dark:bg-slate-800 p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 mb-8 transition-colors">
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
-        <div className="flex items-center gap-3">
-          <Box className="w-6 h-6 text-emerald-600" />
-          <div>
-            <h2 className="text-xl md:text-2xl font-bold text-slate-800">
-              Projeção {titlePrefix} (Run Rate) - {targetQuinzena}
-            </h2>
-            <p className="text-sm text-slate-500 font-medium mt-1">
-              Cálculo automático baseado nos dias operados da quinzena atual.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full lg:w-auto">
-          <div className="flex flex-col gap-1 items-center justify-center px-4">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cálculo Automático</span>
-            <span className="text-sm font-black text-emerald-600 bg-emerald-100 px-4 py-1.5 rounded-full border border-emerald-200 shadow-sm">
-              {diasOperados} / {totalDias} Dias Operados
-            </span>
-          </div>
-        </div>
+        <div className="flex items-center gap-3"><Box className="w-6 h-6 text-emerald-600 dark:text-emerald-400" /><div><h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white">Projeção {titlePrefix} (Run Rate) - {targetQuinzena}</h2></div></div>
+        <div className="flex flex-col sm:flex-row gap-4 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 w-full lg:w-auto"><div className="flex flex-col gap-1 items-center justify-center px-4"><span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cálculo Automático</span><span className="text-sm font-black text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 px-4 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800 shadow-sm">{diasOperados} / {totalDias} Dias</span></div></div>
       </div>
-
-      <div className="mb-8 border border-slate-200 rounded-3xl bg-slate-50/40 p-6 md:p-8">
+      <div className="mb-8 border border-slate-200 dark:border-slate-700 rounded-3xl bg-slate-50/40 dark:bg-slate-900/50 p-6 md:p-8">
          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-2 gap-4">
-            <div>
-               <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                 <TrendingUp className="w-5 h-5" /> Evolução de Volume vs. Projeção de DS
-               </h3>
-               <p className="text-3xl sm:text-4xl font-black text-slate-800 mt-2">
-                 {formatDS(dsGlobal)} 
-                 <span className="text-sm sm:text-base font-bold text-slate-400 ml-3">Projetado para Fechamento</span>
-               </p>
-            </div>
-            <div className="text-left sm:text-right bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-200">
-               <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Meta Oficial</span>
-               <span className="text-xl font-black text-slate-800">98.50%</span>
-            </div>
+            <div><h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2"><TrendingUp className="w-5 h-5" /> Evolução de Volume vs. Projeção de DS</h3><p className="text-3xl sm:text-4xl font-black text-slate-800 dark:text-white mt-2">{formatDS(dsGlobal)}</p></div>
          </div>
-         
-         <NativeRunRateChart 
-            diasOperados={diasOperados} 
-            totalDias={totalDias} 
-            currentSaldo={globalSaldo} 
-            currentEntregues={globalEntregues} 
-            projSaldo={projSaldoGlob} 
-            projEntregues={projEntreguesGlob} 
-         />
+         <NativeRunRateChart diasOperados={diasOperados} totalDias={totalDias} currentSaldo={globalSaldo} currentEntregues={globalEntregues} projSaldo={projSaldoGlob} projEntregues={projEntreguesGlob} />
       </div>
-
-      <div className={`mb-8 p-4 rounded-xl border flex items-center justify-between gap-4 ${atingiuMetaDS ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+      <div className={`mb-8 p-4 rounded-xl border flex items-center justify-between gap-4 ${atingiuMetaDS ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/30' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/30'}`}>
           <div className="flex items-center gap-4">
-              <div className={`p-3 rounded-full ${atingiuMetaDS ? 'bg-emerald-100' : 'bg-red-100'}`}>
-                {atingiuMetaDS ? <TrendingUp className="w-6 h-6 text-emerald-600" /> : <TrendingDown className="w-6 h-6 text-red-600" />}
-              </div>
-              <div>
-                  <h4 className={`font-bold ${atingiuMetaDS ? 'text-emerald-800' : 'text-red-800'}`}>
-                      Tendência de Fechamento: {atingiuMetaDS ? 'Positiva (Dentro da Meta)' : 'Negativa (Abaixo da Meta)'}
-                  </h4>
-                  <p className={`text-sm font-medium ${atingiuMetaDS ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {atingiuMetaDS 
-                      ? `A operação projeta fechar o período superando o alvo de 98.5%. Continue o acompanhamento.`
-                      : `A operação não deve atingir os 98.5% se mantiver a performance atual. Atue imediatamente nas filiais abaixo.`}
-                  </p>
-              </div>
+              <div className={`p-3 rounded-full ${atingiuMetaDS ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-red-100 dark:bg-red-900/40'}`}>{atingiuMetaDS ? <TrendingUp className="w-6 h-6 text-emerald-600 dark:text-emerald-400" /> : <TrendingDown className="w-6 h-6 text-red-600 dark:text-red-400" />}</div>
+              <div><h4 className={`font-bold ${atingiuMetaDS ? 'text-emerald-800 dark:text-emerald-500' : 'text-red-800 dark:text-red-500'}`}>Tendência de Fechamento: {atingiuMetaDS ? 'Positiva (Dentro da Meta)' : 'Negativa (Abaixo da Meta)'}</h4></div>
           </div>
       </div>
-
       {topOfensores.length > 0 && (
-        <div className="mb-8 p-6 bg-orange-50/40 border border-orange-200 rounded-2xl">
-          <h3 className="text-sm font-black text-orange-600 mb-4 uppercase tracking-wider flex items-center gap-2">
-            <AlertCircle className="w-5 h-5" /> Alerta Crítico: Filiais com Menor DS Previsto (Gargalos)
-          </h3>
+        <div className="mb-8 p-6 bg-orange-50/40 dark:bg-orange-900/10 border border-orange-200 dark:border-orange-900/30 rounded-2xl">
+          <h3 className="text-sm font-black text-orange-600 dark:text-orange-400 mb-4 uppercase tracking-wider flex items-center gap-2"><AlertCircle className="w-5 h-5" /> Alerta Crítico: Filiais com Menor DS Previsto (Gargalos)</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {topOfensores.map((filial, idx) => {
               const dsc = filial.ds >= 98.5 ? 'bg-emerald-500' : (filial.ds >= 95 ? 'bg-orange-500' : 'bg-red-500');
-              const dscText = filial.ds >= 98.5 ? 'text-emerald-600' : (filial.ds >= 95 ? 'text-orange-600' : 'text-red-600');
+              const dscText = filial.ds >= 98.5 ? 'text-emerald-600 dark:text-emerald-400' : (filial.ds >= 95 ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400');
               return (
-              <div key={idx} className="bg-white p-5 rounded-xl border border-orange-100 shadow-sm flex flex-col relative overflow-hidden">
+              <div key={idx} className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-orange-100 dark:border-orange-900/30 shadow-sm flex flex-col relative overflow-hidden">
                 <div className={`absolute top-0 left-0 w-1 h-full ${dsc}`}></div>
-                <div className="flex justify-between items-start mb-2">
-                   <div>
-                     <span className="font-black text-slate-800 text-lg block">{filial.filial}</span>
-                     <span className="text-xs font-bold text-slate-500">{filial.regional && filial.regional !== 'N/A' ? `Regional ${filial.regional}` : 'Sem Regional'}</span>
-                   </div>
-                   <span className={`text-xs font-black text-white ${dsc} px-2 py-0.5 rounded-full shadow-sm`}>#{idx + 1}</span>
-                </div>
-                
-                <div className="flex flex-col gap-1.5 my-3 px-3 py-2.5 bg-slate-50 rounded-lg border border-slate-100">
-                    <div className="flex justify-between items-center text-[10px] font-bold"><span className="text-slate-500 uppercase">Pacotes Totais</span><span className="text-slate-700">{formatQtd(filial.saldo)}</span></div>
-                    <div className="flex justify-between items-center text-[10px] font-bold"><span className="text-emerald-500 uppercase">Entregues</span><span className="text-slate-700">{formatQtd(filial.entregues)}</span></div>
-                    <div className="flex justify-between items-center text-[10px] font-bold"><span className="text-red-500 uppercase">Insucessos</span><span className="text-slate-700">{formatQtd(filial.saldo - filial.entregues)}</span></div>
-                </div>
-
-                <div className="flex justify-between items-end mt-auto pt-3 border-t border-slate-100">
-                  <div className="flex flex-col items-start">
-                     <span className="text-[10px] text-slate-400 uppercase font-bold">Status</span>
-                     <span className={`text-sm font-black ${dscText}`}>{filial.ds >= 98.5 ? 'Excelente' : (filial.ds >= 95 ? 'Atenção' : 'Crítico')}</span>
-                  </div>
-                  <div className="flex flex-col items-end">
-                     <span className="text-[10px] text-slate-400 uppercase font-bold">DS Projetado</span>
-                     <span className={`text-lg font-black ${dscText}`}>{formatDS(filial.ds)}</span>
-                  </div>
+                <div className="flex justify-between items-start mb-2"><div><span className="font-black text-slate-800 dark:text-white text-lg block">{filial.filial}</span></div><span className={`text-xs font-black text-white ${dsc} px-2 py-0.5 rounded-full shadow-sm`}>#{idx + 1}</span></div>
+                <div className="flex justify-between items-end mt-auto pt-3 border-t border-slate-100 dark:border-slate-700">
+                  <div className="flex flex-col items-start"><span className="text-[10px] text-slate-400 uppercase font-bold">Status</span><span className={`text-sm font-black ${dscText}`}>{filial.ds >= 98.5 ? 'Excelente' : (filial.ds >= 95 ? 'Atenção' : 'Crítico')}</span></div>
+                  <div className="flex flex-col items-end"><span className="text-[10px] text-slate-400 uppercase font-bold">DS Projetado</span><span className={`text-lg font-black ${dscText}`}>{formatDS(filial.ds)}</span></div>
                 </div>
               </div>
             )})}
           </div>
         </div>
       )}
-
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col xl:col-span-2">
-          <div className="flex items-center justify-between mb-4 px-2 pt-2">
-            <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider">
-              {selectedRegional ? `Filiais: ${selectedRegional}` : 'Projeção DS por Regional'}
-            </h3>
-            {selectedRegional && (
-              <button 
-                onClick={() => setSelectedRegional(null)}
-                className="text-[10px] sm:text-xs font-bold text-slate-600 bg-slate-200 px-2 py-1 rounded hover:bg-slate-300 transition-colors"
-              >
-                ← Voltar
-              </button>
-            )}
-          </div>
-          {!selectedRegional ? (
-            <NativeDSChart 
-              data={projRegionalData} 
-              labelKey="name" 
-              heightClass="h-[350px]" 
-              onBarClick={(r) => setSelectedRegional(r)}
-            />
-          ) : (
-            <NativeDSChart 
-              data={regionalDrilldownData} 
-              labelKey="filial" 
-              heightClass="h-[350px]" 
-            />
-          )}
+        <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 flex flex-col xl:col-span-2">
+          <div className="flex items-center justify-between mb-4 px-2 pt-2"><h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">{selectedRegional ? `Filiais: ${selectedRegional}` : 'Projeção DS por Regional'}</h3>{selectedRegional && (<button onClick={() => setSelectedRegional(null)} className="text-[10px] sm:text-xs font-bold text-slate-600 bg-slate-200 dark:bg-slate-700 dark:text-slate-300 px-2 py-1 rounded hover:bg-slate-300 transition-colors">← Voltar</button>)}</div>
+          {!selectedRegional ? <NativeDSChart data={projRegionalData} labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} /> : <NativeDSChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" />}
         </div>
-        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
-          <h3 className="text-sm font-bold text-slate-600 text-center mb-2 pt-2 uppercase tracking-wider">DS por Filial (Piores Resultados)</h3>
-          <NativeDSChart 
-            data={projFilialData.slice(0, 15)} 
-            labelKey="filial" 
-            heightClass="h-[350px]" 
-          />
-        </div>
-        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
-          <h3 className="text-sm font-bold text-slate-600 text-center mb-2 pt-2 uppercase tracking-wider">DS por Filial (Melhores Resultados)</h3>
-          <NativeDSChart 
-            data={[...projFilialData].filter(d => d.saldo > 0).sort((a,b) => b.ds - a.ds).slice(0, 15)} 
-            labelKey="filial" 
-            heightClass="h-[350px]" 
-          />
-        </div>
+        <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 flex flex-col"><h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 text-center mb-2 pt-2 uppercase tracking-wider">DS por Filial (Piores Resultados)</h3><NativeDSChart data={projFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" /></div>
+        <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 flex flex-col"><h3 className="text-sm font-bold text-slate-600 dark:text-slate-300 text-center mb-2 pt-2 uppercase tracking-wider">DS por Filial (Melhores Resultados)</h3><NativeDSChart data={[...projFilialData].filter(d => d.saldo > 0).sort((a,b) => b.ds - a.ds).slice(0, 15)} labelKey="filial" heightClass="h-[350px]" /></div>
       </div>
     </div>
   );
 };
 
 // ============================================================================
-// COMPONENTE: DETALHE FINANCEIRO (DRILL-DOWN)
+// COMPONENTE: DETALHE FINANCEIRO
 // ============================================================================
 const DetalheFinanceiroSection = ({ dadosFiltrados, onExport, isExporting }) => {
   const [sortConfig, setSortConfig] = useState({ key: 'totalValor', direction: 'desc' });
@@ -1269,262 +761,121 @@ const DetalheFinanceiroSection = ({ dadosFiltrados, onExport, isExporting }) => 
 
   const handleSort = (key) => {
     let direction = 'desc';
-    if (sortConfig.key === key && sortConfig.direction === 'desc') {
-      direction = 'asc';
-    }
+    if (sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     setSortConfig({ key, direction });
   };
 
   const handleLevelUp = () => {
-    if (selectedMotorista) {
-      setSelectedMotorista(null);
-      setSortConfig({ key: 'totalValor', direction: 'desc' });
-    } else if (selectedFilial) {
-      setSelectedFilial(null);
-      setSortConfig({ key: 'totalValor', direction: 'desc' });
-    }
+    if (selectedMotorista) { setSelectedMotorista(null); setSortConfig({ key: 'totalValor', direction: 'desc' }); } 
+    else if (selectedFilial) { setSelectedFilial(null); setSortConfig({ key: 'totalValor', direction: 'desc' }); }
   };
 
   const dataAgrupada = useMemo(() => {
     const map = {};
     dadosFiltrados.forEach(d => {
       const fKey = normalizeText(d.filial);
-      if (!map[fKey]) {
-        map[fKey] = {
-          filial: d.filial,
-          regional: d.regional || 'N/A',
-          supervisor: d.supervisor || 'N/A',
-          totalValor: 0, totalQtd: 0,
-          pnrValor: 0, pnrQtd: 0,
-          lostValor: 0, lostQtd: 0,
-          nvValor: 0, nvQtd: 0,
-          motoristasMap: {}
-        };
-      }
+      if (!map[fKey]) map[fKey] = { filial: d.filial, totalValor: 0, totalQtd: 0, pnrValor: 0, pnrQtd: 0, lostValor: 0, lostQtd: 0, nvValor: 0, nvQtd: 0, motoristasMap: {} };
       
       const mKey = normalizeText(d.motorista);
-      if (!map[fKey].motoristasMap[mKey]) {
-        map[fKey].motoristasMap[mKey] = {
-          motorista: d.motorista,
-          totalValor: 0, totalQtd: 0,
-          pnrValor: 0, pnrQtd: 0,
-          lostValor: 0, lostQtd: 0,
-          nvValor: 0, nvQtd: 0,
-          casos: []
-        };
-      }
+      if (!map[fKey].motoristasMap[mKey]) map[fKey].motoristasMap[mKey] = { motorista: d.motorista, totalValor: 0, totalQtd: 0, pnrValor: 0, pnrQtd: 0, lostValor: 0, lostQtd: 0, nvValor: 0, nvQtd: 0, casos: [] };
 
-      const qtd = d._pesoQtd !== undefined ? d._pesoQtd : 1;
-      const valor = d.valor || 0;
+      const qtd = d._pesoQtd !== undefined ? d._pesoQtd : 1; const valor = d.valor || 0;
 
-      // Agrega Filial
-      map[fKey].totalValor += valor;
-      map[fKey].totalQtd += qtd;
+      map[fKey].totalValor += valor; map[fKey].totalQtd += qtd;
       if (d.tipo === 'PNRs') { map[fKey].pnrValor += valor; map[fKey].pnrQtd += qtd; }
       else if (d.tipo === 'Lost Packages') { map[fKey].lostValor += valor; map[fKey].lostQtd += qtd; }
       else if (d.tipo === 'Not Visited') { map[fKey].nvValor += valor; map[fKey].nvQtd += qtd; }
 
-      // Agrega Motorista
-      map[fKey].motoristasMap[mKey].totalValor += valor;
-      map[fKey].motoristasMap[mKey].totalQtd += qtd;
+      map[fKey].motoristasMap[mKey].totalValor += valor; map[fKey].motoristasMap[mKey].totalQtd += qtd;
       if (d.tipo === 'PNRs') { map[fKey].motoristasMap[mKey].pnrValor += valor; map[fKey].motoristasMap[mKey].pnrQtd += qtd; }
       else if (d.tipo === 'Lost Packages') { map[fKey].motoristasMap[mKey].lostValor += valor; map[fKey].motoristasMap[mKey].lostQtd += qtd; }
       else if (d.tipo === 'Not Visited') { map[fKey].motoristasMap[mKey].nvValor += valor; map[fKey].motoristasMap[mKey].nvQtd += qtd; }
 
-      // Adiciona o caso individual
-      map[fKey].motoristasMap[mKey].casos.push({
-        tipo: d.tipo,
-        valor: valor,
-        qtd: qtd,
-        id_display: d.tipo === 'Not Visited' ? (d.id_rota || '-') : (d.id_pacote || '-')
-      });
+      map[fKey].motoristasMap[mKey].casos.push({ tipo: d.tipo, valor: valor, qtd: qtd, id_display: d.tipo === 'Not Visited' ? (d.id_rota || '-') : (d.id_pacote || '-') });
     });
-
-    return Object.values(map).map(f => ({
-      ...f,
-      motoristas: Object.values(f.motoristasMap)
-    }));
+    return Object.values(map).map(f => ({ ...f, motoristas: Object.values(f.motoristasMap) }));
   }, [dadosFiltrados]);
 
   const currentViewData = useMemo(() => {
-    const sortArray = (arr) => {
-      return [...arr].sort((a, b) => {
-        let aVal = a[sortConfig.key] !== undefined ? a[sortConfig.key] : '';
-        let bVal = b[sortConfig.key] !== undefined ? b[sortConfig.key] : '';
+    const sortArray = (arr) => [...arr].sort((a, b) => {
+        let aVal = a[sortConfig.key] !== undefined ? a[sortConfig.key] : ''; let bVal = b[sortConfig.key] !== undefined ? b[sortConfig.key] : '';
         if (typeof aVal === 'string') { aVal = aVal.toLowerCase(); bVal = bVal.toLowerCase(); }
         if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
         return 0;
-      });
-    };
-
-    if (!selectedFilial) {
-      return sortArray(dataAgrupada);
-    }
-    
+    });
+    if (!selectedFilial) return sortArray(dataAgrupada);
     const filialData = dataAgrupada.find(f => f.filial === selectedFilial);
     if (!filialData) return [];
-
-    if (!selectedMotorista) {
-      return sortArray(filialData.motoristas);
-    }
-
+    if (!selectedMotorista) return sortArray(filialData.motoristas);
     const motoristaData = filialData.motoristas.find(m => m.motorista === selectedMotorista);
     if (!motoristaData) return [];
-
     return sortArray(motoristaData.casos);
   }, [dataAgrupada, selectedFilial, selectedMotorista, sortConfig]);
 
   const SortIcon = ({ columnKey }) => {
     if (sortConfig.key !== columnKey) return <ArrowUpDown className="w-3 h-3 inline-block ml-1 opacity-30" />;
-    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 inline-block ml-1 text-blue-600" /> : <ArrowDown className="w-3 h-3 inline-block ml-1 text-blue-600" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 inline-block ml-1 text-blue-600 dark:text-blue-400" /> : <ArrowDown className="w-3 h-3 inline-block ml-1 text-blue-600 dark:text-blue-400" />;
   };
 
   return (
-    <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
+    <div className="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 mb-8 flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 dark:border-slate-700 pb-4">
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <DollarSign className="w-6 h-6 text-blue-600 shrink-0" />
+          <DollarSign className="w-6 h-6 text-blue-600 dark:text-blue-400 shrink-0" />
           <div className="min-w-0">
-             <h2 
-               className="text-xl md:text-2xl font-bold text-slate-800 truncate" 
-               title={selectedMotorista ? `Casos Ofensores: ${selectedMotorista}` : selectedFilial ? `Motoristas da Filial: ${selectedFilial}` : 'Detalhamento Financeiro'}
-             >
-               {selectedMotorista 
-                 ? `Casos: ${selectedMotorista}` 
-                 : selectedFilial 
-                   ? `Motoristas: ${selectedFilial}` 
-                   : 'Detalhamento Financeiro'}
-             </h2>
-             <p className="text-sm text-slate-500 font-medium truncate">Análise interativa por Filial, Motorista e Casos Ofensores.</p>
+             <h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white truncate">{selectedMotorista ? `Casos: ${selectedMotorista}` : selectedFilial ? `Motoristas: ${selectedFilial}` : 'Detalhamento Financeiro'}</h2>
           </div>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto shrink-0">
-          {(selectedFilial || selectedMotorista) && (
-            <button 
-              onClick={handleLevelUp}
-              className="flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm shrink-0 w-full sm:w-auto"
-            >
-              ← Voltar
-            </button>
-          )}
-          <button 
-            onClick={() => onExport({ filial: selectedFilial, motorista: selectedMotorista })} 
-            disabled={isExporting} 
-            className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 shadow-sm shrink-0 w-full sm:w-auto"
-          >
-            {isExporting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} 
-            Gerar Planilha Excel
+          {(selectedFilial || selectedMotorista) && (<button onClick={handleLevelUp} className="bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 px-4 py-2.5 rounded-xl text-sm font-bold shadow-sm transition-colors">← Voltar</button>)}
+          <button onClick={() => onExport({ filial: selectedFilial, motorista: selectedMotorista })} disabled={isExporting} className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-sm disabled:opacity-50 transition-colors">
+            {isExporting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} Gerar Planilha Excel
           </button>
         </div>
       </div>
-      
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-sm w-full">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm w-full">
         <table className="w-full text-left border-collapse min-w-[1000px]">
-          <thead className="bg-slate-50 sticky top-0 z-20 shadow-sm">
+          <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0 z-20 shadow-sm">
             {!selectedMotorista ? (
-              <tr className="text-[10px] uppercase tracking-wider text-slate-500 select-none">
-                <th className="py-3 px-3 font-bold border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort(selectedFilial ? 'motorista' : 'filial')}>
-                  {selectedFilial ? 'Motorista' : 'Filial'} <SortIcon columnKey={selectedFilial ? 'motorista' : 'filial'} />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-slate-800 bg-slate-100/50" onClick={() => handleSort('totalValor')}>
-                  Total (R$) <SortIcon columnKey="totalValor" />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-slate-800 bg-slate-100/50" onClick={() => handleSort('totalQtd')}>
-                  Total (Qtd) <SortIcon columnKey="totalQtd" />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-blue-600 bg-blue-50/30" onClick={() => handleSort('pnrValor')}>
-                  PNR (R$) <SortIcon columnKey="pnrValor" />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-blue-600 bg-blue-50/30" onClick={() => handleSort('pnrQtd')}>
-                  PNR (Qtd) <SortIcon columnKey="pnrQtd" />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-orange-600 bg-orange-50/30" onClick={() => handleSort('lostValor')}>
-                  Lost (R$) <SortIcon columnKey="lostValor" />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-orange-600 bg-orange-50/30" onClick={() => handleSort('lostQtd')}>
-                  Lost (Qtd) <SortIcon columnKey="lostQtd" />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('nvValor')}>
-                  NV (R$) <SortIcon columnKey="nvValor" />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('nvQtd')}>
-                  NV (Qtd) <SortIcon columnKey="nvQtd" />
-                </th>
+              <tr className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort(selectedFilial ? 'motorista' : 'filial')}>{selectedFilial ? 'Motorista' : 'Filial'} <SortIcon columnKey={selectedFilial ? 'motorista' : 'filial'} /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-800 dark:text-slate-200 bg-slate-100/50 dark:bg-slate-800/50" onClick={() => handleSort('totalValor')}>Total (R$) <SortIcon columnKey="totalValor" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-800 dark:text-slate-200 bg-slate-100/50 dark:bg-slate-800/50" onClick={() => handleSort('totalQtd')}>Total (Qtd) <SortIcon columnKey="totalQtd" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20" onClick={() => handleSort('pnrValor')}>PNR (R$) <SortIcon columnKey="pnrValor" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20" onClick={() => handleSort('pnrQtd')}>PNR (Qtd) <SortIcon columnKey="pnrQtd" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-orange-600 dark:text-orange-400 bg-orange-50/30 dark:bg-orange-900/20" onClick={() => handleSort('lostValor')}>Lost (R$) <SortIcon columnKey="lostValor" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-orange-600 dark:text-orange-400 bg-orange-50/30 dark:bg-orange-900/20" onClick={() => handleSort('lostQtd')}>Lost (Qtd) <SortIcon columnKey="lostQtd" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('nvValor')}>NV (R$) <SortIcon columnKey="nvValor" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('nvQtd')}>NV (Qtd) <SortIcon columnKey="nvQtd" /></th>
               </tr>
             ) : (
-              <tr className="text-[10px] uppercase tracking-wider text-slate-500 select-none">
-                <th className="py-3 px-3 font-bold border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors whitespace-nowrap w-[1%]" onClick={() => handleSort('tipo')}>
-                  Tipo Penalidade <SortIcon columnKey="tipo" />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors whitespace-nowrap w-[1%]" onClick={() => handleSort('id_display')}>
-                  ID (Pacote / Rota) <SortIcon columnKey="id_display" />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-slate-800 bg-slate-100/50 whitespace-nowrap w-[1%]" onClick={() => handleSort('valor')}>
-                  Valor (R$) <SortIcon columnKey="valor" />
-                </th>
-                <th className="py-3 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors text-slate-800 bg-slate-100/50 whitespace-nowrap w-[1%]" onClick={() => handleSort('qtd')}>
-                  Quantidade <SortIcon columnKey="qtd" />
-                </th>
-                <th className="py-3 px-3 border-b border-slate-200 w-full"></th>
+              <tr className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('tipo')}>Tipo <SortIcon columnKey="tipo" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('id_display')}>ID <SortIcon columnKey="id_display" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('valor')}>Valor (R$) <SortIcon columnKey="valor" /></th>
               </tr>
             )}
           </thead>
           <tbody>
-            {currentViewData.length === 0 && (
-              <tr>
-                <td colSpan={selectedMotorista ? "5" : "9"} className="py-8 text-center text-slate-400 font-medium text-xs bg-white">
-                  Nenhum dado encontrado para os filtros selecionados.
-                </td>
-              </tr>
-            )}
-            
-            {/* RENDER NÍVEL 1 & 2 (FILIAIS E MOTORISTAS) */}
             {!selectedMotorista && currentViewData.map((row, idx) => (
-              <tr 
-                key={`drill-${idx}`}
-                onClick={() => {
-                  if (!selectedFilial) {
-                    setSelectedFilial(row.filial);
-                    setSortConfig({ key: 'totalValor', direction: 'desc' });
-                  } else {
-                    setSelectedMotorista(row.motorista);
-                    setSortConfig({ key: 'valor', direction: 'desc' });
-                  }
-                }}
-                className="border-b border-slate-100 hover:bg-blue-50/50 cursor-pointer transition-colors group bg-white text-xs"
-              >
-                <td className="py-2.5 px-3 font-medium text-slate-700">
-                   {selectedFilial ? row.motorista : row.filial}
-                </td>
-                <td className="py-2.5 px-3 font-semibold text-right text-slate-800 bg-slate-50/30">{formatCurrency(row.totalValor)}</td>
-                <td className="py-2.5 px-3 font-medium text-right text-slate-600 bg-slate-50/30">{formatQtd(row.totalQtd)}</td>
-                
-                <td className="py-2.5 px-3 font-medium text-right text-blue-700 bg-blue-50/10">{formatCurrency(row.pnrValor)}</td>
-                <td className="py-2.5 px-3 font-medium text-right text-blue-600 bg-blue-50/10">{formatQtd(row.pnrQtd)}</td>
-                
-                <td className="py-2.5 px-3 font-medium text-right text-orange-700 bg-orange-50/10">{formatCurrency(row.lostValor)}</td>
-                <td className="py-2.5 px-3 font-medium text-right text-orange-600 bg-orange-50/10">{formatQtd(row.lostQtd)}</td>
-                
-                <td className="py-2.5 px-3 font-medium text-right text-slate-700">{formatCurrency(row.nvValor)}</td>
-                <td className="py-2.5 px-3 font-medium text-right text-slate-500">{formatQtd(row.nvQtd)}</td>
+              <tr key={idx} onClick={() => { if (!selectedFilial) { setSelectedFilial(row.filial); setSortConfig({ key: 'totalValor', direction: 'desc' }); } else { setSelectedMotorista(row.motorista); setSortConfig({ key: 'valor', direction: 'desc' }); } }} className="border-b border-slate-100 dark:border-slate-700/50 hover:bg-blue-50/50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors bg-white dark:bg-slate-800 text-xs">
+                <td className="py-2.5 px-3 font-medium text-slate-700 dark:text-slate-300">{selectedFilial ? row.motorista : row.filial}</td>
+                <td className="py-2.5 px-3 font-semibold text-right text-slate-800 dark:text-slate-200 bg-slate-50/30 dark:bg-slate-800/50">{formatCurrency(row.totalValor)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-slate-600 dark:text-slate-400 bg-slate-50/30 dark:bg-slate-800/50">{formatQtd(row.totalQtd)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-blue-700 dark:text-blue-400 bg-blue-50/10 dark:bg-blue-900/10">{formatCurrency(row.pnrValor)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-blue-600 dark:text-blue-500 bg-blue-50/10 dark:bg-blue-900/10">{formatQtd(row.pnrQtd)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-orange-700 dark:text-orange-400 bg-orange-50/10 dark:bg-orange-900/10">{formatCurrency(row.lostValor)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-orange-600 dark:text-orange-500 bg-orange-50/10 dark:bg-orange-900/10">{formatQtd(row.lostQtd)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-slate-700 dark:text-slate-300">{formatCurrency(row.nvValor)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-slate-500 dark:text-slate-400">{formatQtd(row.nvQtd)}</td>
               </tr>
             ))}
-
-            {/* RENDER NÍVEL 3 (CASOS / IDs) */}
             {selectedMotorista && currentViewData.map((caso, idx) => (
-              <tr key={`caso-${idx}`} className="border-b border-slate-100 bg-white hover:bg-slate-50 transition-colors text-xs">
-                <td className="py-2 px-3 whitespace-nowrap w-[1%]">
-                  <span className={`px-2 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
-                    caso.tipo === 'PNRs' ? 'bg-blue-50 text-blue-600' : 
-                    caso.tipo === 'Lost Packages' ? 'bg-orange-50 text-orange-600' : 
-                    'bg-slate-100 text-slate-600'
-                  }`}>{caso.tipo}</span>
-                </td>
-                <td className="py-2 px-3 text-slate-600 font-mono text-[11px] whitespace-nowrap w-[1%]">{caso.id_display}</td>
-                <td className="py-2 px-3 font-semibold text-right text-slate-800 bg-slate-50/30 whitespace-nowrap w-[1%]">{formatCurrency(caso.valor)}</td>
-                <td className="py-2 px-3 font-medium text-right text-slate-600 bg-slate-50/30 whitespace-nowrap w-[1%]">{formatQtd(caso.qtd)}</td>
-                <td className="w-full"></td>
+              <tr key={idx} className="border-b border-slate-100 dark:border-slate-700/50 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-xs">
+                <td className="py-2 px-3 font-semibold uppercase dark:text-slate-300">{caso.tipo}</td>
+                <td className="py-2 px-3 font-mono text-[11px] dark:text-slate-400">{caso.id_display}</td>
+                <td className="py-2 px-3 font-semibold text-right dark:text-slate-200">{formatCurrency(caso.valor)}</td>
               </tr>
             ))}
           </tbody>
@@ -1544,45 +895,29 @@ const ComparativoBscSection = ({ dataOp, dataBsc }) => {
 
   const handleSort = (key) => {
     let direction = 'desc';
-    if (sortConfig.key === key && sortConfig.direction === 'desc') {
-      direction = 'asc';
-    }
+    if (sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     setSortConfig({ key, direction });
   };
 
   const handleLevelUp = () => {
-    if (selectedMotorista) {
-      setSelectedMotorista(null);
-    } else if (selectedFilial) {
-      setSelectedFilial(null);
-    }
+    if (selectedMotorista) { setSelectedMotorista(null); } else if (selectedFilial) { setSelectedFilial(null); }
     setSortConfig({ key: 'absDiff', direction: 'desc' });
   };
 
   const { mergedData, viewOp, viewBsc } = useMemo(() => {
     const map = {};
     let vOpSaldo = 0, vOpEntregues = 0, vBscSaldo = 0, vBscEntregues = 0;
-    const vOpRotas = new Set();
-    const vBscRotas = new Set();
+    const vOpRotas = new Set(); const vBscRotas = new Set();
 
-    let dataToGroupOp = dataOp;
-    let dataToGroupBsc = dataBsc;
-
-    if (selectedFilial) {
-      dataToGroupOp = dataToGroupOp.filter(d => d.filial === selectedFilial);
-      dataToGroupBsc = dataToGroupBsc.filter(d => d.filial === selectedFilial);
-    }
-    if (selectedMotorista) {
-      dataToGroupOp = dataToGroupOp.filter(d => d.motorista === selectedMotorista);
-      dataToGroupBsc = dataToGroupBsc.filter(d => d.motorista === selectedMotorista);
-    }
+    let dataToGroupOp = dataOp; let dataToGroupBsc = dataBsc;
+    if (selectedFilial) { dataToGroupOp = dataToGroupOp.filter(d => d.filial === selectedFilial); dataToGroupBsc = dataToGroupBsc.filter(d => d.filial === selectedFilial); }
+    if (selectedMotorista) { dataToGroupOp = dataToGroupOp.filter(d => d.motorista === selectedMotorista); dataToGroupBsc = dataToGroupBsc.filter(d => d.motorista === selectedMotorista); }
 
     const getGroupingKey = (d) => {
       if (!selectedFilial) return normalizeText(d.filial);
       if (!selectedMotorista) return normalizeText(d.motorista);
       return normalizeText(d.id_rota && d.id_rota !== '-' ? d.id_rota : `${d.quinzena}-SemID`);
     };
-
     const getDisplayLabel = (d) => {
       if (!selectedFilial) return d.filial;
       if (!selectedMotorista) return d.motorista;
@@ -1592,63 +927,39 @@ const ComparativoBscSection = ({ dataOp, dataBsc }) => {
     dataToGroupOp.forEach(d => {
       const k = getGroupingKey(d);
       if (!map[k]) map[k] = { label: getDisplayLabel(d), opSaldo: 0, opEntregues: 0, bscSaldo: 0, bscEntregues: 0, opRotas: new Set(), bscRotas: new Set() };
-      
-      map[k].opSaldo += d.saldo;
-      map[k].opEntregues += d.entregues;
-      
+      map[k].opSaldo += d.saldo; map[k].opEntregues += d.entregues;
       const routeId = d.id_rota && d.id_rota !== '-' ? d.id_rota : `${d.quinzena}-${d.motorista}`; 
       map[k].opRotas.add(routeId);
-      
-      vOpSaldo += d.saldo;
-      vOpEntregues += d.entregues;
-      vOpRotas.add(routeId);
+      vOpSaldo += d.saldo; vOpEntregues += d.entregues; vOpRotas.add(routeId);
     });
 
     dataToGroupBsc.forEach(d => {
       const k = getGroupingKey(d);
       if (!map[k]) map[k] = { label: getDisplayLabel(d), opSaldo: 0, opEntregues: 0, bscSaldo: 0, bscEntregues: 0, opRotas: new Set(), bscRotas: new Set() };
-      
-      map[k].bscSaldo += d.saldo;
-      map[k].bscEntregues += d.entregues;
-      
+      map[k].bscSaldo += d.saldo; map[k].bscEntregues += d.entregues;
       const routeId = d.id_rota && d.id_rota !== '-' ? d.id_rota : `${d.quinzena}-${d.motorista}`; 
       map[k].bscRotas.add(routeId);
-      
-      vBscSaldo += d.saldo;
-      vBscEntregues += d.entregues;
-      vBscRotas.add(routeId);
+      vBscSaldo += d.saldo; vBscEntregues += d.entregues; vBscRotas.add(routeId);
     });
 
     const parsedData = Object.values(map).map(row => {
-      const opRotasCount = row.opRotas.size;
-      const bscRotasCount = row.bscRotas.size;
-      
-      const diffRotas = opRotasCount - bscRotasCount;
-      const diffSaldo = row.opSaldo - row.bscSaldo;
-      const diffEntregues = row.opEntregues - row.bscEntregues;
-      
-      const dsOp = row.opSaldo > 0 ? (row.opEntregues / row.opSaldo) * 100 : 0;
-      const dsBsc = row.bscSaldo > 0 ? (row.bscEntregues / row.bscSaldo) * 100 : 0;
-      const diffDs = dsOp - dsBsc;
-      
-      const absDiff = Math.abs(diffSaldo) + Math.abs(diffEntregues) + Math.abs(diffRotas);
-
-      return {
-        ...row, opRotasCount, bscRotasCount, diffRotas, diffSaldo, diffEntregues, dsOp, dsBsc, diffDs, absDiff
-      };
+      const opRotasCount = row.opRotas.size; const bscRotasCount = row.bscRotas.size;
+      const diffRotas = opRotasCount - bscRotasCount; const diffSaldo = row.opSaldo - row.bscSaldo; const diffEntregues = row.opEntregues - row.bscEntregues;
+      const dsOp = Math.min(100, row.opSaldo > 0 ? (row.opEntregues / row.opSaldo) * 100 : 0);
+      const dsBsc = Math.min(100, row.bscSaldo > 0 ? (row.bscEntregues / row.bscSaldo) * 100 : 0);
+      return { ...row, opRotasCount, bscRotasCount, diffRotas, diffSaldo, diffEntregues, dsOp, dsBsc, diffDs: dsOp - dsBsc, absDiff: Math.abs(diffSaldo) + Math.abs(diffEntregues) + Math.abs(diffRotas) };
     });
 
     return {
       mergedData: parsedData,
-      viewOp: { saldo: vOpSaldo, entregues: vOpEntregues, rotas: vOpRotas.size, ds: vOpSaldo > 0 ? (vOpEntregues / vOpSaldo) * 100 : 0 },
-      viewBsc: { saldo: vBscSaldo, entregues: vBscEntregues, rotas: vBscRotas.size, ds: vBscSaldo > 0 ? (vBscEntregues / vBscSaldo) * 100 : 0 }
+      viewOp: { saldo: vOpSaldo, entregues: vOpEntregues, rotas: vOpRotas.size, ds: Math.min(100, vOpSaldo > 0 ? (vOpEntregues / vOpSaldo) * 100 : 0) },
+      viewBsc: { saldo: vBscSaldo, entregues: vBscEntregues, rotas: vBscRotas.size, ds: Math.min(100, vBscSaldo > 0 ? (vBscEntregues / vBscSaldo) * 100 : 0) }
     };
   }, [dataOp, dataBsc, selectedFilial, selectedMotorista]);
 
   const sortedData = useMemo(() => {
     return [...mergedData].sort((a, b) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
+      let aVal = a[sortConfig.key]; let bVal = b[sortConfig.key];
       if (typeof aVal === 'string') { aVal = aVal.toLowerCase(); bVal = bVal.toLowerCase(); }
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
@@ -1657,170 +968,304 @@ const ComparativoBscSection = ({ dataOp, dataBsc }) => {
   }, [mergedData, sortConfig]);
 
   const renderBadge = (val, isPercent = false) => {
-    if (Math.abs(val) < 0.01) return <span className="bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded text-[10px]">OK</span>;
+    if (Math.abs(val) < 0.01) return <span className="bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400 font-bold px-2 py-0.5 rounded text-[10px]">OK</span>;
     const isPositive = val > 0;
-    const text = isPositive ? `+${isPercent ? val.toFixed(2) : formatQtd(val)}` : `${isPercent ? val.toFixed(2) : formatQtd(val)}`;
-    const color = isPositive ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600';
-    return <span className={`${color} font-bold px-2 py-0.5 rounded text-[10px] whitespace-nowrap`}>{text}{isPercent ? '%' : ''}</span>;
+    return <span className={`${isPositive ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400' : 'bg-orange-50 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'} font-bold px-2 py-0.5 rounded text-[10px] whitespace-nowrap`}>{isPositive ? '+' : ''}{isPercent ? val.toFixed(2) : formatQtd(val)}{isPercent ? '%' : ''}</span>;
   };
 
   const SortIcon = ({ columnKey }) => {
     if (sortConfig.key !== columnKey) return <ArrowUpDown className="w-3 h-3 inline-block ml-1 opacity-30" />;
-    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 inline-block ml-1 text-blue-600" /> : <ArrowDown className="w-3 h-3 inline-block ml-1 text-blue-600" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 inline-block ml-1 text-blue-600 dark:text-blue-400" /> : <ArrowDown className="w-3 h-3 inline-block ml-1 text-blue-600 dark:text-blue-400" />;
   };
 
   return (
-    <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
+    <div className="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 mb-8 flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 dark:border-slate-700 pb-4">
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <GitCompare className="w-6 h-6 text-violet-600 shrink-0" />
+          <GitCompare className="w-6 h-6 text-violet-600 dark:text-violet-400 shrink-0" />
           <div className="min-w-0">
-             <h2 className="text-xl md:text-2xl font-bold text-slate-800 truncate">
-               {selectedMotorista ? `Rotas do Motorista: ${selectedMotorista}` : selectedFilial ? `Motoristas: ${selectedFilial}` : 'Operacional vs BSC'}
-             </h2>
-             <p className="text-sm text-slate-500 font-medium truncate">Auditoria de divergências nas métricas (Filtros atuais aplicados).</p>
+             <h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white truncate">{selectedMotorista ? `Rotas do Motorista: ${selectedMotorista}` : selectedFilial ? `Motoristas: ${selectedFilial}` : 'Operacional vs BSC'}</h2>
           </div>
         </div>
-        {(selectedFilial || selectedMotorista) && (
-           <button 
-             onClick={handleLevelUp}
-             className="flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm shrink-0"
-           >
-             ← Voltar
-           </button>
-        )}
+        {(selectedFilial || selectedMotorista) && (<button onClick={handleLevelUp} className="bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 px-4 py-2.5 rounded-xl text-sm font-bold shadow-sm shrink-0 transition-colors">← Voltar</button>)}
       </div>
 
-      {/* OVERVIEW CARDS (AJUSTADOS DINAMICAMENTE PARA FILIAL/MOTORISTA) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-2">
-        <div className="bg-slate-50 border border-slate-200 p-4 xl:p-5 rounded-2xl flex flex-col items-center">
-          <span className="text-[10px] xl:text-xs font-bold text-slate-500 uppercase mb-3 text-center">Diferença de Rotas</span>
-          <div className="flex gap-2 xl:gap-4 items-center">
-             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold text-blue-600">{formatQtd(viewOp.rotas)}</span></div>
-             <span className="text-slate-300 font-black text-lg">/</span>
-             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold text-blue-600">{formatQtd(viewBsc.rotas)}</span></div>
-          </div>
-          <div className="mt-3">{renderBadge(viewOp.rotas - viewBsc.rotas)}</div>
-        </div>
-        <div className="bg-slate-50 border border-slate-200 p-4 xl:p-5 rounded-2xl flex flex-col items-center">
-          <span className="text-[10px] xl:text-xs font-bold text-slate-500 uppercase mb-3 text-center">Diferença de Pacotes</span>
-          <div className="flex gap-2 xl:gap-4 items-center">
-             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold">{formatQtd(viewOp.saldo)}</span></div>
-             <span className="text-slate-300 font-black text-lg">/</span>
-             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold">{formatQtd(viewBsc.saldo)}</span></div>
-          </div>
-          <div className="mt-3">{renderBadge(viewOp.saldo - viewBsc.saldo)}</div>
-        </div>
-        <div className="bg-slate-50 border border-slate-200 p-4 xl:p-5 rounded-2xl flex flex-col items-center">
-          <span className="text-[10px] xl:text-xs font-bold text-slate-500 uppercase mb-3 text-center">Diferença de Entregues</span>
-          <div className="flex gap-2 xl:gap-4 items-center">
-             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold text-emerald-600">{formatQtd(viewOp.entregues)}</span></div>
-             <span className="text-slate-300 font-black text-lg">/</span>
-             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold text-emerald-600">{formatQtd(viewBsc.entregues)}</span></div>
-          </div>
-          <div className="mt-3">{renderBadge(viewOp.entregues - viewBsc.entregues)}</div>
-        </div>
-        <div className="bg-slate-50 border border-slate-200 p-4 xl:p-5 rounded-2xl flex flex-col items-center">
-          <span className="text-[10px] xl:text-xs font-bold text-slate-500 uppercase mb-3 text-center">Diferença do DS %</span>
-          <div className="flex gap-2 xl:gap-4 items-center">
-             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold text-violet-600">{formatDS(viewOp.ds)}</span></div>
-             <span className="text-slate-300 font-black text-lg">/</span>
-             <div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold text-violet-600">{formatDS(viewBsc.ds)}</span></div>
-          </div>
-          <div className="mt-3">{renderBadge(viewOp.ds - viewBsc.ds, true)}</div>
-        </div>
+        <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 p-4 xl:p-5 rounded-2xl flex flex-col items-center"><span className="text-[10px] xl:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 text-center">Diferença de Rotas</span><div className="flex gap-2 xl:gap-4 items-center"><div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold text-blue-600 dark:text-blue-400">{formatQtd(viewOp.rotas)}</span></div><span className="text-slate-300 dark:text-slate-600 font-black text-lg">/</span><div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold text-blue-600 dark:text-blue-400">{formatQtd(viewBsc.rotas)}</span></div></div><div className="mt-3">{renderBadge(viewOp.rotas - viewBsc.rotas)}</div></div>
+        <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 p-4 xl:p-5 rounded-2xl flex flex-col items-center"><span className="text-[10px] xl:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 text-center">Diferença de Pacotes</span><div className="flex gap-2 xl:gap-4 items-center"><div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold dark:text-white">{formatQtd(viewOp.saldo)}</span></div><span className="text-slate-300 dark:text-slate-600 font-black text-lg">/</span><div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold dark:text-white">{formatQtd(viewBsc.saldo)}</span></div></div><div className="mt-3">{renderBadge(viewOp.saldo - viewBsc.saldo)}</div></div>
+        <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 p-4 xl:p-5 rounded-2xl flex flex-col items-center"><span className="text-[10px] xl:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 text-center">Diferença de Entregues</span><div className="flex gap-2 xl:gap-4 items-center"><div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatQtd(viewOp.entregues)}</span></div><span className="text-slate-300 dark:text-slate-600 font-black text-lg">/</span><div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatQtd(viewBsc.entregues)}</span></div></div><div className="mt-3">{renderBadge(viewOp.entregues - viewBsc.entregues)}</div></div>
+        <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 p-4 xl:p-5 rounded-2xl flex flex-col items-center"><span className="text-[10px] xl:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 text-center">Diferença do DS %</span><div className="flex gap-2 xl:gap-4 items-center"><div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">Operacional</span><span className="font-mono text-sm font-bold text-violet-600 dark:text-violet-400">{formatDS(viewOp.ds)}</span></div><span className="text-slate-300 dark:text-slate-600 font-black text-lg">/</span><div className="text-center"><span className="block text-[9px] xl:text-[10px] text-slate-400 font-bold">BSC Oficial</span><span className="font-mono text-sm font-bold text-violet-600 dark:text-violet-400">{formatDS(viewBsc.ds)}</span></div></div><div className="mt-3">{renderBadge(viewOp.ds - viewBsc.ds, true)}</div></div>
       </div>
       
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-sm w-full">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm w-full">
         <table className="w-full text-left border-collapse min-w-[1000px]">
-          <thead className="bg-slate-50 sticky top-0 z-20 shadow-sm">
-             <tr className="text-[10px] uppercase tracking-wider text-slate-500 select-none">
-                <th className="py-3 px-3 font-bold border-b border-r border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors bg-white z-30" rowSpan={2} onClick={() => handleSort('label')}>
-                   {selectedMotorista ? 'Rota (ID)' : selectedFilial ? 'Motorista' : 'Filial'} <SortIcon columnKey="label" />
-                </th>
-                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center bg-blue-50/30" colSpan={3}>
-                   Rotas Únicas
-                </th>
-                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center bg-slate-100/50" colSpan={3}>
-                   Total de Pacotes (Saldo)
-                </th>
-                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center bg-emerald-50/30" colSpan={3}>
-                   Pacotes Entregues
-                </th>
-                <th className="py-2 px-3 font-bold border-b border-slate-200 text-center bg-violet-50/30" colSpan={3}>
-                   Delivery Success (DS)
-                </th>
+          <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0 z-20 shadow-sm">
+             <tr className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                <th className="py-3 px-3 font-bold border-b border-r border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors bg-white dark:bg-slate-900 z-30" rowSpan={2} onClick={() => handleSort('label')}>{selectedMotorista ? 'Rota (ID)' : selectedFilial ? 'Motorista' : 'Filial'} <SortIcon columnKey="label" /></th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 dark:border-slate-700 text-center bg-blue-50/30 dark:bg-blue-900/20" colSpan={3}>Rotas Únicas</th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 dark:border-slate-700 text-center bg-slate-100/50 dark:bg-slate-800/50" colSpan={3}>Total de Pacotes (Saldo)</th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 dark:border-slate-700 text-center bg-emerald-50/30 dark:bg-emerald-900/20" colSpan={3}>Pacotes Entregues</th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-center bg-violet-50/30 dark:bg-violet-900/20" colSpan={3}>Delivery Success (DS)</th>
              </tr>
              <tr className="text-[9px] uppercase tracking-wider text-slate-400 select-none">
-                {/* ROTAS */}
-                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-blue-50 transition-colors bg-blue-50/30 text-blue-700" onClick={() => handleSort('opRotasCount')}>Op. <SortIcon columnKey="opRotasCount" /></th>
-                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-blue-50 transition-colors bg-blue-50/30 text-blue-700" onClick={() => handleSort('bscRotasCount')}>BSC <SortIcon columnKey="bscRotasCount" /></th>
-                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center cursor-pointer hover:bg-blue-50 transition-colors bg-blue-100/50 text-blue-800" onClick={() => handleSort('diffRotas')}>Diff <SortIcon columnKey="diffRotas" /></th>
-                {/* SALDO */}
-                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors bg-slate-100/50" onClick={() => handleSort('opSaldo')}>Op. <SortIcon columnKey="opSaldo" /></th>
-                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-slate-100 transition-colors bg-slate-100/50" onClick={() => handleSort('bscSaldo')}>BSC <SortIcon columnKey="bscSaldo" /></th>
-                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center cursor-pointer hover:bg-slate-100 transition-colors bg-slate-100/80" onClick={() => handleSort('diffSaldo')}>Diff <SortIcon columnKey="diffSaldo" /></th>
-                {/* ENTREGUES */}
-                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-emerald-50 transition-colors bg-emerald-50/30 text-emerald-700" onClick={() => handleSort('opEntregues')}>Op. <SortIcon columnKey="opEntregues" /></th>
-                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-emerald-50 transition-colors bg-emerald-50/30 text-emerald-700" onClick={() => handleSort('bscEntregues')}>BSC <SortIcon columnKey="bscEntregues" /></th>
-                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 text-center cursor-pointer hover:bg-emerald-50 transition-colors bg-emerald-100/50 text-emerald-800" onClick={() => handleSort('diffEntregues')}>Diff <SortIcon columnKey="diffEntregues" /></th>
-                {/* DS */}
-                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-violet-50 transition-colors bg-violet-50/30 text-violet-700" onClick={() => handleSort('dsOp')}>Op. <SortIcon columnKey="dsOp" /></th>
-                <th className="py-2 px-3 font-bold border-b border-slate-200 text-right cursor-pointer hover:bg-violet-50 transition-colors bg-violet-50/30 text-violet-700" onClick={() => handleSort('dsBsc')}>BSC <SortIcon columnKey="dsBsc" /></th>
-                <th className="py-2 px-3 font-bold border-b border-slate-200 text-center cursor-pointer hover:bg-violet-50 transition-colors bg-violet-100/50 text-violet-800" onClick={() => handleSort('diffDs')}>Diff <SortIcon columnKey="diffDs" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors bg-blue-50/30 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400" onClick={() => handleSort('opRotasCount')}>Op. <SortIcon columnKey="opRotasCount" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors bg-blue-50/30 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400" onClick={() => handleSort('bscRotasCount')}>BSC <SortIcon columnKey="bscRotasCount" /></th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 dark:border-slate-700 text-center cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors bg-blue-100/50 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300" onClick={() => handleSort('diffRotas')}>Diff <SortIcon columnKey="diffRotas" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors bg-slate-100/50 dark:bg-slate-800/50" onClick={() => handleSort('opSaldo')}>Op. <SortIcon columnKey="opSaldo" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors bg-slate-100/50 dark:bg-slate-800/50" onClick={() => handleSort('bscSaldo')}>BSC <SortIcon columnKey="bscSaldo" /></th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 dark:border-slate-700 text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors bg-slate-100/80 dark:bg-slate-700/50" onClick={() => handleSort('diffSaldo')}>Diff <SortIcon columnKey="diffSaldo" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors bg-emerald-50/30 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400" onClick={() => handleSort('opEntregues')}>Op. <SortIcon columnKey="opEntregues" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors bg-emerald-50/30 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400" onClick={() => handleSort('bscEntregues')}>BSC <SortIcon columnKey="bscEntregues" /></th>
+                <th className="py-2 px-3 font-bold border-b border-r border-slate-200 dark:border-slate-700 text-center cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors bg-emerald-100/50 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300" onClick={() => handleSort('diffEntregues')}>Diff <SortIcon columnKey="diffEntregues" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-violet-50 dark:hover:bg-violet-900/30 transition-colors bg-violet-50/30 dark:bg-violet-900/20 text-violet-700 dark:text-violet-400" onClick={() => handleSort('dsOp')}>Op. <SortIcon columnKey="dsOp" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-violet-50 dark:hover:bg-violet-900/30 transition-colors bg-violet-50/30 dark:bg-violet-900/20 text-violet-700 dark:text-violet-400" onClick={() => handleSort('dsBsc')}>BSC <SortIcon columnKey="dsBsc" /></th>
+                <th className="py-2 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-center cursor-pointer hover:bg-violet-50 dark:hover:bg-violet-900/30 transition-colors bg-violet-100/50 dark:bg-violet-900/40 text-violet-800 dark:text-violet-300" onClick={() => handleSort('diffDs')}>Diff <SortIcon columnKey="diffDs" /></th>
              </tr>
           </thead>
           <tbody>
-            {sortedData.length === 0 && (
+            {sortedData.map((row, idx) => (
+              <tr key={`comp-${idx}`} className={`border-b border-slate-100 dark:border-slate-700/50 transition-colors bg-white dark:bg-slate-800 text-xs group ${selectedMotorista ? 'cursor-default hover:bg-white dark:hover:bg-slate-800' : 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50'}`} onClick={() => { if (!selectedFilial) { setSelectedFilial(row.label); setSortConfig({ key: 'absDiff', direction: 'desc' }); } else if (!selectedMotorista) { setSelectedMotorista(row.label); setSortConfig({ key: 'absDiff', direction: 'desc' }); } }}>
+                <td className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-700/50 bg-white dark:bg-slate-800 sticky left-0 z-10 flex items-center gap-2">
+                   {!selectedMotorista && (<div className="p-1 rounded transition-colors bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/50 group-hover:text-blue-600 dark:group-hover:text-blue-400 shrink-0"><ChevronRight className="w-4 h-4" /></div>)}
+                   <span className="truncate">{row.label}</span>
+                </td>
+                <td className="py-2.5 px-3 font-medium text-right text-blue-600 dark:text-blue-400 bg-blue-50/10 dark:bg-blue-900/10">{formatQtd(row.opRotasCount)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-blue-600 dark:text-blue-400 bg-blue-50/10 dark:bg-blue-900/10">{formatQtd(row.bscRotasCount)}</td>
+                <td className="py-2.5 px-3 text-center border-r border-slate-100 dark:border-slate-700/50 bg-blue-50/30 dark:bg-blue-900/20">{renderBadge(row.diffRotas)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-slate-500 dark:text-slate-400 bg-slate-50/10 dark:bg-slate-800/50">{formatQtd(row.opSaldo)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-slate-500 dark:text-slate-400 bg-slate-50/10 dark:bg-slate-800/50">{formatQtd(row.bscSaldo)}</td>
+                <td className="py-2.5 px-3 text-center border-r border-slate-100 dark:border-slate-700/50 bg-slate-50/40 dark:bg-slate-800">{renderBadge(row.diffSaldo)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-emerald-600 dark:text-emerald-400 bg-emerald-50/10 dark:bg-emerald-900/10">{formatQtd(row.opEntregues)}</td>
+                <td className="py-2.5 px-3 font-medium text-right text-emerald-600 dark:text-emerald-400 bg-emerald-50/10 dark:bg-emerald-900/10">{formatQtd(row.bscEntregues)}</td>
+                <td className="py-2.5 px-3 text-center border-r border-slate-100 dark:border-slate-700/50 bg-emerald-50/30 dark:bg-emerald-900/20">{renderBadge(row.diffEntregues)}</td>
+                <td className="py-2.5 px-3 font-bold text-right text-violet-600 dark:text-violet-400 bg-violet-50/10 dark:bg-violet-900/10">{formatDS(row.dsOp)}</td>
+                <td className="py-2.5 px-3 font-bold text-right text-violet-600 dark:text-violet-400 bg-violet-50/10 dark:bg-violet-900/10">{formatDS(row.dsBsc)}</td>
+                <td className="py-2.5 px-3 text-center bg-violet-50/30 dark:bg-violet-900/20">{renderBadge(row.diffDs, true)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// COMPONENTE: GAPS OPERACIONAIS (ANÁLISE DE OFENSORES)
+// ============================================================================
+const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
+  const [dataSource, setDataSource] = useState('operacional');
+  const [sortConfig, setSortConfig] = useState({ key: 'insucessos', direction: 'desc' });
+  const [selectedFilial, setSelectedFilial] = useState(null);
+  const [selectedMotorista, setSelectedMotorista] = useState(null);
+  const [selectedMotivo, setSelectedMotivo] = useState(null);
+
+  const handleSort = (key) => {
+    let direction = 'desc';
+    if (sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
+    setSortConfig({ key, direction });
+  };
+
+  const handleLevelUp = () => {
+    if (selectedMotorista) {
+      setSelectedMotorista(null);
+      setSortConfig({ key: selectedMotivo ? 'motivoFilterQtd' : 'insucessos', direction: 'desc' });
+    } else if (selectedMotivo) {
+      setSelectedMotivo(null);
+      setSortConfig({ key: 'insucessos', direction: 'desc' });
+    } else if (selectedFilial) {
+      setSelectedFilial(null);
+      setSortConfig({ key: 'insucessos', direction: 'desc' });
+    }
+  };
+
+  const activeData = dataSource === 'bsc' ? dataBsc : dataOp;
+
+  const { dataAgrupada, topCards } = useMemo(() => {
+    const map = {};
+    let globalSaldo = 0; let globalInsucessos = 0;
+    const globalMotivos = {};
+
+    activeData.forEach(d => {
+      const fKey = normalizeText(d.filial);
+      const mKey = normalizeText(d.motorista);
+
+      if (!map[fKey]) map[fKey] = { filial: d.filial, saldo: 0, entregues: 0, insucessos: 0, insDetalhes: {}, motoristasMap: {} };
+      if (!map[fKey].motoristasMap[mKey]) map[fKey].motoristasMap[mKey] = { motorista: d.motorista, saldo: 0, entregues: 0, insucessos: 0, insDetalhes: {} };
+
+      const insTotal = Math.max(0, d.saldo - d.entregues);
+      globalSaldo += d.saldo; globalInsucessos += insTotal;
+      map[fKey].saldo += d.saldo; map[fKey].entregues += d.entregues; map[fKey].insucessos += insTotal;
+      map[fKey].motoristasMap[mKey].saldo += d.saldo; map[fKey].motoristasMap[mKey].entregues += d.entregues; map[fKey].motoristasMap[mKey].insucessos += insTotal;
+
+      if (d.insucessosDetalhados) {
+        Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+          map[fKey].insDetalhes[k] = (map[fKey].insDetalhes[k] || 0) + v;
+          map[fKey].motoristasMap[mKey].insDetalhes[k] = (map[fKey].motoristasMap[mKey].insDetalhes[k] || 0) + v;
+          globalMotivos[k] = (globalMotivos[k] || 0) + v;
+        });
+      }
+    });
+
+    const filiaisList = Object.values(map).map(f => {
+      const topMotivoKey = Object.keys(f.insDetalhes).sort((a,b) => f.insDetalhes[b] - f.insDetalhes[a])[0] || 'N/A';
+      const impactoGlobal = globalSaldo > 0 ? (f.insucessos / globalSaldo) * 100 : 0;
+      const repInsucessosGerais = globalInsucessos > 0 ? (f.insucessos / globalInsucessos) * 100 : 0;
+
+      const motoristasList = Object.values(f.motoristasMap).map(m => {
+        const mTopMotivo = Object.keys(m.insDetalhes).sort((a,b) => m.insDetalhes[b] - m.insDetalhes[a])[0] || 'N/A';
+        const impactoFilial = f.saldo > 0 ? (m.insucessos / f.saldo) * 100 : 0;
+        const repInsucessosFilial = f.insucessos > 0 ? (m.insucessos / f.insucessos) * 100 : 0;
+        const motivos = Object.entries(m.insDetalhes).filter(([_, v]) => v > 0).map(([motivo, qtd]) => ({ motivo, qtd, representatividade: m.insucessos > 0 ? (qtd / m.insucessos) * 100 : 0 }));
+        return { ...m, ds: Math.min(100, m.saldo > 0 ? (m.entregues / m.saldo) * 100 : 0), impactoFilial, repInsucessosFilial, topMotivo: mTopMotivo, insDetalhes: m.insDetalhes, motivos };
+      });
+
+      return { ...f, ds: Math.min(100, f.saldo > 0 ? (f.entregues / f.saldo) * 100 : 0), impactoGlobal, repInsucessosGerais, topMotivo: topMotivoKey, motoristas: motoristasList };
+    });
+
+    const filialCritica = [...filiaisList].sort((a,b) => b.insucessos - a.insucessos)[0] || { filial: 'N/A', insucessos: 0 };
+    let allMotoristas = []; filiaisList.forEach(f => allMotoristas = allMotoristas.concat(f.motoristas));
+    const motCritico = allMotoristas.sort((a,b) => b.insucessos - a.insucessos)[0] || { motorista: 'N/A', insucessos: 0 };
+    const topMotivoGeral = Object.entries(globalMotivos).sort((a,b) => b[1] - a[1])[0] || ['N/A', 0];
+
+    return { 
+      dataAgrupada: filiaisList,
+      topCards: { totalGaps: globalInsucessos, filial: filialCritica, motorista: motCritico, motivo: { nome: topMotivoGeral[0], qtd: topMotivoGeral[1] } }
+    };
+  }, [activeData]);
+
+  const filialMotivosBreakdown = useMemo(() => {
+    if (!selectedFilial) return [];
+    const filial = dataAgrupada.find(f => f.filial === selectedFilial);
+    if (!filial || !filial.insDetalhes) return [];
+    return Object.entries(filial.insDetalhes).filter(([_, qtd]) => qtd > 0).map(([nome, qtd]) => ({ nome, qtd, rep: filial.insucessos > 0 ? (qtd / filial.insucessos) * 100 : 0 })).sort((a,b) => b.qtd - a.qtd);
+  }, [dataAgrupada, selectedFilial]);
+
+  const currentViewData = useMemo(() => {
+    const sortArray = (arr) => [...arr].sort((a, b) => {
+        let aVal = a[sortConfig.key] !== undefined ? a[sortConfig.key] : ''; let bVal = b[sortConfig.key] !== undefined ? b[sortConfig.key] : '';
+        if (typeof aVal === 'string') { aVal = aVal.toLowerCase(); bVal = bVal.toLowerCase(); }
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    if (!selectedFilial) return sortArray(dataAgrupada);
+    const filialData = dataAgrupada.find(f => f.filial === selectedFilial);
+    if (!filialData) return [];
+    if (!selectedMotorista) {
+      let motoristasList = filialData.motoristas;
+      if (selectedMotivo) motoristasList = motoristasList.filter(m => m.insDetalhes && m.insDetalhes[selectedMotivo] > 0).map(m => ({ ...m, motivoFilterQtd: m.insDetalhes[selectedMotivo] || 0 }));
+      return sortArray(motoristasList);
+    }
+    const motoristaData = filialData.motoristas.find(m => m.motorista === selectedMotorista);
+    if (!motoristaData) return [];
+    return sortArray(motoristaData.motivos);
+  }, [dataAgrupada, selectedFilial, selectedMotorista, selectedMotivo, sortConfig]);
+
+  const SortIcon = ({ columnKey }) => {
+    if (sortConfig.key !== columnKey) return <ArrowUpDown className="w-3 h-3 inline-block ml-1 opacity-30" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 inline-block ml-1 text-blue-600 dark:text-blue-400" /> : <ArrowDown className="w-3 h-3 inline-block ml-1 text-blue-600 dark:text-blue-400" />;
+  };
+
+  return (
+    <div className="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 mb-8 flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 dark:border-slate-700 pb-4">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <PieChart className="w-6 h-6 text-orange-600 dark:text-orange-400 shrink-0" />
+          <div className="min-w-0">
+             <h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white truncate">{selectedMotorista ? `Insucessos: ${selectedMotorista}` : selectedMotivo ? `Ofensores por Motivo: ${selectedMotivo}` : selectedFilial ? `Motoristas: ${selectedFilial}` : 'Gaps Operacionais (Ofensores)'}</h2>
+             <p className="text-sm text-slate-500 dark:text-slate-400 font-medium truncate">Análise de causa raiz para quebra de Delivery Success.</p>
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto shrink-0">
+          <div className="flex bg-slate-100 dark:bg-slate-900/50 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shadow-inner">
+             <button onClick={() => { setDataSource('operacional'); setSelectedFilial(null); setSelectedMotorista(null); setSelectedMotivo(null); }} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors ${dataSource === 'operacional' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>Gestão Operacional</button>
+             <button onClick={() => { setDataSource('bsc'); setSelectedFilial(null); setSelectedMotorista(null); setSelectedMotivo(null); }} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors ${dataSource === 'bsc' ? 'bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>Base BSC</button>
+          </div>
+          {(selectedFilial || selectedMotorista || selectedMotivo) && (<button onClick={handleLevelUp} className="flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm shrink-0 w-full sm:w-auto">← Voltar</button>)}
+        </div>
+      </div>
+
+      {!selectedMotorista && !selectedFilial && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-2">
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/30 p-4 rounded-2xl flex flex-col items-center justify-center text-center"><span className="text-xs font-bold text-red-600 dark:text-red-400 uppercase mb-1">Volume de Insucessos</span><span className="text-2xl font-black text-red-700 dark:text-red-500">{formatQtd(topCards.totalGaps)}</span></div>
+            <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 p-4 rounded-2xl flex flex-col items-center justify-center text-center"><span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Filial Mais Crítica</span><span className="text-lg font-black text-slate-800 dark:text-white truncate w-full px-2">{topCards.filial.filial}</span><span className="text-xs font-bold text-red-500">{formatQtd(topCards.filial.insucessos)} insucessos</span></div>
+            <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 p-4 rounded-2xl flex flex-col items-center justify-center text-center"><span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Motorista Mais Crítico</span><span className="text-lg font-black text-slate-800 dark:text-white truncate w-full px-2">{topCards.motorista.motorista}</span><span className="text-xs font-bold text-red-500">{formatQtd(topCards.motorista.insucessos)} insucessos</span></div>
+            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800/30 p-4 rounded-2xl flex flex-col items-center justify-center text-center"><span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase mb-1">Motivo Recorrente</span><span className="text-sm font-black text-orange-800 dark:text-orange-500 truncate w-full px-2" title={topCards.motivo.nome}>{topCards.motivo.nome}</span><span className="text-xs font-bold text-orange-600 dark:text-orange-400 mt-1">{formatQtd(topCards.motivo.qtd)} pacotes</span></div>
+          </div>
+      )}
+
+      {selectedFilial && !selectedMotorista && filialMotivosBreakdown.length > 0 && (
+        <div className="mb-4 bg-slate-50 dark:bg-slate-900/50 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-inner">
+           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+             <h3 className="text-sm font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2"><PieChart className="w-4 h-4 text-orange-500" /> Representatividade dos Motivos: {selectedFilial}</h3>
+             <span className="text-[10px] text-slate-400 font-bold bg-white dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700">CLIQUE NUM MOTIVO PARA FILTRAR OS MOTORISTAS</span>
+           </div>
+           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+             {filialMotivosBreakdown.map((m, idx) => {
+               const isSelected = selectedMotivo === m.nome;
+               return (
+                 <div key={idx} onClick={() => { if (isSelected) { setSelectedMotivo(null); setSortConfig({ key: 'insucessos', direction: 'desc' }); } else { setSelectedMotivo(m.nome); setSortConfig({ key: 'motivoFilterQtd', direction: 'desc' }); } }} className={`p-3 rounded-xl border flex justify-between items-center shadow-sm cursor-pointer transition-all ${isSelected ? 'bg-orange-50 dark:bg-orange-900/30 border-orange-400 dark:border-orange-500 ring-2 ring-orange-400/20 dark:ring-orange-500/20' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-orange-300 dark:hover:border-orange-700 hover:bg-orange-50/50 dark:hover:bg-slate-700/50'}`}>
+                   <div className="flex flex-col min-w-0 pr-3"><span className={`text-[10px] font-bold uppercase tracking-wider truncate w-[140px] ${isSelected ? 'text-orange-700 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`} title={m.nome}>{m.nome}</span><span className={`text-base font-black leading-tight mt-0.5 ${isSelected ? 'text-orange-800 dark:text-orange-500' : 'text-slate-800 dark:text-slate-200'}`}>{formatQtd(m.qtd)} <span className={`text-[10px] font-medium lowercase ${isSelected ? 'text-orange-600 dark:text-orange-400' : 'text-slate-400 dark:text-slate-500'}`}>pacotes</span></span></div>
+                   <div className={`px-2 py-1 rounded-lg font-black text-xs shrink-0 border ${isSelected ? 'bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-400 border-orange-200 dark:border-orange-800/50' : 'bg-orange-50 dark:bg-slate-700 text-orange-700 dark:text-orange-400 border-orange-100 dark:border-slate-600'}`}>{m.rep.toFixed(1)}%</div>
+                 </div>
+               );
+             })}
+           </div>
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm w-full">
+        <table className="w-full text-left border-collapse min-w-[800px]">
+          <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0 z-20 shadow-sm">
+            {!selectedMotorista ? (
+              <tr className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors bg-white dark:bg-slate-900 z-30 sticky left-0" onClick={() => handleSort(selectedFilial ? 'motorista' : 'filial')}>{selectedFilial ? 'Motorista' : 'Filial'} <SortIcon columnKey={selectedFilial ? 'motorista' : 'filial'} /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('saldo')}>Total Pacotes <SortIcon columnKey="saldo" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors text-red-700 dark:text-red-400 bg-red-50/30 dark:bg-red-900/20" onClick={() => handleSort('insucessos')}>Insucessos (Total) <SortIcon columnKey="insucessos" /></th>
+                {selectedMotivo && (<th className="py-3 px-3 font-bold border-b border-orange-200 dark:border-orange-800 text-right cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/50 transition-colors text-orange-800 dark:text-orange-400 bg-orange-100/50 dark:bg-orange-900/30" onClick={() => handleSort('motivoFilterQtd')}>Gaps: {selectedMotivo} <SortIcon columnKey="motivoFilterQtd" /></th>)}
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors text-emerald-700 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-900/20" onClick={() => handleSort('ds')}>DS <SortIcon columnKey="ds" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-center cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/30 transition-colors text-orange-700 dark:text-orange-400 bg-orange-50/30 dark:bg-orange-900/20" onClick={() => handleSort(selectedFilial ? 'impactoFilial' : 'impactoGlobal')}>Impacto no DS {selectedFilial ? 'da Filial' : 'Geral (Empresa)'} <SortIcon columnKey={selectedFilial ? 'impactoFilial' : 'impactoGlobal'} /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('topMotivo')}>Principal Motivo <SortIcon columnKey="topMotivo" /></th>
+              </tr>
+            ) : (
+              <tr className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors bg-white dark:bg-slate-900 z-30 sticky left-0 w-1/2" onClick={() => handleSort('motivo')}>Motivo de Insucesso <SortIcon columnKey="motivo" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors text-red-700 dark:text-red-400 bg-red-50/30 dark:bg-red-900/20 w-1/4" onClick={() => handleSort('qtd')}>Quantidade de Pacotes <SortIcon columnKey="qtd" /></th>
+                <th className="py-3 px-3 font-bold border-b border-slate-200 dark:border-slate-700 text-right cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/30 transition-colors text-orange-700 dark:text-orange-400 bg-orange-50/30 dark:bg-orange-900/20 w-1/4" onClick={() => handleSort('representatividade')}>Representatividade no Motorista <SortIcon columnKey="representatividade" /></th>
+              </tr>
+            )}
+          </thead>
+          <tbody>
+            {currentViewData.length === 0 && (
               <tr>
-                <td colSpan="13" className="py-8 text-center text-slate-400 font-medium text-xs bg-white">
-                  Nenhum dado encontrado para os filtros selecionados.
+                <td colSpan={8} className="py-8 text-center text-slate-400 font-medium text-xs bg-white dark:bg-slate-800">
+                  Nenhum gap encontrado para os filtros atuais.
                 </td>
               </tr>
             )}
             
-            {sortedData.map((row, idx) => (
-              <tr 
-                key={`comp-${idx}`} 
-                className={`border-b border-slate-100 transition-colors bg-white text-xs group ${selectedMotorista ? 'cursor-default hover:bg-white' : 'cursor-pointer hover:bg-slate-50'}`}
-                onClick={() => {
-                  if (!selectedFilial) {
-                    setSelectedFilial(row.label);
-                    setSortConfig({ key: 'absDiff', direction: 'desc' });
-                  } else if (!selectedMotorista) {
-                    setSelectedMotorista(row.label);
-                    setSortConfig({ key: 'absDiff', direction: 'desc' });
-                  }
-                }}
-              >
-                <td className="py-2.5 px-3 font-bold text-slate-700 border-r border-slate-100 bg-white sticky left-0 z-10 flex items-center gap-2">
-                   {!selectedMotorista && (
-                     <div className="p-1 rounded transition-colors bg-slate-100 text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600 shrink-0">
-                       <ChevronRight className="w-4 h-4" />
-                     </div>
-                   )}
-                   <span className="truncate">{row.label}</span>
-                </td>
-                
-                {/* ROTAS */}
-                <td className="py-2.5 px-3 font-medium text-right text-blue-600 bg-blue-50/10">{formatQtd(row.opRotasCount)}</td>
-                <td className="py-2.5 px-3 font-medium text-right text-blue-600 bg-blue-50/10">{formatQtd(row.bscRotasCount)}</td>
-                <td className="py-2.5 px-3 text-center border-r border-slate-100 bg-blue-50/30">{renderBadge(row.diffRotas)}</td>
-
-                {/* SALDO */}
-                <td className="py-2.5 px-3 font-medium text-right text-slate-500 bg-slate-50/10">{formatQtd(row.opSaldo)}</td>
-                <td className="py-2.5 px-3 font-medium text-right text-slate-500 bg-slate-50/10">{formatQtd(row.bscSaldo)}</td>
-                <td className="py-2.5 px-3 text-center border-r border-slate-100 bg-slate-50/40">{renderBadge(row.diffSaldo)}</td>
-
-                {/* ENTREGUES */}
-                <td className="py-2.5 px-3 font-medium text-right text-emerald-600 bg-emerald-50/10">{formatQtd(row.opEntregues)}</td>
-                <td className="py-2.5 px-3 font-medium text-right text-emerald-600 bg-emerald-50/10">{formatQtd(row.bscEntregues)}</td>
-                <td className="py-2.5 px-3 text-center border-r border-slate-100 bg-emerald-50/30">{renderBadge(row.diffEntregues)}</td>
-
-                {/* DS */}
-                <td className="py-2.5 px-3 font-bold text-right text-violet-600 bg-violet-50/10">{formatDS(row.dsOp)}</td>
-                <td className="py-2.5 px-3 font-bold text-right text-violet-600 bg-violet-50/10">{formatDS(row.dsBsc)}</td>
-                <td className="py-2.5 px-3 text-center bg-violet-50/30">{renderBadge(row.diffDs, true)}</td>
+            {!selectedMotorista && currentViewData.map((row, idx) => {
+              const impactoStr = selectedFilial ? row.impactoFilial : row.impactoGlobal;
+              const repGaps = selectedFilial ? row.repInsucessosFilial : row.repInsucessosGerais;
+              return (
+                <tr key={`drill-${idx}`} onClick={() => { if (!selectedFilial) { setSelectedFilial(row.filial); setSortConfig({ key: 'insucessos', direction: 'desc' }); } else { setSelectedMotorista(row.motorista); setSortConfig({ key: 'qtd', direction: 'desc' }); } }} className="border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors group bg-white dark:bg-slate-800 text-xs">
+                  <td className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 sticky left-0 z-10 flex items-center gap-2 border-r border-slate-100 dark:border-slate-700/50"><div className="p-1 rounded transition-colors bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/50 group-hover:text-blue-600 dark:group-hover:text-blue-400 shrink-0"><ChevronRight className="w-4 h-4" /></div><span className="truncate">{selectedFilial ? row.motorista : row.filial}</span></td>
+                  <td className="py-2.5 px-3 font-medium text-right text-slate-500 dark:text-slate-400">{formatQtd(row.saldo)}</td>
+                  <td className="py-2.5 px-3 font-bold text-right text-red-600 dark:text-red-400 bg-red-50/10 dark:bg-red-900/10">{formatQtd(row.insucessos)}</td>
+                  {selectedMotivo && (<td className="py-2.5 px-3 font-bold text-right text-orange-700 dark:text-orange-400 bg-orange-50/40 dark:bg-orange-900/20">{formatQtd(row.motivoFilterQtd)}</td>)}
+                  <td className="py-2.5 px-3 font-bold text-right text-emerald-600 dark:text-emerald-400 bg-emerald-50/10 dark:bg-emerald-900/10">{formatDS(row.ds)}</td>
+                  <td className="py-2.5 px-3 text-center bg-orange-50/10 dark:bg-orange-900/10"><div className="flex flex-col items-center justify-center"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${impactoStr > 2 ? 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-400' : (impactoStr > 0.5 ? 'bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300')}`}>-{impactoStr.toFixed(2)}%</span><span className="text-[9px] text-slate-500 mt-1 font-medium">({repGaps.toFixed(1)}% dos insucessos)</span></div></td>
+                  <td className="py-2.5 px-3 font-medium text-slate-500 dark:text-slate-400 truncate max-w-[200px]" title={row.topMotivo}>{row.topMotivo}</td>
+                </tr>
+              );
+            })}
+            {selectedMotorista && currentViewData.map((row, idx) => (
+              <tr key={`motivo-${idx}`} className="border-b border-slate-100 dark:border-slate-700/50 bg-white dark:bg-slate-800 text-xs hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                <td className="py-3 px-3 font-bold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 sticky left-0 z-10 border-r border-slate-100 dark:border-slate-700/50">{row.motivo}</td>
+                <td className="py-3 px-3 font-bold text-right text-red-600 dark:text-red-400 bg-red-50/10 dark:bg-red-900/10">{formatQtd(row.qtd)}</td>
+                <td className="py-3 px-3 font-bold text-right text-orange-600 dark:text-orange-400 bg-orange-50/10 dark:bg-orange-900/10">{row.representatividade.toFixed(2)}%</td>
               </tr>
             ))}
           </tbody>
@@ -1834,25 +1279,30 @@ const ComparativoBscSection = ({ dataOp, dataBsc }) => {
 // APP PRINCIPAL
 // ============================================================================
 export default function App() {
-  const verificarAcesso = React.useCallback(() => {
-    const tempoSalvo = localStorage.getItem('dashopAuthTime');
-    if (!tempoSalvo) return false;
-    const tempoPassado = Date.now() - parseInt(tempoSalvo, 10);
-    const dezMinutos = 10 * 60 * 1000;
-    if (tempoPassado > dezMinutos) {
-      localStorage.removeItem('dashopAuthTime');
-      return false;
-    }
-    return true; 
-  }, []);
-
   const [isAuthenticated, setIsAuthenticated] = useState(verificarAcesso);
   const [senhaDigitada, setSenhaDigitada] = useState('');
   const [erroLogin, setErroLogin] = useState(false);
 
+  // MODO NOTURNO
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return localStorage.getItem('dashopTheme') === 'dark';
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('dashopTheme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('dashopTheme', 'light');
+    }
+  }, [isDarkMode]);
+
+  const toggleTheme = () => setIsDarkMode(!isDarkMode);
+
   const SENHA_CORRETA = 'operacao2026';
 
-  React.useEffect(() => {
+  useEffect(() => {
     let interval;
     if (isAuthenticated) {
       interval = setInterval(() => {
@@ -1862,7 +1312,7 @@ export default function App() {
       }, 5000);
     }
     return () => clearInterval(interval);
-  }, [isAuthenticated, verificarAcesso]);
+  }, [isAuthenticated]);
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -1882,10 +1332,16 @@ export default function App() {
   const [rawBscData, setRawBscData] = useState(initialBscData);
   
   const [error, setError] = useState(null);
+  
+  // ==========================================================================
+  // CONFIGURAÇÃO DAS URLs DE FONTES DE DADOS
+  // ==========================================================================
   const [sheetUrl, setSheetUrl] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=0#gid=0');
   const [sheetUrlFaturamento, setSheetUrlFaturamento] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=2143847273#gid=2143847273');
-  const [sheetUrlOperacional, setSheetUrlOperacional] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=1662689553#gid=1662689553');
-  const [sheetUrlBsc, setSheetUrlBsc] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=1187251925#gid=1187251925');
+  // URL ATUALIZADA: Gestão Operacional
+  const [sheetUrlOperacional, setSheetUrlOperacional] = useState('https://docs.google.com/spreadsheets/d/1yi_-uvB744ShPzratm_aO09Mm9rFWyvCqHXgxJcZOW4/edit?gid=1256508653#gid=1256508653');
+  // URL ATUALIZADA: Gestão Operacional BSC
+  const [sheetUrlBsc, setSheetUrlBsc] = useState('https://docs.google.com/spreadsheets/d/1TngDQ58wD8Zz43AHrrtJLGfB2Po_Wqc6LqUzrlTIytw/edit?gid=1433063454#gid=1433063454');
   
   const [isLoading, setIsLoading] = useState(false);
   const [filtroQuinzenas, setFiltroQuinzenas] = useState([]);
@@ -1900,32 +1356,25 @@ export default function App() {
   const [selectedQuinzenaPareto, setSelectedQuinzenaPareto] = useState(null);
   const [selectedQuinzenaDS, setSelectedQuinzenaDS] = useState(null);
 
-  // AUTO-SYNC STATE
   const [hasInitialSynced, setHasInitialSynced] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setSelectedQuinzenaPareto(null);
     setSelectedQuinzenaDS(null);
   }, [filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores, activeMenu]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setFiltroSupervisores([]);
     setFiltroFiliais([]);
   }, [filtroRegionais]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setFiltroFiliais([]);
   }, [filtroSupervisores]);
 
   const handleMenuChange = (menu) => {
     setActiveMenu(menu);
     setSortConfig({ key: null, direction: 'desc' }); 
-  };
-
-  const handleSort = (key) => {
-    let direction = 'desc';
-    if (sortConfig.key === key && sortConfig.direction === 'desc') { direction = 'asc'; }
-    setSortConfig({ key, direction });
   };
 
   const parseNumber = (val) => {
@@ -2045,8 +1494,6 @@ export default function App() {
       const rawHeaders = parseCSVLine(lines[0], delimiter).map(h => h.trim());
       const headers = rawHeaders.map(normalizeHeader);
       
-      const idxQuinzena = headers.findIndex(h => h.includes('quinzena') || h.includes('data') || h.includes('periodo'));
-      
       let idxRegional = -1;
       let idxSupervisor = -1;
       for (let j = headers.length - 1; j >= 0; j--) {
@@ -2054,18 +1501,38 @@ export default function App() {
           if (idxSupervisor === -1 && (headers[j] === 'supervisor' || headers[j].includes('superv') || headers[j].includes('gestor') || headers[j].includes('coord'))) idxSupervisor = j;
       }
 
+      const idxQuinzena = headers.findIndex(h => h.includes('quinzena') || h.includes('data') || h.includes('periodo'));
       const idxFilial = headers.findIndex(h => h.includes('filial') || h.includes('operacao') || h.includes('base') || h.includes('unidade'));
       const idxMotorista = headers.findIndex(h => h.includes('motorista') || h.includes('nome') || h.includes('entregador'));
       
-      const idxIdRota = 1;
+      let idxIdRota = 1;
+      if (headers[1] && !headers[1].includes('rota') && !headers[1].includes('route')) {
+          const found = headers.findIndex(h => h.includes('rota') || h.includes('route'));
+          if (found !== -1) idxIdRota = found;
+      }
 
       const idxSaldo = headers.findIndex(h => h === 'saldo' || h.includes('saldo') || h.includes('pacote') || h.includes('volume') || h.includes('total') || h.includes('envio'));
       const idxEntregues = headers.findIndex(h => h === 'entregues' || h.includes('entreg') || h.includes('sucesso') || h.includes('realizado'));
 
       const insucessosHeaders = [];
-      for (let j = 91; j <= 105; j++) {
+      // Mapeamento exato: Coluna CL (índice 89) até CZ (índice 103), ignorando CN (índice 91)
+      for (let j = 89; j <= 103; j++) {
           if (rawHeaders[j] && rawHeaders[j].trim() !== '') {
-              insucessosHeaders.push({ index: j, name: rawHeaders[j].trim() });
+              const h = normalizeHeader(rawHeaders[j]);
+              // Ignorar colunas de totalizadores que possam entrar na margem
+              if (!h.includes('%') && h !== 'ds' && !h.includes('meta') && h !== 'total insucessos' && h !== 'insucessos') {
+                  insucessosHeaders.push({ index: j, name: rawHeaders[j].trim() });
+              }
+          }
+      }
+      if (insucessosHeaders.length === 0 && idxEntregues !== -1) {
+          for (let j = idxEntregues + 1; j < headers.length; j++) {
+              if (rawHeaders[j] && rawHeaders[j].trim() !== '') {
+                  const h = normalizeHeader(rawHeaders[j]);
+                  if (!h.includes('%') && h !== 'ds' && !h.includes('meta') && h !== 'total insucessos' && h !== 'insucessos') {
+                      insucessosHeaders.push({ index: j, name: rawHeaders[j].trim() });
+                  }
+              }
           }
       }
 
@@ -2094,7 +1561,8 @@ export default function App() {
         insucessosHeaders.forEach(h => {
             const v = parseNumber(cols[h.index]);
             if (v > 0) {
-                if (h.index === 93 || normalizeHeader(h.name).includes('cancelado')) {
+                // A coluna CN (índice 91) não deve ser considerada no cálculo do DS, então deduzimos do saldo original junto com os cancelados
+                if (h.index === 91 || normalizeHeader(h.name).includes('cancelado')) {
                     qtdCancelados += v;
                 } else {
                     insucessosDetalhados[h.name] = v;
@@ -2124,13 +1592,30 @@ export default function App() {
       
       const idxQuinzena = headers.findIndex(h => h.includes('quinzena') || h.includes('data') || h.includes('periodo'));
       
-      const idxRegional = 38; 
-      const idxSupervisor = 39; 
+      let idxRegional = 38; 
+      let idxSupervisor = 39; 
       
       const idxFilial = headers.findIndex(h => h.includes('filial') || h.includes('operacao') || h.includes('base') || h.includes('unidade'));
       
-      const idxMotorista = 12; 
-      const idxIdRota = 7;
+      let idxMotorista = 12; 
+      let idxIdRota = 7;
+
+      if (headers[38] && !headers[38].includes('regional') && !headers[38].includes('regiao')) {
+          const found = headers.findIndex(h => h.includes('regional') || h === 'regiao');
+          if (found !== -1) idxRegional = found;
+      }
+      if (headers[39] && !headers[39].includes('superv') && !headers[39].includes('gestor')) {
+          const found = headers.findIndex(h => h.includes('superv') || h.includes('gestor') || h.includes('coord'));
+          if (found !== -1) idxSupervisor = found;
+      }
+      if (headers[12] && !headers[12].includes('motorista') && !headers[12].includes('nome')) {
+          const found = headers.findIndex(h => h.includes('motorista') || h.includes('nome') || h.includes('entregador'));
+          if (found !== -1) idxMotorista = found;
+      }
+      if (headers[7] && !headers[7].includes('rota') && !headers[7].includes('route')) {
+          const found = headers.findIndex(h => h.includes('rota') || h.includes('route'));
+          if (found !== -1) idxIdRota = found;
+      }
       
       const idxSaldo = headers.findIndex(h => h === 'saldo' || h.includes('saldo') || h.includes('pacote') || h.includes('volume') || h.includes('total') || h.includes('envio'));
       const idxEntregues = headers.findIndex(h => h === 'entregues' || h.includes('entreg') || h.includes('sucesso') || h.includes('realizado'));
@@ -2138,11 +1623,12 @@ export default function App() {
       const ignoreIndices = [idxQuinzena, idxRegional, idxSupervisor, idxFilial, idxMotorista, idxIdRota, idxSaldo, idxEntregues].filter(i => i !== -1);
       const insucessosHeaders = [];
       
-      const startIdxBsc = idxEntregues !== -1 ? idxEntregues + 1 : 25;
-      for (let j = startIdxBsc; j < headers.length; j++) {
-          if (rawHeaders[j] && rawHeaders[j].trim() !== '' && !ignoreIndices.includes(j)) {
+      // Mapeamento exato BSC: Coluna AD (índice 29) até AL (índice 37)
+      // A coluna AB (índice 27) é automaticamente ignorada por estar fora deste range
+      for (let j = 29; j <= 37; j++) {
+          if (rawHeaders[j] && rawHeaders[j].trim() !== '') {
               const h = normalizeHeader(rawHeaders[j]);
-              const isInvalid = h.includes('%') || h === 'ds' || h.includes('meta') || h.includes('taxa') || h.includes('atingimento') || h.includes('farol') || h.includes('status') || h.includes('performance') || h.includes('sla');
+              const isInvalid = h.includes('%') || h === 'ds' || h.includes('meta') || h.includes('taxa') || h.includes('atingimento') || h.includes('farol') || h.includes('status') || h.includes('performance') || h.includes('sla') || h === 'insucessos' || h === 'insucesso' || h === 'total insucessos' || h === 'total de insucessos';
               
               if (!isInvalid && !h.includes('regional') && !h.includes('supervisor') && !h.includes('quinzena') && !h.includes('filial') && !h.includes('motorista')) {
                   insucessosHeaders.push({ index: j, name: rawHeaders[j].trim() });
@@ -2197,52 +1683,51 @@ export default function App() {
 
   const fetchFromGoogleSheets = useCallback(async () => {
     setIsLoading(true); setError(null);
+    
+    const fetchCSV = async (url, nomeBase) => {
+      if (!url) return null;
+      let exportUrl = url;
+      if (url.includes('/edit')) {
+        const docId = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        const gid = url.match(/gid=([0-9]+)/);
+        if (docId) exportUrl = `https://docs.google.com/spreadsheets/d/${docId[1]}/export?format=csv&gid=${gid ? gid[1] : '0'}`;
+      }
+      try {
+        const res = await fetch(exportUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        if (text.trim().toLowerCase().startsWith('<!doctype html>') || text.includes('<html')) {
+          throw new Error("PRIVADA");
+        }
+        return text;
+      } catch (err) {
+        if (err.message === "PRIVADA") {
+          throw new Error(`Acesso Negado: A base "${nomeBase}" parece estar Privada. Mude o acesso no Google Sheets para "Qualquer pessoa com o link".`);
+        }
+        throw new Error(`Erro ao baixar a base "${nomeBase}". Verifique o link.`);
+      }
+    };
+
     try {
-      if (sheetUrl) {
-          let url1 = sheetUrl;
-          if (url1.includes('/edit')) {
-              const docId = url1.match(/\/d\/([a-zA-Z0-9-_]+)/);
-              const gid = url1.match(/gid=([0-9]+)/);
-              if (docId) url1 = `https://docs.google.com/spreadsheets/d/${docId[1]}/export?format=csv&gid=${gid ? gid[1] : '0'}`;
-          }
-          const res1 = await fetch(url1);
-          if (res1.ok) processRawCSV(await res1.text());
-      }
-      if (sheetUrlFaturamento) {
-          let url3 = sheetUrlFaturamento;
-          if (url3.includes('/edit')) {
-              const docId3 = url3.match(/\/d\/([a-zA-Z0-9-_]+)/);
-              const gid3 = url3.match(/gid=([0-9]+)/);
-              if (docId3) url3 = `https://docs.google.com/spreadsheets/d/${docId3[1]}/export?format=csv&gid=${gid3 ? gid3[1] : '0'}`;
-          }
-          const res3 = await fetch(url3);
-          if (res3.ok) processFaturamentoData(await res3.text());
-      }
-      if (sheetUrlOperacional) {
-          let url4 = sheetUrlOperacional;
-          if (url4.includes('/edit')) {
-              const docId4 = url4.match(/\/d\/([a-zA-Z0-9-_]+)/);
-              const gid4 = url4.match(/gid=([0-9]+)/);
-              if (docId4) url4 = `https://docs.google.com/spreadsheets/d/${docId4[1]}/export?format=csv&gid=${gid4 ? gid4[1] : '0'}`;
-          }
-          const res4 = await fetch(url4);
-          if (res4.ok) processOperacionalData(await res4.text());
-      }
-      if (sheetUrlBsc) {
-          let url5 = sheetUrlBsc;
-          if (url5.includes('/edit')) {
-              const docId5 = url5.match(/\/d\/([a-zA-Z0-9-_]+)/);
-              const gid5 = url5.match(/gid=([0-9]+)/);
-              if (docId5) url5 = `https://docs.google.com/spreadsheets/d/${docId5[1]}/export?format=csv&gid=${gid5 ? gid5[1] : '0'}`;
-          }
-          const res5 = await fetch(url5);
-          if (res5.ok) processBscData(await res5.text());
-      }
-    } catch (err) { setError('Falha no download das planilhas. Verifique os links.'); } 
+      const t1 = await fetchCSV(sheetUrl, 'Penalidades');
+      if (t1) processRawCSV(t1);
+
+      const t2 = await fetchCSV(sheetUrlFaturamento, 'Faturamento');
+      if (t2) processFaturamentoData(t2);
+
+      const t3 = await fetchCSV(sheetUrlOperacional, 'Operacional');
+      if (t3) processOperacionalData(t3);
+
+      const t4 = await fetchCSV(sheetUrlBsc, 'BSC');
+      if (t4) processBscData(t4);
+
+    } catch (err) { 
+      setError(err instanceof Error ? err.message : String(err)); 
+    } 
     finally { setIsLoading(false); }
   }, [sheetUrl, sheetUrlFaturamento, sheetUrlOperacional, sheetUrlBsc, processRawCSV, processFaturamentoData, processOperacionalData, processBscData]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isAuthenticated && !hasInitialSynced) {
       fetchFromGoogleSheets();
       setHasInitialSynced(true);
@@ -2412,7 +1897,7 @@ export default function App() {
 
   const insucessosDisponiveis = useMemo(() => {
     const keys = new Set();
-    if (activeMenu === 'gestao_bsc' || activeMenu === 'comparativo_bsc') {
+    if (activeMenu === 'gestao_bsc' || activeMenu === 'comparativo_bsc' || activeMenu === 'gaps_operacionais') {
       bscFiltrado.forEach(d => {
         if (d.insucessosDetalhados) {
           Object.keys(d.insucessosDetalhados).forEach(k => keys.add(k));
@@ -2509,7 +1994,7 @@ export default function App() {
     
     let relevantData = [];
     if (activeMenu === 'gestao_financeira') relevantData = faturamentoFiltrado;
-    else if (activeMenu === 'gestao_bsc' || activeMenu === 'comparativo_bsc') relevantData = bscFiltrado;
+    else if (activeMenu === 'gestao_bsc' || activeMenu === 'comparativo_bsc' || activeMenu === 'gaps_operacionais') relevantData = bscFiltrado;
     else relevantData = operacionalFiltrado;
     
     if (relevantData.length > 0) {
@@ -2825,32 +2310,38 @@ export default function App() {
     finally { setExportingType(null); }
   };
 
+  // TELA DE LOGIN
   if (!isAuthenticated) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-900 font-sans">
-        <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-sm w-full border border-slate-200">
-          <div className="flex flex-col items-center justify-center mb-8">
-            <div className="bg-blue-600 p-4 rounded-2xl mb-4 shadow-lg">
+      <div className="min-h-screen flex items-center justify-center bg-slate-900 transition-colors duration-500 p-4 font-sans text-slate-800">
+        <button 
+          onClick={toggleTheme} 
+          className="absolute top-6 right-6 bg-slate-800 p-3 rounded-full text-slate-300 hover:text-white hover:bg-slate-700 transition-colors shadow-lg"
+          title="Alternar Tema"
+        >
+          {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+        </button>
+        <div className="max-w-md w-full bg-slate-800 p-8 rounded-3xl shadow-2xl border border-slate-700">
+          <div className="flex flex-col items-center gap-4 mb-8">
+            <div className="bg-blue-600 p-4 rounded-2xl shadow-lg">
               <Lock className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-black text-slate-800">DashOp</h1>
-            <p className="text-sm text-slate-500 font-medium mt-1">Acesso Restrito</p>
+            <h1 className="text-2xl font-black text-white tracking-tight">DashOp Login</h1>
+            <p className="text-slate-400 text-center text-sm font-medium">Acesso restrito. Insira a senha operacional.</p>
           </div>
-
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
             <div>
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Senha de Acesso</label>
-              <input 
-                type="password" 
-                value={senhaDigitada} 
+              <input
+                type="password"
+                value={senhaDigitada}
                 onChange={(e) => setSenhaDigitada(e.target.value)}
-                placeholder="Insira a senha..."
-                className={`w-full border ${erroLogin ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-slate-50'} rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-800 transition-all`}
+                placeholder="Digite a senha..."
+                className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-900 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium"
               />
-              {erroLogin && <p className="text-xs text-red-500 mt-1.5 font-bold">Senha incorreta. Tente novamente.</p>}
+              {erroLogin && <p className="text-red-400 text-xs font-bold mt-2 ml-1">Senha incorreta. Tente novamente.</p>}
             </div>
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition-colors mt-2">
-              Acessar Painel
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg hover:shadow-blue-500/20 active:scale-[0.98]">
+              Acessar Dashboard
             </button>
           </form>
         </div>
@@ -2858,11 +2349,12 @@ export default function App() {
     );
   }
 
+  // TELA PRINCIPAL (DASHBOARD)
   return (
-    <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
+    <div className={`flex h-screen w-full bg-slate-50 dark:bg-slate-900 font-sans text-slate-800 dark:text-slate-200 overflow-hidden transition-colors duration-300`}>
       {/* SIDEBAR */}
       <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 overflow-y-auto hidden md:flex border-r border-slate-800">
-        <div className="p-6 bg-slate-950 border-b border-slate-800 sticky top-0 z-10">
+        <div className="p-6 bg-slate-950 border-b border-slate-800 sticky top-0 z-10 flex justify-between items-center">
           <h1 className="text-xl font-black text-white flex items-center gap-3 tracking-tight">
             <div className="bg-blue-600 p-2 rounded-lg"><TrendingUp className="w-5 h-5 text-white"/></div>
             DashOp
@@ -2895,12 +2387,9 @@ export default function App() {
               <GitCompare className="w-4 h-4 shrink-0"/> 
               <span className="truncate">Comparativo BSC</span>
             </button>
-          </div>
-
-          <div className="mt-auto border-t border-slate-800 pt-6 flex flex-col gap-1">
-            <button onClick={() => handleMenuChange('database')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'database' ? 'bg-slate-700 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <Database className="w-4 h-4 shrink-0"/> 
-              <span className="truncate">Base de Dados</span>
+            <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <PieChart className="w-4 h-4 shrink-0"/> 
+              <span className="truncate">Gaps Operacionais</span>
             </button>
           </div>
         </nav>
@@ -2908,33 +2397,56 @@ export default function App() {
 
       {/* HEADER & MAIN */}
       <main className="flex-1 flex flex-col h-full relative overflow-hidden">
-        <header className="bg-white border-b border-slate-200 p-4 md:px-6 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 shrink-0 shadow-sm z-50">
+        <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-4 md:px-6 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 shrink-0 shadow-sm z-50 transition-colors duration-300">
           
           <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-            <div className="flex items-center gap-2 text-slate-500">
+            <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
               <Filter className="w-4 h-4" />
               <span className="text-xs font-bold uppercase tracking-wider hidden sm:block">Filtros</span>
             </div>
             
-            <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-200">
+            <div className="flex flex-wrap items-center gap-2 bg-slate-50 dark:bg-slate-900/50 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700">
               <MultiSelectDropdown label="Quinzena" options={quinzenasDisponiveis} selected={filtroQuinzenas} onChange={setFiltroQuinzenas} />
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
+              <div className="hidden sm:block w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
               <MultiSelectDropdown label="Regional" options={regionaisDisponiveis} selected={filtroRegionais} onChange={setFiltroRegionais} />
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
+              <div className="hidden sm:block w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
               <MultiSelectDropdown label="Supervisor" options={supervisoresDisponiveis} selected={filtroSupervisores} onChange={setFiltroSupervisores} />
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
+              <div className="hidden sm:block w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
               <MultiSelectDropdown label="Filial" options={filiaisDisponiveis} selected={filtroFiliais} onChange={setFiltroFiliais} />
               
-              {/* FILTRO DE SIMULAÇÃO (EXCLUSÃO DE INSUCESSOS) */}
               {isOpOrBscView && (
                 <>
-                  <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
+                  <div className="hidden sm:block w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
                   <MultiSelectDropdown label="Ignorar Insucesso" options={insucessosDisponiveis} selected={insucessosExcluidos} onChange={setInsucessosExcluidos} />
                 </>
               )}
             </div>
           </div>
+
+          <div className="flex items-center shrink-0 w-full xl:w-auto mt-2 xl:mt-0 justify-end gap-3">
+             <button 
+                onClick={toggleTheme} 
+                className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors border border-transparent dark:border-slate-700 shadow-sm"
+                title="Alternar Tema"
+              >
+                {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+             </button>
+             <button onClick={fetchFromGoogleSheets} disabled={isLoading} className="flex items-center justify-center gap-2 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 px-4 py-2 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 shadow-sm w-full sm:w-auto">
+               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /> 
+               {isLoading ? 'Sincronizando...' : 'Sincronizar Dados'}
+             </button>
+          </div>
         </header>
+
+        {error && (
+          <div className="mx-4 md:mx-6 mt-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 rounded-2xl flex items-start gap-3 shadow-sm z-40">
+             <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+             <div>
+                <h4 className="font-bold text-red-800 dark:text-red-400">Falha na Sincronização</h4>
+                <p className="text-sm font-medium text-red-600 dark:text-red-300">{error}</p>
+             </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-7xl mx-auto h-full flex flex-col gap-6">
@@ -2943,7 +2455,7 @@ export default function App() {
             {activeMenu === 'gestao_financeira' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="grid grid-cols-1 gap-8 mb-8">
-                  <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
+                  <div className="bg-slate-900 dark:bg-slate-950 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between border border-slate-800">
                     <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
                     <div>
                       <h2 className="text-sm md:text-base font-bold text-blue-400 mb-2 z-10 tracking-widest uppercase">Penalidades vs Faturamento</h2>
@@ -2961,77 +2473,55 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                
                 <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} />
-
-                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200">
+                <div className="bg-white dark:bg-slate-800 p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 transition-colors">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
-                      <Scale className="w-6 h-6 text-violet-600" />
-                      <h2 className="text-xl md:text-2xl font-bold text-slate-800">
-                        {selectedQuinzenaPareto 
-                          ? `Detalhamento de Filiais Financeiro - ${selectedQuinzenaPareto}` 
-                          : 'Evolução Financeira por Quinzena'}
+                      <Scale className="w-6 h-6 text-violet-600 dark:text-violet-400" />
+                      <h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white">
+                        {selectedQuinzenaPareto ? `Detalhamento de Filiais Financeiro - ${selectedQuinzenaPareto}` : 'Evolução Financeira por Quinzena'}
                       </h2>
                     </div>
                     {selectedQuinzenaPareto && (
-                      <button 
-                        onClick={() => setSelectedQuinzenaPareto(null)}
-                        className="text-xs md:text-sm font-bold text-violet-600 bg-violet-50 px-3 py-1.5 rounded-lg hover:bg-violet-100 transition-colors"
-                      >
+                      <button onClick={() => setSelectedQuinzenaPareto(null)} className="text-xs md:text-sm font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-3 py-1.5 rounded-lg hover:bg-violet-100 dark:hover:bg-violet-900/50 transition-colors">
                         ← Voltar para Visão Geral
                       </button>
                     )}
                   </div>
-                  <p className="text-sm text-slate-500 font-medium mb-8">
-                    {selectedQuinzenaPareto 
-                      ? 'Detalhamento do período selecionado.' 
-                      : 'Clique sobre a barra de uma quinzena para abrir o detalhamento das filiais que compõem o resultado financeiro (Drill-down).'}
+                  <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mb-8">
+                    {selectedQuinzenaPareto ? 'Detalhamento do período selecionado.' : 'Clique sobre a barra de uma quinzena para abrir o detalhamento das filiais que compõem o resultado financeiro (Drill-down).'}
                   </p>
-                  
-                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                  <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-2xl p-4">
                     {!selectedQuinzenaPareto ? (
-                      <NativeComboChart 
-                        data={paretoQuinzenaData} 
-                        labelKey="quinzena" 
-                        heightClass="h-[400px]" 
-                        onBarClick={(q) => setSelectedQuinzenaPareto(q)}
-                      />
+                      <NativeComboChart data={paretoQuinzenaData} labelKey="quinzena" heightClass="h-[400px]" onBarClick={(q) => setSelectedQuinzenaPareto(q)} />
                     ) : (
-                      <NativeComboChart 
-                        data={paretoFilialDrilldownData} 
-                        labelKey="filial" 
-                        heightClass="h-[400px]" 
-                      />
+                      <NativeComboChart data={paretoFilialDrilldownData} labelKey="filial" heightClass="h-[400px]" />
                     )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* DETALHE FINANCEIRO (NOVA ABA) */}
+            {/* DETALHE FINANCEIRO */}
             {activeMenu === 'detalhe_financeiro' && (
-               <DetalheFinanceiroSection 
-                 dadosFiltrados={dadosFiltrados} 
-                 onExport={(options) => handleDownloadExcel('penalidades', options)}
-                 isExporting={exportingType === 'excel-penalidades'}
-               />
+               <DetalheFinanceiroSection dadosFiltrados={dadosFiltrados} onExport={(options) => handleDownloadExcel('penalidades', options)} isExporting={exportingType === 'excel-penalidades'} />
             )}
 
-            {/* COMPARATIVO BSC (NOVA ABA) */}
+            {/* COMPARATIVO BSC */}
             {activeMenu === 'comparativo_bsc' && (
-               <ComparativoBscSection 
-                 dataOp={operacionalSimulado} 
-                 dataBsc={bscSimulado} 
-               />
+               <ComparativoBscSection dataOp={operacionalSimulado} dataBsc={bscSimulado} />
+            )}
+
+            {/* GAPS OPERACIONAIS */}
+            {activeMenu === 'gaps_operacionais' && (
+               <GapsOperacionaisSection dataOp={operacionalSimulado} dataBsc={bscSimulado} />
             )}
 
             {/* GESTÃO OPERACIONAL E BSC (VISÃO UNIFICADA E DINÂMICA) */}
             {isOpOrBscView && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                
                 <div className="grid grid-cols-1 gap-8 mb-8">
-                  <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
+                  <div className="bg-slate-900 dark:bg-slate-950 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between border border-slate-800">
                     <div className="absolute -right-10 -top-10 opacity-5"><IconOverview className="w-64 h-64" /></div>
                     <div>
                       <h2 className="text-sm md:text-base font-bold text-emerald-400 mb-2 z-10 tracking-widest uppercase">Overview {titlePrefix} (DS)</h2>
@@ -3064,94 +2554,35 @@ export default function App() {
                 
                 <RunRateOperacionalSection baseData={currentOpRunRateData} targetQuinzena={targetQuinzenaRunRate} titlePrefix={titlePrefix} />
 
-                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200">
+                <div className="bg-white dark:bg-slate-800 p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 transition-colors">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
-                      <IconOverview className="w-6 h-6 text-emerald-600" />
-                      <h2 className="text-xl md:text-2xl font-bold text-slate-800">
-                        {selectedQuinzenaDS 
-                          ? `Detalhamento de Filiais ${titlePrefix} - ${selectedQuinzenaDS}` 
-                          : `Evolução de DS ${titlePrefix} por Quinzena`}
+                      <IconOverview className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                      <h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white">
+                        {selectedQuinzenaDS ? `Detalhamento de Filiais ${titlePrefix} - ${selectedQuinzenaDS}` : `Evolução de DS ${titlePrefix} por Quinzena`}
                       </h2>
                     </div>
                     {selectedQuinzenaDS && (
-                      <button 
-                        onClick={() => setSelectedQuinzenaDS(null)}
-                        className="text-xs md:text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
-                      >
+                      <button onClick={() => setSelectedQuinzenaDS(null)} className="text-xs md:text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors">
                         ← Voltar para Visão Geral
                       </button>
                     )}
                   </div>
-                  <p className="text-sm text-slate-500 font-medium mb-8">
-                    {selectedQuinzenaDS 
-                      ? 'Detalhamento operacional do período selecionado.' 
-                      : 'Clique sobre a barra de uma quinzena para abrir o detalhamento das filiais (Drill-down).'}
+                  <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mb-8">
+                    {selectedQuinzenaDS ? 'Detalhamento operacional do período selecionado.' : 'Clique sobre a barra de uma quinzena para abrir o detalhamento das filiais (Drill-down).'}
                   </p>
                   
-                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                  <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-2xl p-4">
                     {!selectedQuinzenaDS ? (
-                      <NativeDSChart 
-                        data={dsQuinzenaData} 
-                        labelKey="quinzena" 
-                        heightClass="h-[400px]" 
-                        onBarClick={(q) => setSelectedQuinzenaDS(q)}
-                      />
+                      <NativeDSChart data={dsQuinzenaData} labelKey="quinzena" heightClass="h-[400px]" onBarClick={(q) => setSelectedQuinzenaDS(q)} />
                     ) : (
-                      <NativeDSChart 
-                        data={dsFilialDrilldownData} 
-                        labelKey="filial" 
-                        heightClass="h-[400px]" 
-                      />
+                      <NativeDSChart data={dsFilialDrilldownData} labelKey="filial" heightClass="h-[400px]" />
                     )}
                   </div>
                 </div>
               </div>
             )}
-
-            {/* VIEWS BASE DE DADOS */}
-            {activeMenu === 'database' && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
-                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col gap-6">
-                  <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-                    <Database className="w-6 h-6 text-blue-600" />
-                    <h2 className="text-xl md:text-2xl font-bold text-slate-800">Conexão de Bases de Dados</h2>
-                  </div>
-                  
-                  <p className="text-sm text-slate-500 font-medium">
-                    Insira os links das planilhas do Google Sheets para sincronizar os dados do painel. Certifique-se de que os links possuam permissão de leitura.
-                  </p>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500"></div> Penalidades Base (R$)</label>
-                      <input type="text" value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="Link plan. Penalidades..." className="border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 bg-slate-50 font-medium text-slate-700"/>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-violet-500"></div> Faturamento (R$)</label>
-                      <input type="text" value={sheetUrlFaturamento} onChange={(e) => setSheetUrlFaturamento(e.target.value)} placeholder="Link plan. Faturamento..." className="border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-violet-500 bg-slate-50 font-medium text-slate-700"/>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Operacional (Saldo/Entregas)</label>
-                      <input type="text" value={sheetUrlOperacional} onChange={(e) => setSheetUrlOperacional(e.target.value)} placeholder="Link plan. Operacional..." className="border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-emerald-500 bg-slate-50 font-medium text-slate-700"/>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-teal-500"></div> Operacional BSC</label>
-                      <input type="text" value={sheetUrlBsc} onChange={(e) => setSheetUrlBsc(e.target.value)} placeholder="Link plan. BSC..." className="border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-teal-500 bg-slate-50 font-medium text-slate-700"/>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-6 flex justify-end pt-6 border-t border-slate-100">
-                    <button onClick={fetchFromGoogleSheets} disabled={isLoading} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3.5 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors disabled:opacity-50 shadow-md">
-                        {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
-                        {isLoading ? 'Sincronizando...' : 'Sincronizar Todas as Bases'}
-                    </button>
-                  </div>
-                  {error && <p className="text-sm text-red-600 mt-2 flex items-center gap-2 bg-red-50 p-4 rounded-xl border border-red-100 font-medium"><AlertCircle className="w-5 h-5 shrink-0"/>{error}</p>}
-                </div>
-              </div>
-            )}
-
+            
           </div>
         </div>
       </main>
