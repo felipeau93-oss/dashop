@@ -40,19 +40,10 @@ import {
   Truck, 
   RotateCcw
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 
 // ============================================================================
-// CONFIGURAÇÃO DO FIREBASE (NUVEM) E DADOS PRÉ-PROCESSADOS
+// DADOS PRÉ-PROCESSADOS GLOBAIS
 // ============================================================================
-const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
 const initialParsedData = [];
 const initialFaturamentoData = [];
 const initialOperacionalData = [];
@@ -2826,7 +2817,6 @@ export default function App() {
   
   const [tarifasProcessadas, setTarifasProcessadas] = useState([]);
   const [receitasProcessadas, setReceitasProcessadas] = useState([]);
-  const [user, setUser] = useState(null);
 
   const [error, setError] = useState(null);
   
@@ -2850,19 +2840,6 @@ export default function App() {
   const [selectedQuinzenaDS, setSelectedQuinzenaDS] = useState(null);
 
   const [hasInitialSynced, setHasInitialSynced] = useState(false);
-
-  useEffect(() => {
-    const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
 
   useEffect(() => {
     setSelectedQuinzenaPareto(null);
