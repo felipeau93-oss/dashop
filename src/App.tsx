@@ -24,12 +24,35 @@ import {
   Moon,
   Sun,
   X,
-  ChevronDown
+  ChevronDown,
+  Calculator, 
+  Database, 
+  Plus, 
+  Trash2, 
+  MapPin, 
+  CalendarClock, 
+  History, 
+  Save, 
+  CheckCircle2, 
+  ChevronUp, 
+  Percent,
+  BadgeDollarSign, 
+  Truck, 
+  RotateCcw
 } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 
 // ============================================================================
-// DADOS PRÉ-PROCESSADOS
+// CONFIGURAÇÃO DO FIREBASE (NUVEM) E DADOS PRÉ-PROCESSADOS
 // ============================================================================
+const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
 const initialParsedData = [];
 const initialFaturamentoData = [];
 const initialOperacionalData = [];
@@ -479,6 +502,7 @@ const NativeRunRateChart = ({ diasOperados, totalDias, currentSaldo, currentEntr
 // ============================================================================
 // COMPONENTES DE SEÇÃO (PÁGINAS)
 // ============================================================================
+
 const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats }) => {
   const { totalDias, diasOperados, isClosed } = useMemo(() => {
     if (!targetQuinzena || targetQuinzena === 'N/A') return { totalDias: 15, diasOperados: 15, isClosed: true };
@@ -1565,7 +1589,7 @@ const ComparativoBscSection = ({ dataOp, dataBsc }) => {
   );
 };
 
-const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
+const GapsOperacionaisSection = ({ dataOp, dataBsc, onCardClick }) => {
   const [dataSource, setDataSource] = useState('operacional');
   const [sortConfig, setSortConfig] = useState({ key: 'insucessos', direction: 'desc' });
   const [selectedFilial, setSelectedFilial] = useState(null);
@@ -1770,25 +1794,25 @@ const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
                 <span className="text-2xl font-black text-red-600">{formatQtd(topCards.totalGaps)}</span>
             </div>
             
-            <div onClick={() => setSelectedFilial(topCards.filial.filial)} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
+            <div onClick={() => { setSelectedFilial(topCards.filial.filial); if (onCardClick) onCardClick('filial', topCards.filial.filial); }} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
                 <span className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1 group-hover:text-blue-500">Filial Mais Crítica <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
                 <span className="text-lg font-black text-slate-800 line-clamp-2 w-full px-2 break-words" title={topCards.filial.filial}>{topCards.filial.filial}</span>
                 <span className="text-xs font-bold text-red-500 mt-auto pt-1">{formatQtd(topCards.filial.insucessos)} insucessos</span>
             </div>
             
-            <div onClick={() => { setSelectedFilial(topCards.filial.filial); setSelectedCluster(topCards.cluster.cluster); }} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
+            <div onClick={() => { setSelectedFilial(topCards.filial.filial); setSelectedCluster(topCards.cluster.cluster); if(onCardClick) onCardClick('cluster', topCards.cluster.cluster); }} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
                 <span className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1 group-hover:text-blue-500">Cluster Mais Crítico <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
                 <span className="text-lg font-black text-slate-800 line-clamp-2 w-full px-2 break-words" title={topCards.cluster.cluster}>{topCards.cluster.cluster}</span>
                 <span className="text-xs font-bold text-red-500 mt-auto pt-1">{formatQtd(topCards.cluster.insucessos)} insucessos</span>
             </div>
             
-            <div onClick={() => { setSelectedFilial(topCards.filial.filial); setSelectedCluster(topCards.cluster.cluster); setSelectedMotorista(topCards.motorista.motorista); }} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
+            <div onClick={() => { setSelectedFilial(topCards.filial.filial); setSelectedCluster(topCards.cluster.cluster); setSelectedMotorista(topCards.motorista.motorista); if(onCardClick) onCardClick('motorista', topCards.motorista.motorista); }} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
                 <span className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1 group-hover:text-blue-500">Motorista Mais Crítico <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
                 <span className="text-lg font-black text-slate-800 line-clamp-2 w-full px-2 break-words" title={topCards.motorista.motorista}>{topCards.motorista.motorista}</span>
                 <span className="text-xs font-bold text-red-500 mt-auto pt-1">{formatQtd(topCards.motorista.insucessos)} insucessos</span>
             </div>
             
-            <div onClick={() => setSelectedMotivo(topCards.motivo.nome)} className="bg-orange-50 border border-orange-100 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
+            <div onClick={() => { setSelectedMotivo(topCards.motivo.nome); if(onCardClick) onCardClick('motivo', topCards.motivo.nome); }} className="bg-orange-50 border border-orange-100 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
                 <span className="text-[10px] font-bold text-orange-600 uppercase mb-1 flex items-center gap-1 group-hover:text-orange-800">Motivo Recorrente <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
                 <span className="text-sm font-black text-orange-600 line-clamp-2 w-full px-2 break-words" title={topCards.motivo.nome}>{topCards.motivo.nome}</span>
                 <span className="text-xs font-bold text-orange-500 mt-auto pt-1">{formatQtd(topCards.motivo.qtd)} pacotes</span>
@@ -1912,6 +1936,806 @@ const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
   );
 };
 
+const SimuladorOperacoesSection = ({ user, tarifasProcessadas, receitasProcessadas }) => {
+  const [quinzena, setQuinzena] = useState('202604Q2');
+  const [filial, setFilial] = useState('SSC4');
+  const [percentualImposto, setPercentualImposto] = useState(0);
+  const [activeTab, setActiveTab] = useState('calculadora');
+
+  const [modoMargemGlobal, setModoMargemGlobal] = useState('atual');
+  const [margemDesejadaGlobal, setMargemDesejadaGlobal] = useState('');
+
+  const [registros, setRegistros] = useState([]);
+  const [expandedRegistros, setExpandedRegistros] = useState([]);
+  const [showToast, setShowToast] = useState(false);
+
+  const [cenarios, setCenarios] = useState([
+    { 
+      id: 1, 
+      categoria: 'Vuc', 
+      dia: 'Seg-Sab', 
+      valorInicialSimulado: 412,
+      percentualIncremento: 5,
+      tipoProgressao: 'tabela',
+      isExpanded: true,
+      rotasPorFaixa: {}
+    }
+  ]);
+
+  useEffect(() => {
+    if (!user) return;
+    const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'simulacoes');
+    const unsubscribe = onSnapshot(colRef, (snapshot) => {
+      const loaded = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      loaded.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      setRegistros(loaded);
+    }, (error) => {
+      console.error("Erro ao carregar histórico: ", error);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  const { categoriasUnicas, diasUnicos, rangesOrdenados, filiaisUnicas } = useMemo(() => {
+    const cats = [...new Set(tarifasProcessadas.map(t => t.categoria))].filter(Boolean).sort();
+    const dias = [...new Set(tarifasProcessadas.map(t => t.dia))].filter(Boolean).sort();
+    
+    const filiaisRaw = [...new Set(tarifasProcessadas.map(t => t.filial))];
+    const filiais = filiaisRaw
+      .map(f => (f || '').trim().toUpperCase())
+      .filter(f => f && f !== '-' && f !== 'FILIAL')
+      .filter((value, index, self) => self.indexOf(value) === index)
+      .sort();
+
+    const rngs = [...new Set(tarifasProcessadas.map(t => t.range))].filter(Boolean);
+    rngs.sort((a, b) => {
+      const numA = parseInt(a.split('/')[0]) || 0;
+      const numB = parseInt(b.split('/')[0]) || 0;
+      return numA - numB;
+    });
+
+    return { categoriasUnicas: cats, diasUnicos: dias, rangesOrdenados: rngs, filiaisUnicas: filiais };
+  }, [tarifasProcessadas]);
+
+  const getTarifaBase = useCallback((cat, rng, fil, dia) => {
+    if (!cat || !rng || !dia) return 0;
+    const compativeis = tarifasProcessadas.filter(t => 
+      t.categoria.toLowerCase() === cat.toLowerCase() && 
+      t.range === rng &&
+      t.dia.toLowerCase() === dia.toLowerCase()
+    );
+    const searchFilial = (fil || '').trim().toLowerCase();
+    
+    let encontrada = compativeis.find(t => t.filial.toLowerCase() === searchFilial);
+    if (!encontrada) encontrada = compativeis.find(t => t.filial === '' || t.filial === '-');
+    
+    return encontrada ? encontrada.valor : 0;
+  }, [tarifasProcessadas]);
+
+  const getReceitaBase = useCallback((cat, rng, fil, dia) => {
+    if (!cat || !rng || !dia) return 0;
+    
+    const encontrada = receitasProcessadas.find(t => 
+      t.categoria.toLowerCase() === cat.toLowerCase() && 
+      t.range === rng &&
+      t.dia.toLowerCase() === dia.toLowerCase()
+    );
+    
+    return encontrada ? encontrada.valor : 0;
+  }, [receitasProcessadas]);
+
+  const cenariosCalculados = useMemo(() => {
+    return cenarios.map(cenario => {
+      let totalRotasCenario = 0;
+      let totalPagoTabelaCenario = 0;
+      let totalPagoSimuladoCenario = 0;
+      let totalRecebidoCalculado = 0; 
+      
+      const catLower = (cenario.categoria || '').toLowerCase();
+      const isPadrao = ['passeio', 'utilitario', 'utilitário', 'van', 'vuc'].some(c => catLower.includes(c));
+      const rangesDoCenario = isPadrao 
+        ? ['1/100', '101/150', '151/200', '201/300', '301/99999'] 
+        : rangesOrdenados;
+        
+      const primeiraFaixa = rangesDoCenario[0] || '1/100';
+
+      let currentSimulado = cenario.valorInicialSimulado || 0;
+
+      const faixasCalculadas = rangesDoCenario.map((range, index) => {
+        const qtdRotas = cenario.rotasPorFaixa[range] || 0;
+        totalRotasCenario += qtdRotas;
+
+        const valorTabela = getTarifaBase(cenario.categoria, range, filial, cenario.dia);
+        const pagoTabela = qtdRotas * valorTabela;
+        totalPagoTabelaCenario += pagoTabela;
+
+        const valorReceita = getReceitaBase(cenario.categoria, range, filial, cenario.dia);
+        const recebidoFaixa = qtdRotas * valorReceita;
+        totalRecebidoCalculado += recebidoFaixa;
+
+        let pctAumento = 0;
+        
+        if (index > 0) {
+          if (cenario.tipoProgressao === 'tabela') {
+            const valorTabelaAnterior = getTarifaBase(cenario.categoria, rangesDoCenario[index - 1], filial, cenario.dia);
+            if (valorTabelaAnterior > 0) {
+              const taxa = valorTabela / valorTabelaAnterior;
+              pctAumento = (taxa - 1) * 100;
+              currentSimulado = Math.floor(currentSimulado * taxa);
+            }
+          } else {
+            pctAumento = cenario.percentualIncremento || 0;
+            if (currentSimulado > 0) {
+              currentSimulado = Math.floor(currentSimulado * (1 + (pctAumento / 100)));
+            }
+          }
+        } else {
+          currentSimulado = cenario.valorInicialSimulado || 0;
+        }
+
+        const pagoSimulado = qtdRotas * currentSimulado;
+        totalPagoSimuladoCenario += pagoSimulado;
+
+        return {
+          range,
+          qtdRotas,
+          valorReceita,
+          recebidoFaixa,
+          valorTabela,
+          pagoTabela,
+          pctAumento,
+          valorSimuladoUnitario: currentSimulado,
+          pagoSimulado
+        };
+      });
+
+      const lucroBrutoReal = totalRecebidoCalculado - totalPagoTabelaCenario;
+      const lucroSimulado = totalRecebidoCalculado - totalPagoSimuladoCenario;
+      const margemBrutaReal = totalRecebidoCalculado > 0 ? (lucroBrutoReal / totalRecebidoCalculado) * 100 : 0;
+
+      return { 
+        ...cenario, 
+        primeiraFaixa,
+        faixasCalculadas,
+        totalRotasCenario,
+        totalRecebido: totalRecebidoCalculado,
+        totalPagoTabelaCenario,
+        totalPagoSimuladoCenario,
+        lucroBrutoReal,
+        margemBrutaReal,
+        lucroSimulado
+      };
+    });
+  }, [cenarios, filial, getTarifaBase, getReceitaBase, rangesOrdenados]);
+
+  const resumo = useMemo(() => {
+    const totais = cenariosCalculados.reduce((acc, curr) => ({
+      rotas: acc.rotas + curr.totalRotasCenario,
+      recebido: acc.recebido + (curr.totalRecebido || 0),
+      pagoTabela: acc.pagoTabela + curr.totalPagoTabelaCenario,
+      pagoSimulado: acc.pagoSimulado + curr.totalPagoSimuladoCenario,
+    }), { rotas: 0, recebido: 0, pagoTabela: 0, pagoSimulado: 0 });
+
+    const R_Bruto = totais.recebido;
+    const valorImposto = (R_Bruto * (percentualImposto || 0)) / 100;
+    const receitaLiquida = R_Bruto - valorImposto;
+
+    const resultadoReal = receitaLiquida - totais.pagoTabela;
+    const resultadoSimulado = receitaLiquida - totais.pagoSimulado;
+
+    const margemReal = R_Bruto > 0 ? (resultadoReal / R_Bruto) * 100 : 0;
+    const margemSimulada = R_Bruto > 0 ? (resultadoSimulado / R_Bruto) * 100 : 0;
+
+    const lucro_medio_simulado = totais.rotas > 0 ? resultadoSimulado / totais.rotas : 0;
+    const M_alvo = (parseFloat(margemDesejadaGlobal) || 0) / 100;
+    const lucroAlvoR$ = R_Bruto * M_alvo;
+
+    let rotasParaManter = 0;
+    let rotasParaManterPossivel = true;
+    let rotasParaAlvo = 0;
+    let rotasParaAlvoPossivel = true;
+
+    if (totais.rotas > 0 && R_Bruto > 0) {
+      const gapLucro = resultadoReal - resultadoSimulado;
+      if (gapLucro <= 0) {
+        rotasParaManter = 0;
+      } else if (lucro_medio_simulado > 0) {
+        rotasParaManter = Math.ceil(gapLucro / lucro_medio_simulado);
+      } else {
+        rotasParaManterPossivel = false;
+      }
+
+      const gapAlvo = lucroAlvoR$ - resultadoSimulado;
+      if (gapAlvo <= 0) {
+        rotasParaAlvo = 0;
+      } else if (lucro_medio_simulado > 0) {
+        rotasParaAlvo = Math.ceil(gapAlvo / lucro_medio_simulado);
+      } else {
+        rotasParaAlvoPossivel = false;
+      }
+    }
+
+    return { 
+      ...totais, 
+      faturamentoBruto: R_Bruto, 
+      valorImposto, 
+      receitaLiquida, 
+      resultadoReal, 
+      resultadoSimulado, 
+      margemReal, 
+      margemSimulada,
+      rotasParaManter,
+      rotasParaManterPossivel,
+      rotasParaAlvo,
+      rotasParaAlvoPossivel,
+      lucroAlvoR$
+    };
+  }, [cenariosCalculados, percentualImposto, margemDesejadaGlobal]);
+
+  const handleAddCenario = () => {
+    const novoId = cenarios.length > 0 ? Math.max(...cenarios.map(c => c.id)) + 1 : 1;
+    const cat = categoriasUnicas[0] || '';
+    const dia = diasUnicos[0] || '';
+    
+    const catLower = cat.toLowerCase();
+    const isPadrao = ['passeio', 'utilitario', 'utilitário', 'van', 'vuc'].some(c => catLower.includes(c));
+    const primeiraFaixa = isPadrao ? '1/100' : (rangesOrdenados[0] || '1/100');
+
+    const valorBaseInicial = getTarifaBase(cat, primeiraFaixa, filial, dia);
+
+    setCenarios([...cenarios, { 
+      id: novoId, 
+      categoria: cat, 
+      dia: dia,
+      valorInicialSimulado: valorBaseInicial,
+      percentualIncremento: 5,
+      tipoProgressao: 'tabela',
+      isExpanded: true,
+      rotasPorFaixa: {}
+    }]);
+  };
+
+  const handleRemoveCenario = (id) => {
+    setCenarios(cenarios.filter(c => c.id !== id));
+  };
+
+  const handleClearAll = () => {
+    setCenarios([]);
+    setPercentualImposto(0);
+    setModoMargemGlobal('atual');
+    setMargemDesejadaGlobal('');
+    handleAddCenario();
+  };
+
+  const handleCenarioChange = (id, field, value) => {
+    setCenarios(cenarios.map(c => {
+      if (c.id === id) {
+        const updated = { ...c, [field]: value };
+        if (field === 'categoria' || field === 'dia') {
+           const catToUse = (field === 'categoria' ? value : c.categoria) || '';
+           const catLower = catToUse.toLowerCase();
+           const isPadrao = ['passeio', 'utilitario', 'utilitário', 'van', 'vuc'].some(cat => catLower.includes(cat));
+           const primeiraFaixa = isPadrao ? '1/100' : (rangesOrdenados[0] || '1/100');
+           
+           updated.valorInicialSimulado = getTarifaBase(updated.categoria, primeiraFaixa, filial, updated.dia);
+        }
+        return updated;
+      }
+      return c;
+    }));
+  };
+
+  const handleRotasPorFaixaChange = (cenarioId, range, qtd) => {
+    setCenarios(cenarios.map(c => {
+      if (c.id === cenarioId) {
+        return { ...c, rotasPorFaixa: { ...c.rotasPorFaixa, [range]: qtd } };
+      }
+      return c;
+    }));
+  };
+
+  const toggleExpand = (id) => {
+    setCenarios(cenarios.map(c => c.id === id ? { ...c, isExpanded: !c.isExpanded } : c));
+  };
+
+  const toggleRegistro = (id) => {
+    setExpandedRegistros(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]);
+  };
+
+  const handleRegistrar = async () => {
+    if (cenarios.length === 0 || !user) return;
+    
+    const novoId = Date.now().toString();
+    const novoRegistro = {
+      timestamp: Date.now(),
+      quinzena,
+      filial,
+      impostoPercentual: percentualImposto,
+      resumo,
+      cenarios: cenariosCalculados,
+      data: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    };
+    
+    try {
+      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'simulacoes', novoId);
+      await setDoc(docRef, novoRegistro);
+      
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
+    } catch (err) {
+      console.error("Erro ao salvar simulação:", err);
+    }
+  };
+
+  const handleRemoverRegistro = async (id) => {
+    if (!user) return;
+    try {
+      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'simulacoes', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error("Erro ao excluir simulação:", err);
+    }
+  };
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-24">
+      <div className="space-y-6">
+        <header className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+              <Calculator className="w-7 h-7 text-indigo-600" />
+              Simulador de Operações
+            </h1>
+            <p className="text-slate-500 mt-1">Projete custos progressivos e calcule sua margem global.</p>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row gap-4 items-center">
+            <div className="flex bg-slate-100 p-1 rounded-lg w-full sm:w-auto">
+              <button 
+                onClick={() => setActiveTab('calculadora')}
+                className={`flex-1 sm:flex-none px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${activeTab === 'calculadora' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <LayoutDashboard className="w-4 h-4" /> Simulador
+              </button>
+              <button 
+                onClick={() => setActiveTab('historico')}
+                className={`flex-1 sm:flex-none px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${activeTab === 'historico' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <History className="w-4 h-4" /> Comparativo {registros.length > 0 && <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-xs">{registros.length}</span>}
+              </button>
+            </div>
+          </div>
+
+          {showToast && (
+            <div className="absolute -bottom-14 right-0 md:right-6 bg-emerald-600 text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 animate-in slide-in-from-bottom-2 fade-in z-50">
+              <CheckCircle2 className="w-5 h-5" />
+              Simulação Salva na Nuvem!
+            </div>
+          )}
+        </header>
+
+        {activeTab === 'calculadora' && (
+          <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-center">
+              <div className="flex-1 w-full space-y-1">
+                <label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                  <CalendarClock className="w-3.5 h-3.5 text-indigo-500" /> Quinzena Referência
+                </label>
+                <input 
+                  type="text" 
+                  value={quinzena}
+                  onChange={(e) => setQuinzena(e.target.value)}
+                  placeholder="Ex: 202604Q2"
+                  className="w-full py-1.5 px-3 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium uppercase"
+                />
+              </div>
+              <div className="flex-1 w-full space-y-1">
+                <label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-indigo-500" /> Filial de Operação
+                </label>
+                <select 
+                  value={filial}
+                  onChange={(e) => setFilial(e.target.value)}
+                  className="w-full py-1.5 px-3 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium uppercase text-slate-700 cursor-pointer"
+                >
+                  <option value="">Selecione...</option>
+                  {filiaisUnicas.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
+              <div className="flex-1 w-full space-y-1">
+                <label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                  <BadgeDollarSign className="w-3.5 h-3.5 text-red-500" /> Imposto a Descontar (%)
+                </label>
+                <div className="relative">
+                  <input 
+                    type="number" 
+                    min="0"
+                    step="0.1"
+                    value={percentualImposto === 0 ? '' : percentualImposto}
+                    onChange={(e) => setPercentualImposto(parseFloat(e.target.value) || 0)}
+                    placeholder="Ex: 15"
+                    className="w-full py-1.5 px-3 pr-8 text-sm bg-red-50 border border-red-200 text-red-700 rounded-lg focus:ring-2 focus:ring-red-500 outline-none transition-all font-medium"
+                  />
+                  <Percent className="w-3.5 h-3.5 text-red-500 absolute right-2.5 top-2" />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                <div>
+                  <span className="text-sm font-bold text-slate-700 mb-3 block">1. Receitas e Impostos</span>
+                  <div className="flex justify-between items-center text-sm mb-1.5">
+                    <span className="text-slate-500">Fat. Bruto:</span>
+                    <span className="font-medium text-slate-800">{formatCurrency(resumo.faturamentoBruto)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm mb-3 pb-3 border-b border-slate-100">
+                    <span className="text-slate-500">Imposto ({percentualImposto}%):</span>
+                    <span className="font-medium text-red-500">-{formatCurrency(resumo.valorImposto)}</span>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                  <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Receita Líquida:</span>
+                  <span className="text-base font-bold text-emerald-600">{formatCurrency(resumo.receitaLiquida)}</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                <div>
+                   <span className="text-sm font-bold text-slate-700 mb-3 block">2. Custo da Operação</span>
+                   <div className="space-y-4">
+                     <div>
+                       <span className="text-xs text-slate-500 block uppercase tracking-wider mb-0.5">Custo Real (Tabela Base)</span>
+                       <span className="text-xl font-semibold text-slate-700">{formatCurrency(resumo.pagoTabela)}</span>
+                     </div>
+                     <div>
+                       <span className="text-xs text-indigo-500 block uppercase tracking-wider font-bold mb-0.5">Custo Simulado (Projeção)</span>
+                       <span className="text-xl font-bold text-indigo-600">{formatCurrency(resumo.pagoSimulado)}</span>
+                     </div>
+                   </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                 <div>
+                   <span className="text-sm font-bold text-slate-700 mb-3 block">3. Resultado Líquido</span>
+                   <div className="space-y-4">
+                     <div>
+                       <span className="text-xs text-slate-500 block uppercase tracking-wider mb-0.5">Resultado Real</span>
+                       <span className={`text-xl font-semibold flex items-center gap-1 ${resumo.resultadoReal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                         {resumo.resultadoReal >= 0 ? <TrendingUp className="w-4 h-4"/> : <TrendingDown className="w-4 h-4"/>}
+                         {formatCurrency(resumo.resultadoReal)}
+                       </span>
+                     </div>
+                     <div>
+                       <span className="text-xs text-indigo-500 block uppercase tracking-wider font-bold mb-0.5">Resultado Simulado</span>
+                       <span className={`text-xl font-bold flex items-center gap-1 ${resumo.resultadoSimulado >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                         {resumo.resultadoSimulado >= 0 ? <TrendingUp className="w-4 h-4"/> : <TrendingDown className="w-4 h-4"/>}
+                         {formatCurrency(resumo.resultadoSimulado)}
+                       </span>
+                     </div>
+                   </div>
+                 </div>
+              </div>
+
+              <div className="bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-700 flex flex-col justify-between text-white">
+                 <div>
+                   <span className="text-sm font-bold text-slate-300 mb-3 block">4. Margem Global (%)</span>
+                   <div className="space-y-4">
+                     <div>
+                       <span className="text-xs text-slate-400 block uppercase tracking-wider mb-0.5">Margem Real Total</span>
+                       <span className="text-2xl font-semibold text-slate-200">
+                         {resumo.margemReal.toFixed(1)}%
+                       </span>
+                     </div>
+                     <div>
+                       <span className="text-xs text-indigo-300 block uppercase tracking-wider font-bold mb-0.5">Margem Sim. Total</span>
+                       <span className={`text-3xl font-bold flex items-center gap-1 ${resumo.margemSimulada >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                         {resumo.margemSimulada >= 0 ? <TrendingUp className="w-6 h-6"/> : <TrendingDown className="w-6 h-6"/>}
+                         {resumo.margemSimulada.toFixed(1)}%
+                       </span>
+                     </div>
+                   </div>
+                 </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-slate-800">Detalhamento por Categoria</h3>
+                <button 
+                  onClick={handleAddCenario}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm"
+                >
+                  <Plus className="w-4 h-4" /> Adicionar Categoria
+                </button>
+              </div>
+
+              {cenariosCalculados.map((cenario, index) => (
+                <div key={cenario.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative group transition-all">
+                  <div className={`p-5 md:pr-24 border-b transition-colors ${cenario.isExpanded ? 'border-slate-100' : 'border-transparent pb-4'} cursor-pointer hover:bg-slate-50`} onClick={() => toggleExpand(cenario.id)}>
+                    <button onClick={(e) => { e.stopPropagation(); handleRemoveCenario(cenario.id); }} className="absolute top-4 right-14 md:right-16 text-slate-300 hover:text-red-500 transition-colors z-10 p-2" title="Remover Tabela">
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                    <button className="absolute top-4 right-4 md:right-4 text-slate-400 hover:text-slate-600 transition-colors z-10 p-2" title="Expandir/Recolher">
+                      {cenario.isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                    </button>
+
+                    <div className="flex items-center gap-3 mb-4">
+                      <span className="bg-slate-100 text-slate-500 text-xs font-bold px-2.5 py-1 rounded-md">Cat. #{index + 1}</span>
+                      {!cenario.isExpanded && (
+                         <div className="flex flex-wrap gap-2 sm:gap-4 text-sm font-medium text-slate-500">
+                           <span>{cenario.categoria} ({cenario.dia})</span>
+                           <span className="hidden sm:inline">&bull; {cenario.totalRotasCenario} rotas</span>
+                           <span className={`hidden sm:inline ${cenario.lucroSimulado >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>&bull; Resultado Bruto: {formatCurrency(cenario.lucroSimulado)}</span>
+                         </div>
+                      )}
+                    </div>
+
+                    <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 ${cenario.isExpanded ? 'block' : 'hidden'}`} onClick={e => e.stopPropagation()}>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">Categoria</label>
+                        <select value={cenario.categoria} onChange={(e) => handleCenarioChange(cenario.id, 'categoria', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium text-slate-700">
+                          {categoriasUnicas.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">Dia da Sem.</label>
+                        <select value={cenario.dia} onChange={(e) => handleCenarioChange(cenario.id, 'dia', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-medium text-slate-700">
+                          {diasUnicos.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-500 uppercase tracking-wider flex items-center gap-1">Padrão de Aumento</label>
+                        <select value={cenario.tipoProgressao || 'tabela'} onChange={(e) => handleCenarioChange(cenario.id, 'tipoProgressao', e.target.value)} className="w-full p-2.5 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold truncate">
+                          <option value="tabela">Seguir Tabela Atual</option>
+                          <option value="fixo">Percentual Fixo</option>
+                        </select>
+                      </div>
+                      {cenario.tipoProgressao === 'fixo' && (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-slate-500 uppercase tracking-wider flex items-center gap-1">Aumento Fixo (%)</label>
+                          <div className="relative">
+                            <input type="number" min="0" step="0.1" value={cenario.percentualIncremento === 0 ? '' : cenario.percentualIncremento} onChange={(e) => handleCenarioChange(cenario.id, 'percentualIncremento', parseFloat(e.target.value) || 0)} className="w-full p-2.5 pr-8 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold" />
+                            <Percent className="w-4 h-4 text-blue-500 absolute right-3 top-3" />
+                          </div>
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-indigo-600 uppercase tracking-wider" title="Novo valor base para a primeira faixa de KM (1/100)">Tarifa Base Sim. (R$)</label>
+                        <input type="number" min="0" step="5" value={cenario.valorInicialSimulado === '' ? '' : cenario.valorInicialSimulado} onChange={(e) => handleCenarioChange(cenario.id, 'valorInicialSimulado', e.target.value !== '' ? parseFloat(e.target.value) : '')} placeholder="Ex: 450" className="w-full p-2.5 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-black shadow-sm" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">Faturado Total (R$)</label>
+                        <input type="text" readOnly value={formatCurrency(cenario.totalRecebido)} className="w-full p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg outline-none text-sm font-semibold cursor-not-allowed" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {cenario.isExpanded && (
+                    <div className="bg-slate-50 p-4 border-b border-slate-100 overflow-x-auto">
+                      <table className="w-full text-left text-sm whitespace-nowrap min-w-[600px]">
+                        <thead>
+                          <tr className="text-slate-500 font-medium border-b border-slate-200">
+                            <th className="pb-3 px-2">Faixa KM</th>
+                            <th className="pb-3 px-2 w-32">Qtd Rotas</th>
+                            <th className="pb-3 px-2 text-right text-emerald-700">Receita Unit.</th>
+                            <th className="pb-3 px-2 text-right">Tarifa Base</th>
+                            <th className="pb-3 px-2 text-right text-indigo-700">Simulado Progressivo</th>
+                            <th className="pb-3 px-2 text-right">Pago na Faixa</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {cenario.faixasCalculadas.map((faixa, fIdx) => (
+                            <tr key={faixa.range} className="hover:bg-slate-100/50">
+                              <td className="py-2.5 px-2 font-medium text-slate-700">
+                                {faixa.range}
+                                {fIdx === 0 && <span className="ml-2 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">BASE</span>}
+                                {fIdx > 0 && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded" title={cenario.tipoProgressao === 'tabela' ? 'Puxado da Tabela Base' : 'Valor Fixo Manual'}>+{faixa.pctAumento.toFixed(1)}%</span>}
+                              </td>
+                              <td className="py-2.5 px-2">
+                                <input type="number" min="0" value={faixa.qtdRotas === 0 ? '' : faixa.qtdRotas} onChange={(e) => handleRotasPorFaixaChange(cenario.id, faixa.range, parseFloat(e.target.value) || 0)} className="w-full p-1.5 bg-white border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-center" placeholder="0" />
+                              </td>
+                              <td className="py-2.5 px-2 text-right font-medium text-emerald-700 bg-emerald-50/50">{formatCurrency(faixa.valorReceita)}</td>
+                              <td className="py-2.5 px-2 text-right text-slate-500">{formatCurrency(faixa.valorTabela)}</td>
+                              <td className="py-2.5 px-2 text-right font-bold text-indigo-600 bg-indigo-50/30">{formatCurrency(faixa.valorSimuladoUnitario)}</td>
+                              <td className="py-2.5 px-2 text-right font-medium text-slate-700">{formatCurrency(faixa.pagoSimulado)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <div className="bg-slate-50 border-t border-slate-100 p-4 sm:p-5 flex flex-wrap gap-6 sm:gap-10">
+                    <div>
+                      <span className="text-slate-500 text-xs font-bold uppercase tracking-wider block mb-1">Custo Padrão</span>
+                      <span className="font-semibold text-slate-700 text-base">{formatCurrency(cenario.totalPagoTabelaCenario)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-xs font-bold uppercase tracking-wider block mb-1">Custo Simulado</span>
+                      <span className="font-semibold text-indigo-600 text-base">{formatCurrency(cenario.totalPagoSimuladoCenario)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-xs font-bold uppercase tracking-wider block mb-1">Resultado Original Bruto</span>
+                      <span className="font-semibold text-slate-700 text-base">{formatCurrency(cenario.lucroBrutoReal)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-xs font-bold uppercase tracking-wider block mb-1">Resultado Simulado Bruto</span>
+                      <span className={`font-bold text-lg ${cenario.lucroSimulado >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(cenario.lucroSimulado)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {cenarios.length === 0 && (
+                <div className="text-center p-12 bg-white rounded-2xl border border-dashed border-slate-300">
+                  <p className="text-slate-500 mb-4">Nenhuma categoria adicionada.</p>
+                  <button onClick={handleAddCenario} className="text-indigo-600 font-medium hover:text-indigo-700 inline-flex items-center gap-1">
+                    <Plus className="w-4 h-4" /> Começar a simular
+                  </button>
+                </div>
+              )}
+
+              {cenarios.length > 0 && resumo.rotas > 0 && (
+                <div className="bg-indigo-900 border border-indigo-800 rounded-2xl p-6 shadow-lg mt-8 flex flex-col md:flex-row gap-6 md:items-center justify-between relative overflow-hidden">
+                  <div className="absolute -right-10 -top-10 opacity-10 pointer-events-none">
+                    <Target className="w-48 h-48 text-white" />
+                  </div>
+                  
+                  <div className="relative z-10 md:w-1/2">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-2 mb-2">
+                      <Target className="w-6 h-6 text-indigo-400" /> Análise de Frota e Viabilidade
+                    </h3>
+                    <div className="mt-4 p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-800/60">
+                      <span className="text-[10px] uppercase tracking-wider font-bold text-indigo-300 block mb-1">Impacto direto (Sem incremento de frota):</span>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-2xl font-black ${resumo.resultadoSimulado >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(resumo.resultadoSimulado)}</span>
+                        <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${resumo.margemSimulada >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'}`}>{resumo.margemSimulada.toFixed(1)}% margem</span>
+                        {resumo.resultadoReal > 0 && resumo.resultadoSimulado !== resumo.resultadoReal && (
+                          <span className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1 ${resumo.resultadoSimulado < resumo.resultadoReal ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                            {resumo.resultadoSimulado < resumo.resultadoReal ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+                            {Math.abs(((resumo.resultadoSimulado - resumo.resultadoReal) / resumo.resultadoReal) * 100).toFixed(1)}% no resultado
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex bg-indigo-950/50 p-1 rounded-lg mt-4 w-fit border border-indigo-800">
+                      <button onClick={() => setModoMargemGlobal('atual')} className={`text-xs font-bold px-3 py-2 rounded-md transition-colors ${modoMargemGlobal === 'atual' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-300 hover:text-white'}`}>Manter Margem Atual</button>
+                      <button onClick={() => setModoMargemGlobal('nova')} className={`text-xs font-bold px-3 py-2 rounded-md transition-colors ${modoMargemGlobal === 'nova' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-300 hover:text-white'}`}>Atingir Nova Margem</button>
+                    </div>
+
+                    {modoMargemGlobal === 'nova' && (
+                      <div className="flex items-center gap-3 mt-4">
+                        <span className="text-sm font-medium text-indigo-200">Margem Alvo Desejada:</span>
+                        <div className="relative w-28">
+                          <input type="number" min="0" step="0.1" value={margemDesejadaGlobal === '' ? '' : margemDesejadaGlobal} onChange={(e) => setMargemDesejadaGlobal(e.target.value !== '' ? parseFloat(e.target.value) : '')} placeholder="Ex: 20" className="w-full text-sm font-bold p-2 pr-6 bg-white border border-transparent rounded-lg text-right focus:ring-2 focus:ring-indigo-400 outline-none text-slate-800" />
+                          <Percent className="w-3 h-3 text-slate-400 absolute right-2.5 top-3" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative z-10 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-5 md:w-1/3 flex flex-col justify-center items-center min-h-[140px] shadow-inner">
+                    {(() => {
+                      const isNova = modoMargemGlobal === 'nova';
+                      const hasMargemInput = margemDesejadaGlobal !== '' && margemDesejadaGlobal !== undefined;
+                      if (isNova && !hasMargemInput) return <span className="text-sm text-indigo-200 font-medium text-center">Informe a margem desejada ao lado</span>;
+
+                      const isPossivel = isNova ? resumo.rotasParaAlvoPossivel : resumo.rotasParaManterPossivel;
+                      const rotasExtras = isNova ? resumo.rotasParaAlvo : resumo.rotasParaManter;
+                      const atingida = isPossivel && rotasExtras === 0;
+
+                      if (!isPossivel) {
+                        return (
+                          <div className="text-center w-full px-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider mb-2 text-red-300 block">Status da Frota Extra</span>
+                            <div className="flex items-center justify-center gap-2 text-red-400 mb-1"><TrendingDown className="w-5 h-5" /><span className="text-lg font-bold">Inviável</span></div>
+                            <p className="text-[10px] text-red-200/80 mt-1 leading-tight">A operação simulada não está gerando lucro unitário para cobrir a diferença.</p>
+                          </div>
+                        );
+                      } else if (atingida) {
+                        return (
+                          <div className="text-center w-full">
+                            <span className="text-[10px] font-bold uppercase tracking-wider mb-1 text-emerald-300 block">{isNova ? `Alvo de ${margemDesejadaGlobal}% (${formatCurrency(resumo.lucroAlvoR$)})` : `Alvo de ${resumo.margemReal.toFixed(1)}% (${formatCurrency(resumo.resultadoReal)})`}</span>
+                            <div className="flex items-center justify-center gap-2 text-emerald-400 mt-2"><CheckCircle2 className="w-5 h-5" /><span className="text-lg font-bold">Objetivo Atingido!</span></div>
+                            <p className="text-[10px] text-emerald-200/70 mt-1">Não é necessário adicionar frota extra.</p>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div className="text-center w-full">
+                            <div className="mb-3 pb-3 border-b border-white/10 w-full">
+                              <span className="text-xs font-medium text-indigo-200 block mb-1">{isNova ? `Nova Margem (${margemDesejadaGlobal}%) representa:` : `Margem Atual (${resumo.margemReal.toFixed(1)}%) representa:`}</span>
+                              <span className="text-2xl font-bold text-emerald-400">{isNova ? formatCurrency(resumo.lucroAlvoR$) : formatCurrency(resumo.resultadoReal)}</span>
+                            </div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-200 block mb-2">Para atingir, adicione:</span>
+                            <div className="flex items-center justify-center gap-2 text-white"><Truck className="w-6 h-6 text-indigo-300" /><span className="text-4xl font-black">+{rotasExtras}</span></div>
+                            <span className="text-xs font-semibold text-indigo-300 mt-1 block">Veículos Extras</span>
+                          </div>
+                        );
+                      }
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {cenarios.length > 0 && (
+                <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 pb-2">
+                  <button onClick={handleClearAll} className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 px-6 py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-all shadow-sm hover:shadow"><RotateCcw className="w-5 h-5" /> Limpar Simulação</button>
+                  <button onClick={handleRegistrar} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-all shadow-sm hover:shadow-md"><Save className="w-5 h-5" /> Registrar Simulação Completa</button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'historico' && (
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+            <div className="mb-6 border-b border-slate-100 pb-4">
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><History className="w-6 h-6 text-indigo-600" /> Histórico de Simulações</h2>
+              <p className="text-sm text-slate-500 mt-1">Analise os resultados finais salvos na nuvem. Clique na linha para detalhar.</p>
+            </div>
+            {registros.length === 0 ? (
+              <div className="text-center p-12 bg-slate-50 rounded-xl border border-dashed border-slate-300"><History className="w-12 h-12 text-slate-300 mx-auto mb-3" /><p className="text-slate-500 font-medium">Você ainda não registrou nenhuma simulação.</p></div>
+            ) : (
+              <div className="space-y-4">
+                {registros.map((reg) => {
+                  const isExpanded = expandedRegistros.includes(reg.id);
+                  return (
+                    <div key={reg.id} className="border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow transition-shadow">
+                      <div onClick={() => toggleRegistro(reg.id)} className="bg-slate-50 p-4 flex flex-wrap lg:flex-nowrap items-center justify-between gap-4 cursor-pointer">
+                        <div className="flex items-center gap-6 flex-1 min-w-[300px]">
+                          <div><div className="text-xs text-slate-400 mb-0.5">{reg.data}</div><div className="font-bold text-slate-800">{reg.quinzena}</div><div className="text-xs text-indigo-600 font-bold uppercase">{reg.filial}</div></div>
+                          <div className="hidden sm:block h-10 w-px bg-slate-200"></div>
+                          <div><div className="text-xs text-slate-500 uppercase tracking-wider mb-0.5">Rotas</div><div className="font-medium text-slate-700">{reg.resumo.rotas}</div></div>
+                          <div><div className="text-xs text-slate-500 uppercase tracking-wider mb-0.5">Receita Líquida</div><div className="font-bold text-slate-800">{formatCurrency(reg.resumo.receitaLiquida)}</div></div>
+                          <div><div className="text-xs text-slate-500 uppercase tracking-wider mb-0.5">Resultado Simulado</div><span className={`font-bold ${ reg.resumo.resultadoSimulado >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(reg.resumo.resultadoSimulado)}</span></div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${reg.resumo.margemSimulada >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{reg.resumo.margemSimulada.toFixed(1)}% Margem</span>
+                          <button onClick={(e) => { e.stopPropagation(); handleRemoverRegistro(reg.id); }} className="text-slate-300 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50" title="Remover Registro da Nuvem"><Trash2 className="w-5 h-5" /></button>
+                          <div className="text-slate-400">{isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}</div>
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div className="p-5 bg-white border-t border-slate-200">
+                          <h4 className="text-sm font-bold text-slate-700 mb-3 uppercase tracking-wider">Categorias Simuladas Neste Cenário:</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {reg.cenarios.map((cenario, i) => {
+                              const faixasValidas = cenario.faixasCalculadas.filter(f => f.qtdRotas > 0);
+                              return (
+                                <div key={i} className="border border-slate-100 bg-slate-50 rounded-lg p-4">
+                                  <div className="flex justify-between items-start mb-2"><div><span className="font-bold text-slate-800 block">{cenario.categoria}</span><span className="text-xs text-slate-500">{cenario.dia}</span></div><div className="text-right"><span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-bold">Base: {formatCurrency(cenario.valorInicialSimulado)}</span></div></div>
+                                  <div className="space-y-1 mb-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Rotas Categoria:</span><span className="font-medium text-slate-700">{cenario.totalRotasCenario}</span></div><div className="flex justify-between text-sm"><span className="text-slate-500">Resultado Bruto:</span><span className={`font-semibold ${cenario.lucroSimulado >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(cenario.lucroSimulado)}</span></div></div>
+                                  {faixasValidas.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t border-slate-200">
+                                      <span className="text-xs font-semibold text-slate-500 mb-2 block">Detalhamento por Faixa:</span>
+                                      <div className="space-y-2">
+                                        {faixasValidas.map((f, indexFaixa) => (
+                                          <div key={indexFaixa} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-slate-100 shadow-sm"><span className="font-medium text-slate-700">{f.range}</span><div className="flex items-center gap-3"><span className="text-slate-500">{f.qtdRotas}x</span><span className="font-bold text-indigo-600">{formatCurrency(f.valorSimuladoUnitario)}</span></div></div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(verificarAcesso);
   const [senhaDigitada, setSenhaDigitada] = useState('');
@@ -2000,6 +2824,10 @@ export default function App() {
   const [rawOperacionalData, setRawOperacionalData] = useState(initialOperacionalData);
   const [rawBscData, setRawBscData] = useState(initialBscData);
   
+  const [tarifasProcessadas, setTarifasProcessadas] = useState([]);
+  const [receitasProcessadas, setReceitasProcessadas] = useState([]);
+  const [user, setUser] = useState(null);
+
   const [error, setError] = useState(null);
   
   const [sheetUrl, setSheetUrl] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=0#gid=0');
@@ -2022,6 +2850,19 @@ export default function App() {
   const [selectedQuinzenaDS, setSelectedQuinzenaDS] = useState(null);
 
   const [hasInitialSynced, setHasInitialSynced] = useState(false);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     setSelectedQuinzenaPareto(null);
@@ -2388,6 +3229,57 @@ export default function App() {
 
       const t4 = await fetchCSV(sheetUrlBsc, 'BSC');
       if (t4) processBscData(t4);
+
+      // Fetch dos Dados do Simulador de Operações
+      const urlTarifas = "https://docs.google.com/spreadsheets/d/1wV2aLuLW93nCu7z065NCJkVaSJajDNxapCymcxTtMQk/export?format=tsv&gid=770379664";
+      const urlReceitas = "https://docs.google.com/spreadsheets/d/1wV2aLuLW93nCu7z065NCJkVaSJajDNxapCymcxTtMQk/export?format=tsv&gid=130612200";
+      
+      const [resTarifas, resReceitas] = await Promise.all([fetch(urlTarifas), fetch(urlReceitas)]);
+
+      if (resTarifas.ok && resReceitas.ok) {
+        const textTarifas = await resTarifas.text();
+        const textReceitas = await resReceitas.text();
+        
+        const parseTarifas = (text) => {
+          const lines = text.trim().split('\n');
+          return lines.slice(1).map(line => {
+            if (line.toLowerCase().includes('categoria veículo') || line.trim() === '') return null;
+            const cols = line.split('\t');
+            if (cols.length < 7) return null;
+            const valorFormatado = parseFloat((cols[6] || '0').replace('R$', '').replace(/\./g, '').replace(',', '.').trim()) || 0;
+            return {
+              uf: (cols[0] || '').trim(),
+              filial: (cols[1] || '').trim(),
+              dia: (cols[2] || '').trim(),
+              categoria: (cols[3] || '').trim(),
+              ciclo: (cols[4] || '').trim(),
+              range: (cols[5] || '').trim(),
+              valor: valorFormatado
+            };
+          }).filter(Boolean);
+        };
+
+        const parseReceitas = (text) => {
+          const lines = text.trim().split('\n');
+          return lines.slice(1).map(line => {
+            if (line.toLowerCase().includes('categoria') || line.trim() === '') return null;
+            const cols = line.split('\t');
+            if (cols.length < 6) return null;
+            const valorFormatado = parseFloat((cols[5] || '0').replace('R$', '').replace(/\./g, '').replace(',', '.').trim()) || 0;
+            return {
+              uf: (cols[0] || '').trim(),
+              categoria: (cols[1] || '').trim(),
+              range: (cols[2] || '').trim(),
+              dia: (cols[3] || '').trim(),
+              ciclo: (cols[4] || '').trim(),
+              valor: valorFormatado
+            };
+          }).filter(Boolean);
+        };
+
+        setTarifasProcessadas(parseTarifas(textTarifas));
+        setReceitasProcessadas(parseReceitas(textReceitas));
+      }
 
     } catch (err) { 
       setError(err instanceof Error ? err.message : String(err)); 
@@ -3124,7 +4016,9 @@ export default function App() {
         </div>
         <nav className="flex-1 py-6 flex flex-col gap-6 px-4">
           <div className="flex flex-col gap-1">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 px-3">Visão Geral</p>
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 px-3 flex items-center gap-2">
+              <LayoutDashboard className="w-3.5 h-3.5" /> Visão Geral
+            </p>
             <button onClick={() => handleMenuChange('gestao_financeira')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_financeira' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
               <LayoutDashboard className="w-4 h-4 shrink-0"/> 
               <span className="truncate">Gestão Financeira</span>
@@ -3143,8 +4037,10 @@ export default function App() {
             </button>
           </div>
           
-          <div className="flex flex-col gap-1">
-            <p className="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-2 px-3 bg-blue-900/30 py-1 rounded inline-block mx-3">Detalhamento</p>
+          <div className="flex flex-col gap-1 mt-2">
+            <p className="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-2 px-3 bg-blue-900/30 py-1.5 rounded-lg flex items-center gap-2 mx-2">
+              <Database className="w-3.5 h-3.5" /> Detalhamento
+            </p>
             <button onClick={() => handleMenuChange('detalhe_financeiro')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'detalhe_financeiro' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
               <DollarSign className="w-4 h-4 shrink-0"/> 
               <span className="truncate">Detalhe Financeiro</span>
@@ -3156,6 +4052,16 @@ export default function App() {
             <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
               <PieChart className="w-4 h-4 shrink-0"/> 
               <span className="truncate">Insucessos (Gaps)</span>
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-1 mt-2">
+            <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider mb-2 px-3 bg-indigo-900/30 py-1.5 rounded-lg flex items-center gap-2 mx-2">
+              <Target className="w-3.5 h-3.5" /> Planejamento
+            </p>
+            <button onClick={() => handleMenuChange('simulador_operacoes')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'simulador_operacoes' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <Calculator className="w-4 h-4 shrink-0"/> 
+              <span className="truncate">Simulador de Operações</span>
             </button>
           </div>
         </nav>
@@ -3352,6 +4258,15 @@ export default function App() {
                        setInsucessosExcluidos(insucessosDisponiveis.filter(i => i !== value));
                     }
                  }}
+               />
+            )}
+
+            {/* SIMULADOR DE OPERAÇÕES */}
+            {activeMenu === 'simulador_operacoes' && (
+               <SimuladorOperacoesSection 
+                 user={user} 
+                 tarifasProcessadas={tarifasProcessadas} 
+                 receitasProcessadas={receitasProcessadas} 
                />
             )}
 
