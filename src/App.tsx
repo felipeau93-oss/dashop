@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, Fragment } from 'react';
+import Simulador from './Simulador';
 import {
   Calculator,
   Lock,
