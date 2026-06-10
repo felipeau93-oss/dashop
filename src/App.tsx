@@ -194,10 +194,7 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
   if (safeData.length === 0) return <div className={`w-full ${heightClass} flex items-center justify-center text-slate-400`}>Nenhum dado disponível.</div>;
 
   const maxFat = Math.max(1, ...safeData.map(d => Math.max(showFaturamento ? (d.faturamento || 0) : 0, d.penalidades || 0)));
-  const maxRep = Math.max(10, ...safeData.map(d => Math.max(
-    d.representatividade !== Infinity && d.representatividade ? d.representatividade : 0,
-    isMarginChart && d.penalidadesPct !== Infinity && d.penalidadesPct ? d.penalidadesPct : 0
-  )));
+  const maxRep = Math.max(10, ...safeData.map(d => d.representatividade !== Infinity && d.representatividade ? d.representatividade : 0));
   const log10 = (val) => Math.log10(Math.max(val, 0) + 1);
   const logMaxFat = log10(maxFat);
 
@@ -228,7 +225,10 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
             <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
               <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#7c3aed" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
               {isMarginChart && (
-                <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(((d.penalidadesPct || 0) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#f97316" strokeWidth="2.5" strokeDasharray="4 2" vectorEffect="non-scaling-stroke" />
+                <>
+                  <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max((((d.representatividade || 0) + 2.5) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#f97316" strokeWidth="2" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+                  <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max((((d.representatividade || 0) - 2.5) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#f97316" strokeWidth="2" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+                </>
               )}
             </svg>
           )}
@@ -248,18 +248,15 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 hidden group-hover:block z-50 w-60 bg-slate-800 text-white text-xs rounded-lg p-4 shadow-xl pointer-events-none">
                   <p className="font-bold border-b border-slate-700 pb-2 mb-3 text-center text-white">{d[labelKey]}</p>
                   {showFaturamento && <div className="flex justify-between mb-1.5"><span className="text-emerald-400">Faturamento</span><span className="font-mono text-white">{formatCurrency(d.faturamento || 0)}</span></div>}
-                  <div className={`flex justify-between mb-1 ${showFaturamento ? 'mt-2 pt-2 border-t border-slate-700' : ''}`}><span className="text-slate-300 font-bold">{isMarginChart ? 'Custo Agregado + Pen.' : 'Total Penalidades'}</span><span className="font-mono text-red-400 font-bold">{formatCurrency(d.penalidades || 0)}</span></div>
+                  <div className={`flex justify-between mb-1 ${showFaturamento ? 'mt-2 pt-2 border-t border-slate-700' : ''}`}><span className="text-slate-300 font-bold">{isMarginChart ? 'Total Pago' : 'Total Penalidades'}</span><span className="font-mono text-red-400 font-bold">{formatCurrency(d.penalidades || 0)}</span></div>
+                  {isMarginChart && (
+                    <div className="flex justify-between mb-1"><span className="text-orange-500 font-bold">Margem Erro (±)</span><span className="font-mono text-orange-500 font-bold">± {formatCurrency(d.margemErro || 0)}</span></div>
+                  )}
                   {!isMarginChart && (
                     <>
                       <div className="flex justify-between mb-0.5 pl-2"><span className="text-blue-400 text-[10px]">↳ PNRs</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.pnr || 0)}</span></div>
                       <div className="flex justify-between mb-0.5 pl-2"><span className="text-orange-400 text-[10px]">↳ Lost</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.lost || 0)}</span></div>
                       <div className="flex justify-between mb-1.5 pl-2"><span className="text-slate-400 text-[10px]">↳ Not Visited</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.notVisited || 0)}</span></div>
-                    </>
-                  )}
-                  {isMarginChart && (
-                    <>
-                      <div className="flex justify-between mb-0.5 pl-2"><span className="text-blue-400 text-[10px]">↳ Pagamento de Agregados</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.pnr || 0)}</span></div>
-                      <div className="flex justify-between mb-0.5 pl-2"><span className="text-orange-400 text-[10px]">↳ Penalidades</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.lost || 0)}</span></div>
                     </>
                   )}
                   {showFaturamento && (
@@ -268,28 +265,18 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
                       <span className="text-violet-400">{d.representatividade === Infinity || !d.representatividade ? 'S/ Fat.' : `${d.representatividade.toFixed(2)}%`}</span>
                     </div>
                   )}
-                  {isMarginChart && (
-                    <div className="flex justify-between font-bold mt-1">
-                      <span className="text-orange-300">% Penalidades na Margem</span>
-                      <span className="text-orange-400">{d.penalidadesPct === Infinity || !d.penalidadesPct ? '0.00%' : `${d.penalidadesPct.toFixed(2)}%`}</span>
-                    </div>
-                  )}
                 </div>
                 <div className="w-full flex items-end justify-center h-full gap-[1px]">
-                  {showFaturamento && <div className="bg-emerald-500 w-1/2 rounded-t-sm hover:opacity-80 transition-opacity" style={{ height: `${fatPct}%` }}></div>}
-                  <div className={`${showFaturamento ? 'w-1/2' : 'w-3/4 max-w-[40px] mx-auto'} flex flex-col justify-end hover:opacity-80 transition-opacity rounded-t-sm`} style={{ height: `${penPct}%` }}>
-                    {nvRatio > 0 && <div className={`bg-slate-400 w-full ${!showFaturamento && lostRatio === 0 && pnrRatio === 0 ? 'rounded-t-sm' : ''}`} style={{ height: `${nvRatio}%` }}></div>}
-                    {lostRatio > 0 && <div className={`bg-orange-500 w-full ${!showFaturamento && pnrRatio === 0 ? 'rounded-t-sm' : ''}`} style={{ height: `${lostRatio}%` }}></div>}
-                    {pnrRatio > 0 && <div className={`bg-blue-500 w-full ${!showFaturamento ? 'rounded-t-sm' : ''}`} style={{ height: `${pnrRatio}%` }}></div>}
+                  {showFaturamento && <div className={`bg-emerald-500 ${isMarginChart ? 'w-1/2' : 'w-1/2'} rounded-t-sm hover:opacity-80 transition-opacity`} style={{ height: `${fatPct}%` }}></div>}
+                  <div className={`${showFaturamento ? (isMarginChart ? 'w-1/2' : 'w-1/2') : 'w-3/4 max-w-[40px] mx-auto'} ${isMarginChart ? 'bg-red-400' : ''} flex flex-col justify-end hover:opacity-80 transition-opacity rounded-t-sm`} style={{ height: `${penPct}%` }}>
+                    {!isMarginChart && nvRatio > 0 && <div className={`bg-slate-400 w-full ${!showFaturamento && lostRatio === 0 && pnrRatio === 0 ? 'rounded-t-sm' : ''}`} style={{ height: `${nvRatio}%` }}></div>}
+                    {!isMarginChart && lostRatio > 0 && <div className={`bg-orange-500 w-full ${!showFaturamento && pnrRatio === 0 ? 'rounded-t-sm' : ''}`} style={{ height: `${lostRatio}%` }}></div>}
+                    {!isMarginChart && pnrRatio > 0 && <div className={`bg-blue-500 w-full ${!showFaturamento ? 'rounded-t-sm' : ''}`} style={{ height: `${pnrRatio}%` }}></div>}
                   </div>
                 </div>
                 {showFaturamento && (
                   <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-violet-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${repPct}% - 4px)` }}>
                     <span className="absolute bottom-full mb-1 text-[9px] font-bold text-violet-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none">{d[labelKey]}</span>
-                  </div>
-                )}
-                {isMarginChart && (
-                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-orange-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${Math.min(Math.max(((d.penalidadesPct || 0) / maxRep) * 100, 0), 100)}% - 4px)` }}>
                   </div>
                 )}
               </div>
@@ -300,15 +287,12 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
       <div className="absolute bottom-2 left-0 w-full flex justify-center gap-4 sm:gap-6 text-xs font-bold text-slate-400 flex-wrap">
         {showFaturamento && <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-emerald-500 rounded-sm"></div> Faturamento</span>}
         <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-500 rounded-sm"></div> {isMarginChart ? 'Pagamento de Agregados' : 'PNRs'}</span>
-        {isMarginChart && <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-orange-500 rounded-sm"></div> Penalidades</span>}
         {!isMarginChart && (
           <>
             <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-orange-500 rounded-sm"></div> Lost</span>
             <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-slate-400 rounded-sm"></div> Not Visited</span>
           </>
         )}
-        {isMarginChart && <span className="flex items-center gap-1.5 ml-4"><div className="w-4 h-0.5 bg-violet-500"></div> Margem (%)</span>}
-        {isMarginChart && <span className="flex items-center gap-1.5"><div className="w-4 h-0.5 bg-orange-500 border-t border-dashed border-orange-500 bg-transparent"></div> % Penalidades na Margem</span>}
       </div>
     </div>
   );
@@ -2044,7 +2028,7 @@ export default function App() {
   const [sheetUrlBsc, setSheetUrlBsc] = useState('https://docs.google.com/spreadsheets/d/1TngDQ58wD8Zz43AHrrtJLGfB2Po_Wqc6LqUzrlTIytw/edit?gid=1433063454#gid=1433063454');
   const [sheetUrlCustos, setSheetUrlCustos] = useState('https://docs.google.com/spreadsheets/d/1zabomWsXNX1xwZbj0xNRx683re1QAYFcPYackB2kXU0/edit?gid=1452775904#gid=1452775904');
   
-  const [percentualImpostoFinanceiro, setPercentualImpostoFinanceiro] = useState(0);
+  const [percentualImpostoFinanceiro, setPercentualImpostoFinanceiro] = useState(6.56);
 
   const [isLoading, setIsLoading] = useState(false);
   const [filtroQuinzenas, setFiltroQuinzenas] = useState([]);
@@ -2401,16 +2385,42 @@ export default function App() {
         
         const quinzena = row[4] ? row[4].trim() : '';
         const filial = row[7] ? row[7].trim() : '';
+        const parseValor = (valStr) => {
+          if(!valStr) return 0;
+          let str = valStr.toString().trim();
+          const isNegative = str.includes('-') || (str.includes('(') && str.includes(')'));
+          str = str.replace(/[^\d,.]/g, '');
+          const hasComma = str.includes(',');
+          const hasDot = str.includes('.');
+          if (hasComma && hasDot) {
+            const lastComma = str.lastIndexOf(',');
+            const lastDot = str.lastIndexOf('.');
+            if (lastComma > lastDot) {
+              str = str.replace(/\./g, '').replace(',', '.');
+            } else {
+              str = str.replace(/,/g, '');
+            }
+          } else if (hasComma) {
+            str = str.replace(',', '.');
+          }
+          let num = parseFloat(str);
+          if(isNaN(num)) return 0;
+          return isNegative ? -num : num;
+        };
+
         const valorPagoRaw = row[46] ? row[46].trim() : '0';
         
         if (!quinzena || !filial || quinzena === '#N/D') continue;
         
-        const valorPago = parseFloat(valorPagoRaw.replace(/[^\d,-]/g, '').replace(',', '.')) || 0;
+        const valorPago = parseValor(valorPagoRaw);
+        const receitaBase = parseValor(row[51]);
+        const receitaParadas = parseValor(row[60]);
         
         parsedData.push({
           quinzena,
           filial: normalizeText(filial),
-          valorPago
+          valorPago,
+          receitaTotal: receitaBase + receitaParadas
         });
       }
       setRawCustosData(parsedData);
@@ -2809,63 +2819,52 @@ export default function App() {
   }, [faturamentoFiltrado]);
 
   const margemBrutaMetrics = useMemo(() => {
-    const totalFat = faturamentoFiltrado.reduce((acc, curr) => acc + (curr.faturamento || 0), 0);
+    const totalFat = custosFiltrados.reduce((acc, curr) => acc + (curr.receitaTotal || 0), 0);
     const totalCustos = custosFiltrados.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
-    const totalPenalidades = resumoMetrics.total || 0;
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
+    const margemErroDescontada = totalFat * 0.025;
     
     const margemBase = totalFat - impostoDescontado - totalCustos;
-    const margemR$ = margemBase - totalPenalidades;
+    const margemR$ = margemBase;
     const margemPct = totalFat > 0 ? (margemR$ / totalFat) * 100 : 0;
-    
-    const penalidadesPct = margemBase > 0 ? (totalPenalidades / margemBase) * 100 : 0;
     
     return {
       faturamento: totalFat,
       custos: totalCustos,
-      penalidades: totalPenalidades,
       imposto: impostoDescontado,
+      margemErro: margemErroDescontada,
       margemBase: margemBase,
-      penalidadesPct: penalidadesPct,
       margemRS: margemR$,
       margemPct: margemPct
     };
-  }, [faturamentoFiltrado, custosFiltrados, percentualImpostoFinanceiro, resumoMetrics.total]);
+  }, [custosFiltrados, percentualImpostoFinanceiro]);
 
   const margemFilialData = useMemo(() => {
     const map = {};
-    faturamentoFiltrado.forEach(d => {
-      const key = normalizeText(d.filial);
-      if (!map[key]) map[key] = { filial: d.filial, faturamento: 0, custos: 0, penalidadesFat: 0 };
-      map[key].faturamento += (d.faturamento || 0);
-    });
     custosFiltrados.forEach(c => {
       const key = normalizeText(c.filial);
-      if (!map[key]) map[key] = { filial: c.filial, faturamento: 0, custos: 0, penalidadesFat: 0 };
+      if (!map[key]) map[key] = { filial: c.filial, faturamento: 0, custos: 0 };
+      map[key].faturamento += (c.receitaTotal || 0);
       map[key].custos += (c.valorPago || 0);
-    });
-    dadosFiltrados.forEach(d => {
-      const key = normalizeText(d.filial);
-      if (!map[key]) map[key] = { filial: d.filial, faturamento: 0, custos: 0, penalidadesFat: 0 };
-      map[key].penalidadesFat += (d.valor || 0);
     });
     
     return Object.values(map).map(item => {
       const imp = item.faturamento * (percentualImpostoFinanceiro / 100);
+      const margemErro = item.faturamento * 0.025;
       const margemBase = item.faturamento - imp - item.custos;
-      const mR = margemBase - item.penalidadesFat;
+      const mR = margemBase;
       return {
         ...item,
-        penalidades: item.custos + item.penalidadesFat,
+        margemErro,
+        penalidades: item.custos,
         pnr: item.custos,
-        lost: item.penalidadesFat,
+        lost: 0,
         notVisited: 0,
         margemRS: mR,
-        representatividade: item.faturamento > 0 ? (mR / item.faturamento) * 100 : 0,
-        penalidadesPct: margemBase > 0 ? (item.penalidadesFat / margemBase) * 100 : 0
+        representatividade: item.faturamento > 0 ? (mR / item.faturamento) * 100 : 0
       };
     }).sort((a, b) => b.faturamento - a.faturamento);
-  }, [faturamentoFiltrado, custosFiltrados, dadosFiltrados, percentualImpostoFinanceiro]);
+  }, [custosFiltrados, percentualImpostoFinanceiro]);
 
   const pnrTot = resumoMetrics.categories?.['PNRs'] || { valor: 0, qtd: 0 };
   const lostTot = resumoMetrics.categories?.['Lost Packages'] || { valor: 0, qtd: 0 };
@@ -3381,23 +3380,7 @@ export default function App() {
             {/* GESTÃO FINANCEIRA (COM FATURAMENTO) */}
             {activeMenu === 'gestao_financeira' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="mb-6 flex items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-                  <div className="flex-1">
-                    <h3 className="text-sm font-bold text-slate-700">Imposto sobre Faturamento (%)</h3>
-                    <p className="text-xs text-slate-500">Defina o percentual a ser descontado no cálculo da Margem de Contribuição.</p>
-                  </div>
-                  <div className="relative">
-                    <input 
-                      type="number" 
-                      value={percentualImpostoFinanceiro} 
-                      onChange={e => setPercentualImpostoFinanceiro(parseFloat(e.target.value) || 0)}
-                      className="w-24 px-3 py-2 text-right border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold text-slate-700"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">%</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                <div className="grid grid-cols-1 gap-8 mb-8">
                   <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
                     <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
                     <div>
@@ -3415,37 +3398,9 @@ export default function App() {
                       <div className="flex justify-between items-center"><span className="text-violet-400 font-bold">% de Representatividade</span> <span className="text-white font-bold">{faturamentoTotalMetrics > 0 ? ((resumoMetrics.total / faturamentoTotalMetrics) * 100).toFixed(2) + '%' : '0%'}</span></div>
                     </div>
                   </div>
-
-                  <div className="bg-gradient-to-br from-emerald-900 to-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
-                    <div className="absolute -right-10 -top-10 opacity-5"><BadgeDollarSign className="w-64 h-64" /></div>
-                    <div>
-                      <h2 className="text-sm md:text-base font-bold text-emerald-400 mb-2 z-10 tracking-widest uppercase">Margem de Contribuição</h2>
-                      <div className="flex flex-col mb-8 z-10">
-                        <span className={`text-5xl font-black leading-tight tracking-tight ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemBrutaMetrics.margemRS)}</span>
-                        <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Margem global de {margemBrutaMetrics.margemPct.toFixed(1)}%</span>
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
-                      <div className="flex justify-between items-center"><span className="text-emerald-300 font-bold">Faturamento Bruto</span> <span>{formatCurrency(margemBrutaMetrics.faturamento)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-rose-400 font-bold">Impostos ({percentualImpostoFinanceiro}%)</span> <span>- {formatCurrency(margemBrutaMetrics.imposto)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-orange-400 font-bold">Custos (Valor Pago)</span> <span>- {formatCurrency(margemBrutaMetrics.custos)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-red-400 font-bold">Penalidades</span> <span>- {formatCurrency(margemBrutaMetrics.penalidades)}</span></div>
-                      <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-700">
-                        <span className="text-white font-bold">Margem Líquida</span> 
-                        <span className={`font-bold text-base ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemBrutaMetrics.margemRS)}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-violet-400 font-bold">% Penalidades na Margem de Contribuição</span> 
-                        <span className="text-white font-bold">{margemBrutaMetrics.penalidadesPct.toFixed(1)}%</span>
-                      </div>
-                    </div>
-                  </div>
                 </div>
 
-                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col mb-8">
-                  <h3 className="text-sm font-bold text-slate-500 text-center mb-2 pt-2 uppercase tracking-wider">Margem de Contribuição por Filial</h3>
-                  <NativeComboChart data={margemFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" isMarginChart={true} />
-                </div>
+
                 <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} />
                 <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200">
                   <div className="flex items-center justify-between mb-2">
@@ -3471,6 +3426,62 @@ export default function App() {
                       <NativeComboChart data={paretoFilialDrilldownData} labelKey="filial" heightClass="h-[400px]" />
                     )}
                   </div>
+                </div>
+
+                <div className="mb-6 mt-8 flex flex-col gap-2 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                  <div className="flex items-center gap-4 w-full">
+                    <div className="flex-1">
+                      <h3 className="text-sm font-bold text-slate-700">Imposto sobre Faturamento (%)</h3>
+                      <p className="text-xs text-slate-500">Defina o percentual a ser descontado no cálculo da Margem de Contribuição.</p>
+                    </div>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        value={percentualImpostoFinanceiro} 
+                        onChange={e => setPercentualImpostoFinanceiro(parseFloat(e.target.value) || 0)}
+                        className="w-24 px-3 py-2 text-right border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold text-slate-700"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">%</span>
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-2 p-2 bg-slate-50 rounded-lg border border-slate-100 flex flex-wrap gap-x-4 gap-y-1">
+                    <span><strong className="text-slate-600">PIS e Cofins:</strong> 3,5%</span>
+                    <span><strong className="text-slate-600">ISS:</strong> 0,5%</span>
+                    <span><strong className="text-slate-600">IRPJ:</strong> 1,32%</span>
+                    <span><strong className="text-slate-600">CSLL:</strong> 1,19%</span>
+                    <span><strong className="text-orange-600">Margem de erro:</strong> 2,5%</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-8 mb-8">
+                  <div className="bg-gradient-to-br from-emerald-900 to-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
+                    <div className="absolute -right-10 -top-10 opacity-5"><BadgeDollarSign className="w-64 h-64" /></div>
+                    <div>
+                      <h2 className="text-sm md:text-base font-bold text-emerald-400 mb-2 z-10 tracking-widest uppercase">Margem de Contribuição</h2>
+                      <div className="flex flex-col mb-8 z-10">
+                        <span className={`text-5xl font-black leading-tight tracking-tight ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemBrutaMetrics.margemRS)}</span>
+                        <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Margem global de {margemBrutaMetrics.margemPct.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                      <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
+                      <div className="flex justify-between items-center"><span className="text-emerald-300 font-bold">Faturamento Bruto</span> <span>{formatCurrency(margemBrutaMetrics.faturamento)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-rose-400 font-bold">Impostos ({percentualImpostoFinanceiro}%)</span> <span>- {formatCurrency(margemBrutaMetrics.imposto)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-orange-400 font-bold">Agregados + Frota</span> <span>- {formatCurrency(margemBrutaMetrics.custos)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-orange-500 font-bold">Margem de erro (±2,5%)</span> <span>± {formatCurrency(margemBrutaMetrics.margemErro)}</span></div>
+                      <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-700">
+                        <span className="text-white font-bold">Margem Líquida</span> 
+                        <div className="flex flex-col items-end">
+                          <span className={`font-bold text-base ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemBrutaMetrics.margemRS)}</span>
+                          <span className="text-[10px] text-slate-400 font-medium opacity-80 mt-0.5">({formatCurrency(margemBrutaMetrics.margemRS - margemBrutaMetrics.margemErro)} a {formatCurrency(margemBrutaMetrics.margemRS + margemBrutaMetrics.margemErro)})</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col mb-8">
+                  <h3 className="text-sm font-bold text-slate-500 text-center mb-2 pt-2 uppercase tracking-wider">Margem de Contribuição por Filial</h3>
+                  <NativeComboChart data={margemFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" isMarginChart={true} />
                 </div>
               </div>
             )}
