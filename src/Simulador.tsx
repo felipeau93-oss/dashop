@@ -7,12 +7,12 @@ import {
   BadgeDollarSign, Truck, Target, RotateCcw, BarChart3, UserMinus, Globe
 } from 'lucide-react';
 
-export default function Simulador() {
+export default function Simulador({ setAgentContext }) {
   // Estado para os inputs globais
   const [quinzena, setQuinzena] = useState('');
   const [filial, setFilial] = useState('SPR1');
   const [percentualImposto, setPercentualImposto] = useState(6.56);
-  const [agregadoExcluido, setAgregadoExcluido] = useState('ESPINDOLA');
+  const [agregadoExcluido, setAgregadoExcluido] = useState('');
   const [modoFaturamento, setModoFaturamento] = useState('recebido');
   const [activeTab, setActiveTab] = useState('calculadora');
 
@@ -469,15 +469,61 @@ export default function Simulador() {
     const margemReal = faturamentoBruto > 0 ? (resultadoReal / faturamentoBruto) * 100 : 0;
     const margemSimulada = faturamentoBruto > 0 ? (resultadoSimulado / faturamentoBruto) * 100 : 0;
 
+    let faturamentoProjetado = faturamentoBruto;
+    let resultadoProjetado = resultadoSimulado;
+    
+    if (resumoGlobalFilial) {
+      const impactoFaturamentoR = resumoGlobalFilial.novoFaturamentoBrutoFilial - resumoGlobalFilial.faturamentoBruto;
+      const impactoLucroR = resumoGlobalFilial.novoResultadoSimulado - resumoGlobalFilial.resultadoSimulado;
+      faturamentoProjetado += impactoFaturamentoR;
+      resultadoProjetado += impactoLucroR;
+    }
+    const margemProjetada = faturamentoProjetado > 0 ? (resultadoProjetado / faturamentoProjetado) * 100 : 0;
+
     return {
       rotas: rotasEmpresa.length,
       faturamentoBruto,
       margemReal,
       margemSimulada,
       resultadoReal,
-      resultadoSimulado
+      resultadoSimulado,
+      margemProjetada,
+      resultadoProjetado
     };
-  }, [dadosPlanilhaComReceita, quinzena, cenariosCalculados, percentualImposto]);
+  }, [dadosPlanilhaComReceita, quinzena, cenariosCalculados, percentualImposto, resumoGlobalFilial]);
+
+  // Envia contexto para o CFO Virtual (AgentContext)
+  useEffect(() => {
+    if (setAgentContext && resumoGlobalFilial && resumoGlobalEmpresa) {
+      const formatCurr = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+      const ctx = `
+      [DADOS DA TELA - SIMULADOR DE ROTAS]
+      Atenção CFO Virtual: O usuário está atualmente visualizando e interagindo com o Simulador de Rotas Last Mile.
+      Os cálculos abaixo levam em conta as simulações e alterações manuais de tarifas por KM, veículos adicionais e impostos feitas pelo usuário.
+      
+      Parâmetros da Simulação:
+      - Quinzena: ${quinzena}
+      - Filial: ${filial}
+      - Imposto Simulado: ${percentualImposto}%
+      
+      [IMPACTO GERAL - FILIAL ${filial}]
+      (Cenário Real Original vs. Cenário Simulado pelo usuário)
+      - Faturamento Bruto: ${formatCurr(resumoGlobalFilial.faturamentoBruto)}
+      - Custo Real (Base): ${formatCurr(resumoGlobalFilial.pagoTabelaAU)}
+      - Novo Custo Simulado: ${formatCurr(resumoGlobalFilial.pagoSimuladoFinal)}
+      - Margem Líquida Real: ${resumoGlobalFilial.margemReal.toFixed(2)}% (${formatCurr(resumoGlobalFilial.resultadoReal)})
+      - Nova Margem Simulada: ${resumoGlobalFilial.margemSimulada.toFixed(2)}% (${formatCurr(resumoGlobalFilial.resultadoSimulado)})
+      - Impacto em R$ (Gap de Lucro): ${formatCurr(resumoGlobalFilial.resultadoSimulado - resumoGlobalFilial.resultadoReal)}
+
+      [PONTO DE EQUILÍBRIO SE AS MARGENS CAÍREM]
+      - Quantidade de veículos adicionais que precisariam ser adicionados à filial para manter o lucro antigo R$: ${resumoGlobalFilial.rotasParaManter} veículos totais (${resumoGlobalFilial.rotasParaManterDiarias} veículos/dia).
+      - Tarifa média recomendada (R$ por veículo) para manter a margem antiga % com os custos atuais: ${formatCurr(resumoGlobalFilial.tarifaMediaRecomendada)}
+      
+      Use essas informações exclusivas para analisar criticamente se as reduções de tarifas são agressivas demais e se os repasses estão condizentes com a margem da filial ${filial}.
+      `;
+      setAgentContext(ctx);
+    }
+  }, [resumoGlobalFilial, resumoGlobalEmpresa, filial, quinzena, percentualImposto, setAgentContext]);
 
   const handleAddCenario = () => {
     const novoId = cenarios.length > 0 ? Math.max(...cenarios.map(c => c.id)) + 1 : 1;
@@ -1061,8 +1107,9 @@ export default function Simulador() {
                       
                       {veiculosAdicionais !== '' && veiculosAdicionais > 0 && resumoGlobalFilial.gapLucro > 0 && (
                         <div className="flex-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2 text-center flex flex-col justify-center">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-300 block mb-0.5">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-300 flex items-center justify-center gap-1 mb-0.5">
                             Tarifa Rec. p/ Manter Margem
+                            <span className="text-[8px] font-black bg-emerald-500/30 text-emerald-100 px-1 py-0.5 rounded leading-none shrink-0">DEV</span>
                           </span>
                           <span className="text-sm font-black text-emerald-400 leading-none">
                             {formatCurrency(resumoGlobalFilial.tarifaMediaRecomendada)}
@@ -1089,11 +1136,34 @@ export default function Simulador() {
                           </span>
                         </div>
                         <div className="col-span-2 bg-white/5 border border-white/10 rounded-lg p-3 text-center flex justify-between items-center px-4">
-                          <span className="text-[10px] font-bold uppercase text-indigo-300">Impacto Mensal Projetado</span>
+                          <div className="flex flex-col text-left">
+                            <span className="text-[10px] font-bold uppercase text-indigo-300">Impacto Mensal Projetado</span>
+                            {resumoGlobalFilial.novoResultadoSimulado > resumoGlobalFilial.resultadoReal && resumoGlobalFilial.resultadoReal > 0 && (
+                              <span className="text-xs font-bold text-emerald-400 mt-0.5">
+                                +{(((resumoGlobalFilial.novoResultadoSimulado - resumoGlobalFilial.resultadoReal) / resumoGlobalFilial.resultadoReal) * 100).toFixed(1)}% de Crescimento
+                              </span>
+                            )}
+                          </div>
                           <span className={`text-xl font-bold ${resumoGlobalFilial.novoResultadoSimulado >= resumoGlobalFilial.resultadoReal ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {formatCurrency(resumoGlobalFilial.novoResultadoSimulado - resumoGlobalFilial.resultadoReal)}
+                            {resumoGlobalFilial.novoResultadoSimulado >= resumoGlobalFilial.resultadoReal ? '+' : ''}{formatCurrency(resumoGlobalFilial.novoResultadoSimulado - resumoGlobalFilial.resultadoReal)}
                           </span>
                         </div>
+                        
+                        {resumoGlobalFilial.novoResultadoSimulado > resumoGlobalFilial.resultadoReal && (
+                          <div className="col-span-2 mt-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-left">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 block mb-1">
+                              Ganho Operacional (Projeção)
+                            </span>
+                            <p className="text-xs text-emerald-100/90 mb-0">
+                              Com <strong>+{veiculosAdicionais} veículos</strong>, você recupera a margem e gera um ganho real de <strong className="text-emerald-400 text-sm ml-0.5">+{formatCurrency(resumoGlobalFilial.novoResultadoSimulado - resumoGlobalFilial.resultadoReal)}</strong> sobre o lucro original da filial
+                              {resumoGlobalFilial.resultadoReal > 0 ? (
+                                <span>, representando <strong>+{(((resumoGlobalFilial.novoResultadoSimulado - resumoGlobalFilial.resultadoReal) / resumoGlobalFilial.resultadoReal) * 100).toFixed(1)}% de aumento</strong> no lucro líquido total.</span>
+                              ) : (
+                                <span>.</span>
+                              )}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="flex-1 flex items-center justify-center border border-dashed border-indigo-700/50 rounded-lg mt-auto min-h-[100px]">
@@ -1153,6 +1223,33 @@ export default function Simulador() {
                       {formatCurrency(resumoGlobalEmpresa.resultadoSimulado)}
                     </span>
                   </div>
+
+                  {veiculosAdicionais !== '' && veiculosAdicionais > 0 && (
+                    <>
+                      <div className="flex flex-col items-center justify-center text-slate-600">
+                        <TrendingUp className="w-6 h-6 rotate-90 mb-1" />
+                        {(() => {
+                          const diff = resumoGlobalEmpresa.margemProjetada - resumoGlobalEmpresa.margemSimulada;
+                          if (Math.abs(diff) < 0.001) return <span className="text-[10px] font-bold text-slate-500 bg-slate-800/50 px-2 py-0.5 rounded">0 p.p.</span>;
+                          return (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${diff > 0 ? 'text-blue-400 bg-blue-400/10' : 'text-red-400 bg-red-400/10'}`}>
+                              {diff > 0 ? '+' : ''}{diff.toFixed(2)} p.p.
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      
+                      <div className="text-center">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-300 block mb-1">Proj. Global</span>
+                        <span className={`text-3xl font-black text-blue-400`}>
+                          {resumoGlobalEmpresa.margemProjetada.toFixed(2)}%
+                        </span>
+                        <span className={`text-xs block mt-1 font-medium text-blue-500/70`}>
+                          {formatCurrency(resumoGlobalEmpresa.resultadoProjetado)}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
