@@ -1,5 +1,7 @@
-import React, { useState, useCallback, useMemo, useEffect, Fragment } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, Fragment, useRef } from 'react';
 import Simulador from './Simulador';
+import DreAnaliseCusto from './DreAnaliseCusto';
+import DreCustoLeve from './DreCustoLeve';
 import {
   Calculator,
   Lock,
@@ -27,8 +29,16 @@ import {
   Sun,
   X,
   ChevronDown,
-  BadgeDollarSign
+  BadgeDollarSign,
+  Brain,
+  Send,
+  Bot
 } from 'lucide-react';
+
+// ============================================================================
+// CHAVE DA API DO GEMINI (CFO VIRTUAL)
+// ============================================================================
+const GEMINI_API_KEY = "AQ.Ab8RN6JvgKMC9f2b7UswKNIvRYu-bPQMXNO1rKrYDmsxy6FqWA";
 
 // ============================================================================
 // DADOS PRÉ-PROCESSADOS
@@ -114,15 +124,7 @@ const loadScript = (src) => {
 };
 
 const verificarAcesso = () => {
-  const tempoSalvo = localStorage.getItem('dashopAuthTime');
-  if (!tempoSalvo) return false;
-  const tempoPassado = Date.now() - parseInt(tempoSalvo, 10);
-  const dezMinutos = 10 * 60 * 1000;
-  if (tempoPassado > dezMinutos) {
-    localStorage.removeItem('dashopAuthTime');
-    return false;
-  }
-  return true;
+  return true; // Senha desabilitada permanentemente
 };
 
 const parseNumber = (val) => {
@@ -211,7 +213,7 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
       <div className="flex-1 flex relative mt-2">
         <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
           {yAxisSteps.map((step, idx) => {
-            const valAtStep = Math.pow(10, logMaxFat * (step / 4)) - 1;
+            const valAtStep = isMarginChart ? (maxFat * (step / 4)) : (Math.pow(10, logMaxFat * (step / 4)) - 1);
             return (
               <div key={`y-axis-${idx}`} className="w-full border-t border-slate-100 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 4 ? '-10px' : '0' }}>
                 <span className="text-[10px] font-medium text-emerald-600 bg-transparent pr-2 -translate-y-1/2">{formatAxisVal(valAtStep)}</span>
@@ -221,23 +223,15 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
           })}
         </div>
         <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 mx-10 sm:mx-12 border-b border-slate-300 relative">
-          {showFaturamento && (
             <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#7c3aed" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-              {isMarginChart && (
-                <>
-                  <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max((((d.representatividade || 0) + 2.5) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#f97316" strokeWidth="2" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
-                  <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max((((d.representatividade || 0) - 2.5) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#f97316" strokeWidth="2" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
-                </>
-              )}
+              <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#0ea5e9" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
             </svg>
-          )}
           {hoveredIndex !== null && safeData[hoveredIndex] && showFaturamento && (
             <div className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 opacity-80 z-10 pointer-events-none transition-all duration-200" style={{ bottom: `${Math.min(Math.max(((safeData[hoveredIndex].representatividade || 0) / maxRep) * 100, 0), 100)}%` }} />
           )}
           {safeData.map((d, i) => {
-            const fatPct = showFaturamento ? (log10(d.faturamento || 0) / logMaxFat) * 100 : 0;
-            const penPct = (log10(d.penalidades || 0) / logMaxFat) * 100;
+            const fatPct = showFaturamento ? (isMarginChart ? ((d.faturamento || 0) / maxFat) * 100 : (log10(d.faturamento || 0) / logMaxFat) * 100) : 0;
+            const penPct = isMarginChart ? ((d.penalidades || 0) / maxFat) * 100 : (log10(d.penalidades || 0) / logMaxFat) * 100;
             const repPct = Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100);
             const pnrRatio = d.penalidades > 0 ? ((d.pnr || 0) / d.penalidades) * 100 : 0;
             const lostRatio = d.penalidades > 0 ? ((d.lost || 0) / d.penalidades) * 100 : 0;
@@ -267,8 +261,8 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
                   )}
                 </div>
                 <div className="w-full flex items-end justify-center h-full gap-[1px]">
-                  {showFaturamento && <div className={`bg-emerald-500 ${isMarginChart ? 'w-1/2' : 'w-1/2'} rounded-t-sm hover:opacity-80 transition-opacity`} style={{ height: `${fatPct}%` }}></div>}
-                  <div className={`${showFaturamento ? (isMarginChart ? 'w-1/2' : 'w-1/2') : 'w-3/4 max-w-[40px] mx-auto'} ${isMarginChart ? 'bg-red-400' : ''} flex flex-col justify-end hover:opacity-80 transition-opacity rounded-t-sm`} style={{ height: `${penPct}%` }}>
+                  {showFaturamento && <div className={`bg-emerald-600 ${isMarginChart ? 'w-1/2' : 'w-1/2'} rounded-t-sm hover:opacity-80 transition-opacity`} style={{ height: `${fatPct}%` }}></div>}
+                  <div className={`${showFaturamento ? (isMarginChart ? 'w-1/2' : 'w-1/2') : 'w-3/4 max-w-[40px] mx-auto'} ${isMarginChart ? 'bg-rose-500' : ''} flex flex-col justify-end hover:opacity-80 transition-opacity rounded-t-sm`} style={{ height: `${penPct}%` }}>
                     {!isMarginChart && nvRatio > 0 && <div className={`bg-slate-400 w-full ${!showFaturamento && lostRatio === 0 && pnrRatio === 0 ? 'rounded-t-sm' : ''}`} style={{ height: `${nvRatio}%` }}></div>}
                     {!isMarginChart && lostRatio > 0 && <div className={`bg-orange-500 w-full ${!showFaturamento && pnrRatio === 0 ? 'rounded-t-sm' : ''}`} style={{ height: `${lostRatio}%` }}></div>}
                     {!isMarginChart && pnrRatio > 0 && <div className={`bg-blue-500 w-full ${!showFaturamento ? 'rounded-t-sm' : ''}`} style={{ height: `${pnrRatio}%` }}></div>}
@@ -1932,9 +1926,27 @@ const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
 };
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(verificarAcesso);
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
   const [senhaDigitada, setSenhaDigitada] = useState('');
   const [erroLogin, setErroLogin] = useState(false);
+
+  // ============================================================================
+  // CHATBOT E INTEGRAÇÃO DE IA (GEMINI)
+  // ============================================================================
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [agentContext, setAgentContext] = useState(''); // Contexto dinâmico da tela atual
+  const [chatMessages, setChatMessages] = useState([
+    { role: 'ai', text: 'Olá! Sou seu Agente Virtual e Especialista Logístico. Analisei os dados do seu dashboard. O que você gostaria de investigar hoje?' }
+  ]);
+  const chatBottomRef = useRef(null);
+
+  useEffect(() => {
+    if (chatBottomRef.current) {
+      chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, isChatLoading, isChatOpen]);
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('dashopTheme') === 'dark';
@@ -1950,37 +1962,54 @@ export default function App() {
         styleEl = document.createElement('style');
         styleEl.id = styleId;
         styleEl.innerHTML = `
-          body, main { background-color: #0b1120 !important; color: #f8fafc !important; }
-          .bg-white, .bg-slate-50 { background-color: #0f172a !important; border-color: #1e293b !important; }
-          .text-slate-800, .text-slate-700, .text-slate-600, h2, h3 { color: #f1f5f9 !important; }
-          .text-slate-500, .text-slate-400 { color: #94a3b8 !important; } 
-          .bg-slate-100 { background-color: #1e293b !important; border-color: #334155 !important; }
-          .border-slate-200, .border-slate-100, .border-slate-300 { border-color: #334155 !important; }
-          header { background-color: #0b1120 !important; border-bottom-color: #1e293b !important; }
-          td, th { border-color: #1e293b !important; }
-          tr { border-color: #1e293b !important; }
-          tr:hover td { background-color: #1e293b !important; }
-          input { background-color: #1e293b !important; color: white !important; border-color: #334155 !important; }
-          table thead tr th { background-color: #1e293b !important; color: #cbd5e1 !important; border-color: #334155 !important; }
-          table tbody tr:hover { background-color: #1e293b !important; }
-          .bg-blue-50\\/50, .bg-blue-50\\/30, .bg-blue-50\\/10, .bg-blue-50, .bg-blue-100 { background-color: rgba(59, 130, 246, 0.15) !important; color: #93c5fd !important; border-color: rgba(59, 130, 246, 0.3) !important; }
-          .bg-red-50\\/50, .bg-red-50\\/30, .bg-red-50\\/10, .bg-red-50, .bg-red-100 { background-color: rgba(239, 68, 68, 0.15) !important; color: #fca5a5 !important; border-color: rgba(239, 68, 68, 0.3) !important; }
-          .bg-emerald-50\\/50, .bg-emerald-50\\/30, .bg-emerald-50\\/10, .bg-emerald-50, .bg-emerald-100 { background-color: rgba(16, 185, 129, 0.15) !important; color: #6ee7b7 !important; border-color: rgba(16, 185, 129, 0.3) !important; }
-          .bg-orange-50\\/50, .bg-orange-50\\/30, .bg-orange-50\\/40, .bg-orange-50\\/10, .bg-orange-50, .bg-orange-100 { background-color: rgba(249, 115, 22, 0.15) !important; color: #fdba74 !important; border-color: rgba(249, 115, 22, 0.3) !important; }
-          .bg-violet-50\\/50, .bg-violet-50\\/30, .bg-violet-50\\/10, .bg-violet-50, .bg-violet-100 { background-color: rgba(139, 92, 246, 0.15) !important; color: #c4b5fd !important; border-color: rgba(139, 92, 246, 0.3) !important; }
+          body, main { background-color: #000000 !important; color: #ffffff !important; }
+          .bg-white, .bg-slate-50 { background-color: #0f0f11 !important; border-color: #27272a !important; }
+          .text-slate-900, .text-slate-800, .text-slate-700, .text-slate-600, h1, h2, h3 { color: #ffffff !important; }
+          .text-slate-500, .text-slate-400 { color: #a1a1aa !important; } 
+          .bg-slate-100 { background-color: #18181b !important; border-color: #27272a !important; }
+          .border-slate-200, .border-slate-100, .border-slate-300 { border-color: #27272a !important; }
+          header { background-color: #000000 !important; border-bottom-color: #27272a !important; }
+          td, th { border-color: #27272a !important; }
+          tr { border-color: #27272a !important; }
+          tr:hover td { background-color: #27272a !important; }
+          input { background-color: #18181b !important; color: white !important; border-color: #3f3f46 !important; }
+          table thead tr th { background-color: #18181b !important; color: #d4d4d8 !important; border-color: #27272a !important; }
+          table tbody tr:hover { background-color: #27272a !important; }
+          
+          /* Alto contraste para cores semânticas no escuro */
+          .bg-blue-50\\/50, .bg-blue-50\\/40, .bg-blue-50\\/30, .bg-blue-50\\/10, .bg-blue-50, .bg-blue-100, .bg-blue-100\\/50 { background-color: rgba(59, 130, 246, 0.15) !important; color: #60a5fa !important; border-color: rgba(59, 130, 246, 0.3) !important; }
+          .bg-red-50\\/50, .bg-red-50\\/40, .bg-red-50\\/30, .bg-red-50\\/10, .bg-red-50, .bg-red-100, .bg-red-100\\/50 { background-color: rgba(239, 68, 68, 0.15) !important; color: #f87171 !important; border-color: rgba(239, 68, 68, 0.3) !important; }
+          .bg-emerald-50\\/50, .bg-emerald-50\\/40, .bg-emerald-50\\/30, .bg-emerald-50\\/10, .bg-emerald-50, .bg-emerald-100, .bg-emerald-100\\/50 { background-color: rgba(16, 185, 129, 0.15) !important; color: #34d399 !important; border-color: rgba(16, 185, 129, 0.3) !important; }
+          .bg-orange-50\\/50, .bg-orange-50\\/40, .bg-orange-50\\/30, .bg-orange-50\\/10, .bg-orange-50, .bg-orange-100, .bg-orange-100\\/50 { background-color: rgba(249, 115, 22, 0.15) !important; color: #fb923c !important; border-color: rgba(249, 115, 22, 0.3) !important; }
+          .bg-violet-50\\/50, .bg-violet-50\\/40, .bg-violet-50\\/30, .bg-violet-50\\/10, .bg-violet-50, .bg-violet-100, .bg-violet-100\\/50 { background-color: rgba(139, 92, 246, 0.15) !important; color: #a78bfa !important; border-color: rgba(139, 92, 246, 0.3) !important; }
+          .bg-indigo-50\\/50, .bg-indigo-50\\/40, .bg-indigo-50\\/30, .bg-indigo-50\\/10, .bg-indigo-50, .bg-indigo-100, .bg-indigo-100\\/50 { background-color: rgba(99, 102, 241, 0.15) !important; color: #818cf8 !important; border-color: rgba(99, 102, 241, 0.3) !important; }
+          
           .text-blue-700, .text-blue-600, .text-blue-500 { color: #60a5fa !important; }
           .text-emerald-700, .text-emerald-600, .text-emerald-500 { color: #34d399 !important; }
           .text-red-700, .text-red-600, .text-red-500 { color: #f87171 !important; }
           .text-orange-800, .text-orange-700, .text-orange-600, .text-orange-500 { color: #fb923c !important; }
           .text-violet-800, .text-violet-700, .text-violet-600, .text-violet-500 { color: #a78bfa !important; }
-          .bg-slate-50\\/30, .bg-slate-50\\/10, .bg-slate-50\\/40, .bg-slate-50\\/80 { background-color: rgba(30, 41, 59, 0.6) !important; }
-          .group:hover .group-hover\\:bg-blue-100 { background-color: rgba(59, 130, 246, 0.2) !important; }
-          polyline[stroke="#7c3aed"] { stroke: #a78bfa !important; stroke-width: 3.5 !important; }
+          .text-indigo-800, .text-indigo-700, .text-indigo-600, .text-indigo-500 { color: #818cf8 !important; }
+          
+          .bg-slate-50\\/30, .bg-slate-50\\/10, .bg-slate-50\\/40, .bg-slate-50\\/80,
+          .bg-slate-100\\/50, .bg-slate-100\\/80, .bg-white\\/5 { background-color: rgba(24, 24, 27, 0.6) !important; border-color: #27272a !important; }
+          .bg-slate-200, .bg-slate-300 { background-color: #27272a !important; color: #ffffff !important; border-color: #3f3f46 !important; }
+          
+          /* Correções de Hover para não esconder letras (Branco no Branco) */
+          .group:hover .group-hover\\:bg-blue-100 { background-color: rgba(59, 130, 246, 0.2) !important; color: #60a5fa !important; }
+          .group:hover .group-hover\\:bg-slate-50 { background-color: #27272a !important; color: #ffffff !important; }
+          .hover\\:bg-slate-50:hover, .hover\\:bg-slate-100:hover, .hover\\:bg-slate-100\\/50:hover, .hover\\:bg-white:hover {
+            background-color: #27272a !important;
+            color: #ffffff !important;
+          }
+
+          polyline[stroke="#0ea5e9"] { stroke: #38bdf8 !important; stroke-width: 3.5 !important; }
           polyline[stroke="#0f766e"] { stroke: #2dd4bf !important; stroke-width: 4.5 !important; }
           line[stroke="#0f766e"] { stroke: #2dd4bf !important; stroke-width: 4 !important; }
-          .bg-slate-800 { background-color: #1e293b !important; border: 1px solid #334155 !important; }
-          .bg-slate-900 { background-color: #0b1120 !important; }
-          .border-slate-700 { border-color: #334155 !important; }
+          .bg-slate-800 { background-color: #18181b !important; border: 1px solid #27272a !important; }
+          .bg-slate-900 { background-color: #000000 !important; }
+          .bg-slate-950 { background-color: #09090b !important; border-color: #27272a !important; }
+          .border-slate-700, .border-slate-800 { border-color: #27272a !important; }
         `;
         document.head.appendChild(styleEl);
       }
@@ -2039,6 +2068,13 @@ export default function App() {
   const [insucessosExcluidos, setInsucessosExcluidos] = useState([]);
 
   const [activeMenu, setActiveMenu] = useState('gestao_financeira');
+  const [expandedMenus, setExpandedMenus] = useState({ financeiro: true, operacional: true, planejamento: false });
+
+  const toggleExpandedMenu = (menuKey, e) => {
+    e.stopPropagation();
+    setExpandedMenus(prev => ({ ...prev, [menuKey]: !prev[menuKey] }));
+  };
+  const [financeiroSubTab, setFinanceiroSubTab] = useState('resumo');
   const [exportingType, setExportingType] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
   const [selectedQuinzenaPareto, setSelectedQuinzenaPareto] = useState(null);
@@ -2419,6 +2455,7 @@ export default function App() {
         parsedData.push({
           quinzena,
           filial: normalizeText(filial),
+          categoria: row[17] ? row[17].trim() : 'Outros',
           valorPago,
           receitaTotal: receitaBase + receitaParadas
         });
@@ -2823,8 +2860,9 @@ export default function App() {
     const totalCustos = custosFiltrados.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
     const margemErroDescontada = totalFat * 0.025;
+    const totalPenalidades = dadosFiltrados.reduce((acc, curr) => acc + (curr.valor || 0), 0);
     
-    const margemBase = totalFat - impostoDescontado - totalCustos;
+    const margemBase = totalFat - impostoDescontado - totalCustos - totalPenalidades;
     const margemR$ = margemBase;
     const margemPct = totalFat > 0 ? (margemR$ / totalFat) * 100 : 0;
     
@@ -2833,19 +2871,74 @@ export default function App() {
       custos: totalCustos,
       imposto: impostoDescontado,
       margemErro: margemErroDescontada,
+      penalidades: totalPenalidades,
       margemBase: margemBase,
       margemRS: margemR$,
       margemPct: margemPct
     };
-  }, [custosFiltrados, percentualImpostoFinanceiro]);
+  }, [custosFiltrados, dadosFiltrados, percentualImpostoFinanceiro]);
 
-  const margemFilialData = useMemo(() => {
+  const [selectedRegionalForMargin, setSelectedRegionalForMargin] = useState(null);
+  const [selectedFilialForMargin, setSelectedFilialForMargin] = useState(null);
+
+  const filialToRegionalMap = useMemo(() => {
     const map = {};
-    custosFiltrados.forEach(c => {
-      const key = normalizeText(c.filial);
-      if (!map[key]) map[key] = { filial: c.filial, faturamento: 0, custos: 0 };
+    const extract = (data) => {
+      data.forEach(d => {
+        if (d.filial && d.regional && d.regional !== 'N/A') {
+          map[normalizeText(d.filial)] = d.regional;
+        }
+      });
+    };
+    extract(dadosFiltrados);
+    extract(faturamentoFiltrado);
+    extract(operacionalFiltrado);
+    extract(bscFiltrado);
+    return map;
+  }, [dadosFiltrados, faturamentoFiltrado, operacionalFiltrado, bscFiltrado]);
+
+  const margemCategoriaData = useMemo(() => {
+    if (!selectedFilialForMargin) return [];
+    const map = {};
+    const filtrados = custosFiltrados.filter(c => c.filial === selectedFilialForMargin);
+    filtrados.forEach(c => {
+      const key = normalizeText(c.categoria || 'Outros');
+      if (!map[key]) map[key] = { categoria: c.categoria || 'Outros', faturamento: 0, custos: 0 };
       map[key].faturamento += (c.receitaTotal || 0);
       map[key].custos += (c.valorPago || 0);
+    });
+    
+    return Object.values(map).map(item => {
+      const imp = item.faturamento * (percentualImpostoFinanceiro / 100);
+      const margemErro = item.faturamento * 0.025;
+      const margemBase = item.faturamento - imp - item.custos;
+      return {
+        ...item,
+        margemErro,
+        penalidades: item.custos,
+        pnr: item.custos,
+        lost: 0,
+        notVisited: 0,
+        margemRS: margemBase,
+        representatividade: item.faturamento > 0 ? (margemBase / item.faturamento) * 100 : 0
+      };
+    }).sort((a, b) => b.faturamento - a.faturamento);
+  }, [custosFiltrados, percentualImpostoFinanceiro, selectedFilialForMargin]);
+
+  const margemFilialData = useMemo(() => {
+    if (selectedRegionalForMargin && !selectedFilialForMargin) {
+      // Filtrar apenas as filiais da regional selecionada
+    }
+    const map = {};
+    custosFiltrados.forEach(c => {
+      const fKey = normalizeText(c.filial);
+      const reg = filialToRegionalMap[fKey] || 'N/A';
+      
+      if (selectedRegionalForMargin && normalizeText(reg) !== normalizeText(selectedRegionalForMargin)) return;
+
+      if (!map[fKey]) map[fKey] = { filial: c.filial, faturamento: 0, custos: 0 };
+      map[fKey].faturamento += (c.receitaTotal || 0);
+      map[fKey].custos += (c.valorPago || 0);
     });
     
     return Object.values(map).map(item => {
@@ -2863,7 +2956,56 @@ export default function App() {
         margemRS: mR,
         representatividade: item.faturamento > 0 ? (mR / item.faturamento) * 100 : 0
       };
-    }).sort((a, b) => b.faturamento - a.faturamento);
+    }).sort((a, b) => b.margemRS - a.margemRS);
+  }, [custosFiltrados, percentualImpostoFinanceiro, selectedRegionalForMargin, filialToRegionalMap]);
+
+  const margemRegionalDataGlobal = useMemo(() => {
+    const map = {};
+    custosFiltrados.forEach(c => {
+      const fKey = normalizeText(c.filial);
+      const reg = filialToRegionalMap[fKey] || 'N/A';
+      const key = normalizeText(reg);
+      
+      if (!map[key]) map[key] = { regional: reg === 'N/A' ? 'Sem Regional' : `Regional ${reg}`, rawRegional: reg, faturamento: 0, custos: 0 };
+      map[key].faturamento += (c.receitaTotal || 0);
+      map[key].custos += (c.valorPago || 0);
+    });
+    
+    return Object.values(map).map(item => {
+      const imp = item.faturamento * (percentualImpostoFinanceiro / 100);
+      const margemErro = item.faturamento * 0.025;
+      const margemBase = item.faturamento - imp - item.custos;
+      return {
+        ...item,
+        margemErro,
+        penalidades: item.custos,
+        pnr: item.custos,
+        lost: 0,
+        notVisited: 0,
+        margemRS: margemBase,
+        representatividade: item.faturamento > 0 ? (margemBase / item.faturamento) * 100 : 0
+      };
+    }).sort((a, b) => b.margemRS - a.margemRS);
+  }, [custosFiltrados, percentualImpostoFinanceiro, filialToRegionalMap]);
+
+  const margemCategoriaDataGlobal = useMemo(() => {
+    const map = {};
+    custosFiltrados.forEach(c => {
+      const key = normalizeText(c.categoria || 'Outros');
+      if (!map[key]) map[key] = { categoria: c.categoria || 'Outros', faturamento: 0, custos: 0 };
+      map[key].faturamento += (c.receitaTotal || 0);
+      map[key].custos += (c.valorPago || 0);
+    });
+    
+    return Object.values(map).map(item => {
+      const imp = item.faturamento * (percentualImpostoFinanceiro / 100);
+      const margemBase = item.faturamento - imp - item.custos;
+      return {
+        ...item,
+        margemRS: margemBase,
+        representatividade: item.faturamento > 0 ? (margemBase / item.faturamento) * 100 : 0
+      };
+    }).sort((a, b) => b.margemRS - a.margemRS);
   }, [custosFiltrados, percentualImpostoFinanceiro]);
 
   const pnrTot = resumoMetrics.categories?.['PNRs'] || { valor: 0, qtd: 0 };
@@ -3248,60 +3390,192 @@ export default function App() {
     );
   }
 
+  const handleSendChatMessage = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === "COLE_SUA_CHAVE_AQUI") {
+      setChatMessages(prev => [...prev, { role: 'user', text: chatInput }]);
+      setChatMessages(prev => [...prev, { role: 'ai', text: '⚠️ Chave da API ausente. Por favor, edite o código na variável GEMINI_API_KEY com a sua chave gerada no Google AI Studio.' }]);
+      setChatInput('');
+      return;
+    }
+
+    const newUserMsg = { role: 'user', text: chatInput };
+    setChatMessages(prev => [...prev, newUserMsg]);
+    setChatInput('');
+    setIsChatLoading(true);
+
+    const contexto = `
+      Você é um CFO e Especialista Tributário Sênior de uma transportadora (Last Mile). 
+      Você é direto, profissional e foca em resultados reais: redução de custos, margem de contribuição e aumento do Delivery Success (DS).
+      Seja consiso, não escreva textos muito longos a menos que o usuário peça uma análise profunda.
+      Formate suas respostas com marcadores (bullet points) para facilitar a leitura.
+      
+      DADOS ATUAIS DA OPERAÇÃO (${targetQuinzenaRunRate}):
+      
+      [FINANCEIRO]
+      - Faturamento Bruto: ${formatCurrency(margemBrutaMetrics.faturamento)}
+      - Impostos Configurados (${percentualImpostoFinanceiro}%): ${formatCurrency(margemBrutaMetrics.imposto)}
+      - Custo (Agregados/Frota): ${formatCurrency(margemBrutaMetrics.custos)}
+      - Penalidades (Multas): ${formatCurrency(margemBrutaMetrics.penalidades)}
+      - Margem Líquida em R$: ${formatCurrency(margemBrutaMetrics.margemRS)}
+      - Margem Líquida em %: ${margemBrutaMetrics.margemPct.toFixed(2)}%
+      - Peso das Penalidades na Margem: ${(margemBrutaMetrics.margemBase > 0 ? (margemBrutaMetrics.penalidades / margemBrutaMetrics.margemBase) * 100 : 0).toFixed(2)}%
+      
+      [OPERACIONAL]
+      - Delivery Success (DS) Global Atual: ${currentDsGlobalAtual.toFixed(2)}%
+      - Meta Operacional Oficial: 98.5%
+      
+      [CONTEXTO DA TELA ATUAL: ${activeMenu.toUpperCase()}]
+      ${agentContext || "O usuário está em uma visão geral sem foco em itens detalhados."}
+
+      Responda de forma estratégica baseado exclusivamente nesses números se o usuário perguntar sobre o cenário atual.
+    `;
+
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: contexto }] },
+          contents: [
+            ...chatMessages.filter(m => m.role !== 'system').map(m => ({
+              role: m.role === 'ai' ? 'model' : 'user',
+              parts: [{ text: m.text }]
+            })),
+            { role: 'user', parts: [{ text: newUserMsg.text }] }
+          ]
+        })
+      });
+
+      const data = await response.json();
+      if (data.candidates && data.candidates[0].content.parts[0].text) {
+        setChatMessages(prev => [...prev, { role: 'ai', text: data.candidates[0].content.parts[0].text }]);
+      } else if (data.error) {
+        setChatMessages(prev => [...prev, { role: 'ai', text: `Desculpe, o servidor da IA retornou um erro: ${data.error.message}` }]);
+      } else {
+        setChatMessages(prev => [...prev, { role: 'ai', text: 'Desculpe, não consegui processar a resposta. Tente formular a pergunta de outra forma.' }]);
+      }
+    } catch (err) {
+      setChatMessages(prev => [...prev, { role: 'ai', text: `Ocorreu um erro de conexão com a API do Gemini: ${err.message}` }]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
   // TELA PRINCIPAL (DASHBOARD)
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
       {/* SIDEBAR */}
       <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 overflow-y-auto hidden md:flex border-r border-slate-800">
         <div className="p-6 bg-slate-950 border-b border-slate-800 sticky top-0 z-10">
-          <h1 className="text-xl font-black text-white flex items-center gap-3 tracking-tight">
-            <div className="bg-blue-600 p-2 rounded-lg"><TrendingUp className="w-5 h-5 text-white" /></div>
-            DashOp
-          </h1>
+          <div className="flex items-center gap-2 select-none">
+            {/* Símbolo Abstrato (Pulso em um bloco tecnológico) */}
+            <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-950 shadow-lg border border-blue-400/20">
+              <Activity className="w-5 h-5 text-emerald-400 absolute" strokeWidth={2.5} />
+            </div>
+            
+            {/* Tipografia Moderna */}
+            <span className="text-2xl font-black tracking-tighter text-white">
+              Dash<span className="text-blue-500">Op</span>
+              <span className="text-emerald-400 text-3xl leading-none">.</span>
+            </span>
+          </div>
         </div>
         <nav className="flex-1 py-6 flex flex-col gap-6 px-4">
-          <div className="flex flex-col gap-1">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 px-3">Visão Geral</p>
-            <button onClick={() => handleMenuChange('gestao_financeira')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_financeira' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <LayoutDashboard className="w-4 h-4 shrink-0" />
-              <span className="truncate">Gestão Financeira</span>
-            </button>
-            <button onClick={() => handleMenuChange('gestao_penalidades')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_penalidades' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span className="truncate">Gestão de Penalidades</span>
-            </button>
-            <button onClick={() => handleMenuChange('gestao_operacional')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_operacional' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <Box className="w-4 h-4 shrink-0" />
-              <span className="truncate">Gestão Operacional</span>
-            </button>
-            <button onClick={() => handleMenuChange('gestao_bsc')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_bsc' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <Target className="w-4 h-4 shrink-0" />
-              <span className="truncate">Gestão Operacional BSC</span>
-            </button>
-          </div>
+          <div className="flex flex-col gap-1 pb-6">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 px-3">Módulos</p>
 
-          <div className="flex flex-col gap-1">
-            <p className="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-2 px-3 bg-blue-900/30 py-1 rounded inline-block mx-3">Detalhamento</p>
-            <button onClick={() => handleMenuChange('detalhe_financeiro')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'detalhe_financeiro' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <DollarSign className="w-4 h-4 shrink-0" />
-              <span className="truncate">Detalhe Financeiro</span>
-            </button>
-            <button onClick={() => handleMenuChange('comparativo_bsc')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'comparativo_bsc' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <GitCompare className="w-4 h-4 shrink-0" />
-              <span className="truncate">Comparativo BSC</span>
-            </button>
-            <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <PieChart className="w-4 h-4 shrink-0" />
-              <span className="truncate">Insucessos (Gaps)</span>
-            </button>
-          </div>
+            {/* Accordion Gestão Financeira */}
+            <div className="flex flex-col mb-2">
+              <button 
+                onClick={() => {
+                  handleMenuChange('gestao_financeira');
+                  if (!expandedMenus.financeiro) toggleExpandedMenu('financeiro', { stopPropagation: () => {} });
+                }} 
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_financeira', 'detalhe_financeiro', 'gestao_margem'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <DollarSign className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_financeira' ? 'text-blue-400' : ''}`} />
+                  <span className={`truncate ${activeMenu === 'gestao_financeira' ? 'font-bold' : ''}`}>Gestão Financeira</span>
+                </div>
+                <div onClick={(e) => toggleExpandedMenu('financeiro', e)} className="p-1 hover:bg-slate-700 rounded-md transition-colors text-slate-500 hover:text-slate-300">
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${expandedMenus.financeiro ? 'rotate-180' : ''}`} />
+                </div>
+              </button>
 
-          <div className="flex flex-col gap-1">
-            <p className="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-2 px-3 bg-blue-900/30 py-1 rounded inline-block mx-3">Planejamento</p>
-            <button onClick={() => handleMenuChange('planejamento')} className={`w-full flex items-center justify-start text-left gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'planejamento' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <Calculator className="w-4 h-4 shrink-0" />
-              <span className="truncate">Simulador de Rotas</span>
-            </button>
+              <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.financeiro ? 'max-h-40 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
+                <button onClick={() => handleMenuChange('detalhe_financeiro')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'detalhe_financeiro' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                  <span className="truncate">Penalidades Detalhadas</span>
+                </button>
+                <button onClick={() => handleMenuChange('gestao_margem')} className={`w-full flex items-center justify-between text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_margem' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                  <span className="truncate">Margem de Contribuição</span>
+                  <span className="text-[9px] font-black bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2 shrink-0">Dev</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Accordion Gestão Operacional */}
+            <div className="flex flex-col">
+              <button 
+                onClick={() => {
+                  handleMenuChange('gestao_operacional');
+                  if (!expandedMenus.operacional) toggleExpandedMenu('operacional', { stopPropagation: () => {} });
+                }} 
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_operacional', 'gestao_penalidades', 'gestao_bsc', 'comparativo_bsc', 'gaps_operacionais'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Box className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_operacional' ? 'text-blue-400' : ''}`} />
+                  <span className={`truncate ${activeMenu === 'gestao_operacional' ? 'font-bold' : ''}`}>Gestão Operacional</span>
+                </div>
+                <div onClick={(e) => toggleExpandedMenu('operacional', e)} className="p-1 hover:bg-slate-700 rounded-md transition-colors text-slate-500 hover:text-slate-300">
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${expandedMenus.operacional ? 'rotate-180' : ''}`} />
+                </div>
+              </button>
+
+              <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.operacional ? 'max-h-60 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
+                <button onClick={() => handleMenuChange('gestao_penalidades')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_penalidades' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                  <span className="truncate">Penalidades (Operação)</span>
+                </button>
+                <button onClick={() => handleMenuChange('gestao_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                  <span className="truncate">Visão BSC</span>
+                </button>
+                <button onClick={() => handleMenuChange('comparativo_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'comparativo_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                  <span className="truncate">Comparativo BSC</span>
+                </button>
+                <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                  <span className="truncate">Gaps Operacionais</span>
+                </button>
+              </div>
+            </div>
+            {/* Accordion Planejamento */}
+            <div className="flex flex-col">
+              <button 
+                onClick={() => {
+                  handleMenuChange('planejamento');
+                  if (!expandedMenus.planejamento) toggleExpandedMenu('planejamento', { stopPropagation: () => {} });
+                }} 
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['planejamento', 'dre_custos', 'dre_leves'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Calculator className={`w-4 h-4 shrink-0 ${activeMenu === 'planejamento' ? 'text-blue-400' : ''}`} />
+                  <span className={`truncate ${activeMenu === 'planejamento' ? 'font-bold' : ''}`}>Planejamento</span>
+                </div>
+                <div onClick={(e) => toggleExpandedMenu('planejamento', e)} className="p-1 hover:bg-slate-700 rounded-md transition-colors text-slate-500 hover:text-slate-300">
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${expandedMenus.planejamento ? 'rotate-180' : ''}`} />
+                </div>
+              </button>
+
+              <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.planejamento ? 'max-h-40 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
+                <button onClick={() => handleMenuChange('dre_custos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_custos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                  <span className="truncate">DRE Custo Pesados</span>
+                </button>
+                <button onClick={() => handleMenuChange('dre_leves')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_leves' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                  <span className="truncate">DRE Custo Leves</span>
+                </button>
+              </div>
+            </div>
           </div>
         </nav>
       </aside>
@@ -3373,14 +3647,29 @@ export default function App() {
             {/* PLANEJAMENTO SIMULADOR */}
             {activeMenu === 'planejamento' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <Simulador />
+                <Simulador setAgentContext={setAgentContext} />
+              </div>
+            )}
+
+            {/* DRE ANÁLISE DE CUSTO PESADOS */}
+            {activeMenu === 'dre_custos' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <DreAnaliseCusto setAgentContext={setAgentContext} />
+              </div>
+            )}
+
+            {/* DRE ANÁLISE DE CUSTO LEVES */}
+            {activeMenu === 'dre_leves' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <DreCustoLeve setAgentContext={setAgentContext} />
               </div>
             )}
 
             {/* GESTÃO FINANCEIRA (COM FATURAMENTO) */}
             {activeMenu === 'gestao_financeira' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="grid grid-cols-1 gap-8 mb-8">
+                
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
                   <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
                     <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
                     <div>
@@ -3398,11 +3687,29 @@ export default function App() {
                       <div className="flex justify-between items-center"><span className="text-violet-400 font-bold">% de Representatividade</span> <span className="text-white font-bold">{faturamentoTotalMetrics > 0 ? ((resumoMetrics.total / faturamentoTotalMetrics) * 100).toFixed(2) + '%' : '0%'}</span></div>
                     </div>
                   </div>
+
+                  <div className="bg-gradient-to-br from-emerald-900 to-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
+                    <div className="absolute -right-10 -top-10 opacity-5"><BadgeDollarSign className="w-64 h-64" /></div>
+                    <div>
+                      <h2 className="text-sm md:text-base font-bold text-emerald-400 mb-2 z-10 tracking-widest uppercase">Resumo de Margem (Global)</h2>
+                      <div className="flex flex-col mb-8 z-10">
+                        <span className={`text-5xl font-black leading-tight tracking-tight ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemBrutaMetrics.margemRS)}</span>
+                        <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Rentabilidade: {margemBrutaMetrics.margemPct.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
+                      <div className="flex justify-between items-center"><span className="text-slate-300 font-bold">Faturamento</span> <span>{formatCurrency(margemBrutaMetrics.faturamento)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-orange-400 font-bold">Custos Operacionais</span> <span>- {formatCurrency(margemBrutaMetrics.custos)}</span></div>
+                      <button onClick={() => setActiveMenu('gestao_margem')} className="mt-2 text-center text-xs font-bold text-emerald-300 bg-emerald-900/50 py-2 rounded-xl hover:bg-emerald-800/50 transition-colors">Ver Detalhamento Completo →</button>
+                    </div>
+                  </div>
                 </div>
 
+                <div className="mb-8">
+                  <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} />
+                </div>
 
-                <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} />
-                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200">
+                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 mb-8">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
                       <Scale className="w-6 h-6 text-violet-500" />
@@ -3427,8 +3734,13 @@ export default function App() {
                     )}
                   </div>
                 </div>
+              </div>
+            )}
 
-                <div className="mb-6 mt-8 flex flex-col gap-2 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+            {/* GESTÃO DE MARGEM DE CONTRIBUIÇÃO */}
+            {activeMenu === 'gestao_margem' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="mb-6 flex flex-col gap-2 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
                   <div className="flex items-center gap-4 w-full">
                     <div className="flex-1">
                       <h3 className="text-sm font-bold text-slate-700">Imposto sobre Faturamento (%)</h3>
@@ -3480,9 +3792,99 @@ export default function App() {
                 </div>
 
                 <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col mb-8">
-                  <h3 className="text-sm font-bold text-slate-500 text-center mb-2 pt-2 uppercase tracking-wider">Margem de Contribuição por Filial</h3>
-                  <NativeComboChart data={margemFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" isMarginChart={true} />
+                  <div className="flex justify-between items-center mb-2 pt-2 px-2">
+                    <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">
+                      {selectedFilialForMargin 
+                        ? `Margem por Categoria (${selectedFilialForMargin})` 
+                        : selectedRegionalForMargin 
+                          ? `Margem por Filial (${selectedRegionalForMargin})` 
+                          : 'Margem de Contribuição por Regional'}
+                    </h3>
+                    <div className="flex gap-2">
+                      {selectedFilialForMargin && (
+                        <button onClick={() => setSelectedFilialForMargin(null)} className="text-xs font-bold text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200 hover:bg-indigo-100 transition-colors flex items-center gap-1">
+                          <ArrowUp className="w-3 h-3 -rotate-90" /> Voltar para Filiais
+                        </button>
+                      )}
+                      {selectedRegionalForMargin && !selectedFilialForMargin && (
+                        <button onClick={() => setSelectedRegionalForMargin(null)} className="text-xs font-bold text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200 hover:bg-indigo-100 transition-colors flex items-center gap-1">
+                          <ArrowUp className="w-3 h-3 -rotate-90" /> Voltar para Regionais
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {selectedFilialForMargin ? (
+                    <NativeComboChart data={margemCategoriaData.slice(0, 15)} labelKey="categoria" heightClass="h-[350px]" isMarginChart={true} />
+                  ) : selectedRegionalForMargin ? (
+                    <NativeComboChart data={margemFilialData.slice(0, 15)} labelKey="filial" onBarClick={(item) => setSelectedFilialForMargin(item)} heightClass="h-[350px]" isMarginChart={true} />
+                  ) : (
+                    <NativeComboChart data={margemRegionalDataGlobal} labelKey="regional" onBarClick={(item) => setSelectedRegionalForMargin(item.replace('Regional ', ''))} heightClass="h-[350px]" isMarginChart={true} />
+                  )}
+                  {!selectedFilialForMargin && !selectedRegionalForMargin && <p className="text-center text-[10px] text-slate-400 mt-2 italic flex items-center justify-center gap-1"><Check className="w-3 h-3" /> Dica: Clique na barra de uma regional para ver a margem detalhada por filial.</p>}
+                  {selectedRegionalForMargin && !selectedFilialForMargin && <p className="text-center text-[10px] text-slate-400 mt-2 italic flex items-center justify-center gap-1"><Check className="w-3 h-3" /> Dica: Clique na barra de uma filial para ver a margem detalhada por categoria de veículo.</p>}
                 </div>
+
+                {/* CARDS DINÂMICOS */}
+                {(() => {
+                  let dataSource = [];
+                  let titleEntity = "";
+                  let entityKey = "";
+                  if (selectedFilialForMargin) {
+                    dataSource = margemCategoriaData;
+                    titleEntity = "Categorias";
+                    entityKey = "categoria";
+                  } else if (selectedRegionalForMargin) {
+                    dataSource = margemFilialData;
+                    titleEntity = "Filiais";
+                    entityKey = "filial";
+                  } else {
+                    dataSource = margemRegionalDataGlobal;
+                    titleEntity = "Regionais";
+                    entityKey = "regional";
+                  }
+
+                  if (!dataSource || dataSource.length === 0) return null;
+
+                  return (
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <h3 className="text-sm font-black text-emerald-500 mb-4 uppercase tracking-wider flex items-center gap-2"><TrendingUp className="w-5 h-5" /> Top 4 Melhores {titleEntity}</h3>
+                        <div className="flex flex-col gap-3">
+                          {dataSource.slice(0, 4).map((item, idx) => (
+                            <div key={`melhor-${idx}`} className="flex justify-between items-center p-3 rounded-xl bg-emerald-50/50 border border-emerald-100/50">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full shadow-sm">#{idx + 1}</span>
+                                <span className="font-bold text-slate-700">{item[entityKey]}</span>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="font-black text-emerald-600">{formatCurrency(item.margemRS)}</span>
+                                <span className="text-[10px] font-bold text-slate-400">Margem: {item.representatividade.toFixed(1)}%</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <h3 className="text-sm font-black text-red-500 mb-4 uppercase tracking-wider flex items-center gap-2"><TrendingDown className="w-5 h-5" /> Top 4 Piores {titleEntity} (Ofensoras)</h3>
+                        <div className="flex flex-col gap-3">
+                          {dataSource.slice(-4).reverse().map((item, idx) => (
+                            <div key={`pior-${idx}`} className="flex justify-between items-center p-3 rounded-xl bg-red-50/50 border border-red-100/50">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-black text-red-600 bg-red-100 px-2 py-0.5 rounded-full shadow-sm">#{idx + 1}</span>
+                                <span className="font-bold text-slate-700">{item[entityKey]}</span>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="font-black text-red-600">{formatCurrency(item.margemRS)}</span>
+                                <span className="text-[10px] font-bold text-slate-400">Margem: {item.representatividade.toFixed(1)}%</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -3632,6 +4034,72 @@ export default function App() {
             )}
           </div>
         </div>
+
+        {/* CHATBOT FLOATING UI */}
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+          {isChatOpen && (
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-80 sm:w-96 h-[500px] max-h-[80vh] flex flex-col mb-4 overflow-hidden animate-in slide-in-from-bottom-5">
+              <div className="bg-slate-950 border-b border-slate-800 p-4 flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="bg-blue-600 p-2 rounded-lg">
+                    <Bot className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-bold text-sm">Agente Virtual</h3>
+                    <p className="text-blue-400 text-[10px] uppercase font-black tracking-wider">Online</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-slate-900/50">
+                {chatMessages.filter(m => m.role !== 'system').map((msg, idx) => (
+                  <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] rounded-2xl p-3 text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-slate-800 text-slate-200 border border-slate-700 rounded-bl-sm'}`}>
+                      {msg.role === 'ai' && <Bot className="w-4 h-4 mb-2 text-blue-400" />}
+                      <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>
+                    </div>
+                  </div>
+                ))}
+                {isChatLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-slate-800 border border-slate-700 text-slate-400 rounded-2xl rounded-bl-sm p-3 text-sm flex gap-2 items-center">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                )}
+                <div ref={chatBottomRef} />
+              </div>
+
+              <form onSubmit={handleSendChatMessage} className="bg-slate-950 border-t border-slate-800 p-3 shrink-0 flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  placeholder="Pergunte ao Agente..."
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <button type="submit" disabled={!chatInput.trim() || isChatLoading} className="bg-blue-600 text-white p-2 rounded-xl hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:hover:bg-blue-600 flex items-center justify-center shrink-0">
+                  <Send className="w-5 h-5" />
+                </button>
+              </form>
+            </div>
+          )}
+
+          <button onClick={() => setIsChatOpen(!isChatOpen)} className={`p-4 rounded-full shadow-2xl transition-all transform hover:scale-105 flex items-center gap-3 ${isChatOpen ? 'bg-slate-800 text-slate-400 border border-slate-700' : 'bg-blue-600 text-white hover:bg-blue-500'}`}>
+            {isChatOpen ? <X className="w-6 h-6" /> : (
+              <>
+                <Brain className="w-6 h-6" />
+                <span className="font-bold text-sm hidden sm:inline mr-1">Agente Virtual</span>
+              </>
+            )}
+          </button>
+        </div>
+
       </main>
     </div>
   );
