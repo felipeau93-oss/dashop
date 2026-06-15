@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Car, Truck, DollarSign, TrendingUp, TrendingDown, Package, Percent, MapPin, Calendar, Clock, Map, Save, History, Trash2, X, Check } from 'lucide-react';
 import { tarifas } from './data/tarifas';
+import { db } from "./firebase";
+import { collection, addDoc, getDocs } from "firebase/firestore";
 
 const formatCurrency = (value) => {
   if (isNaN(value)) return 'R$ 0,00';
@@ -201,7 +203,7 @@ const DreCustoLeve = () => {
     } catch { return []; }
   });
 
-  const handleSaveSimulacao = () => {
+  const handleSaveSimulacao = async () => {
     const name = window.prompt("Digite um nome para identificar esta simulação:");
     if (!name) return;
     
@@ -219,10 +221,19 @@ const DreCustoLeve = () => {
       }
     };
     
-    const newHistory = [newState, ...historyData];
-    setHistoryData(newHistory);
-    localStorage.setItem('dreLevesHistory', JSON.stringify(newHistory));
-    alert("Simulação salva com sucesso!");
+    try {
+      const docRef = await addDoc(collection(db, "simulacoes"), newState);
+      console.log("Salvo na nuvem com ID: ", docRef.id);
+      
+      const newHistory = [newState, ...historyData];
+      setHistoryData(newHistory);
+      localStorage.setItem('dreLevesHistory', JSON.stringify(newHistory));
+      alert("Simulação salva na nuvem com sucesso! ☁️");
+      
+    } catch (error) {
+      console.error("Erro ao salvar no Firebase: ", error);
+      alert("Ops! Deu um erro ao salvar na nuvem.");
+    }
   };
 
   const handleLoadSimulacao = (item) => {
