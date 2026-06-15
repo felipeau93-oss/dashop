@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Car, Truck, DollarSign, TrendingUp, TrendingDown, Package, Percent, MapPin, Calendar, Clock, Map, Save, History, Trash2, X, Check } from 'lucide-react';
 import { tarifas } from './data/tarifas';
 import { db } from "./firebase";
-import { collection, addDoc, getDocs } from "firebase/firestore";
+import { collection, addDoc, getDocs, doc, deleteDoc } from "firebase/firestore";
 
 const formatCurrency = (value) => {
   if (isNaN(value)) return 'R$ 0,00';
@@ -196,12 +196,30 @@ const DreCustoLeve = () => {
 
   // Histórico
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [historyData, setHistoryData] = useState(() => {
-    try {
-      const saved = localStorage.getItem('dreLevesHistory');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  const [historyData, setHistoryData] = useState([]);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, "simulacoes"));
+        const data = [];
+        querySnapshot.forEach((document) => {
+          data.push({ ...document.data(), docId: document.id });
+        });
+        // Ordena para os mais recentes ficarem no topo (baseado no timestamp id)
+        data.sort((a, b) => Number(b.id) - Number(a.id));
+        setHistoryData(data);
+      } catch (err) {
+        console.error("Erro ao buscar histórico da nuvem:", err);
+        // Fallback para local storage caso não consiga buscar
+        try {
+          const saved = localStorage.getItem('dreLevesHistory');
+          if (saved) setHistoryData(JSON.parse(saved));
+        } catch { }
+      }
+    };
+    fetchHistory();
+  }, []);
 
   const handleSaveSimulacao = async () => {
     const name = window.prompt("Digite um nome para identificar esta simulação:");
@@ -261,11 +279,20 @@ const DreCustoLeve = () => {
     setShowHistoryModal(false);
   };
 
-  const handleDeleteSimulacao = (id) => {
+  const handleDeleteSimulacao = async (id, docId) => {
     if (!window.confirm("Deseja realmente apagar esta simulação do histórico?")) return;
-    const newHistory = historyData.filter(h => h.id !== id);
-    setHistoryData(newHistory);
-    localStorage.setItem('dreLevesHistory', JSON.stringify(newHistory));
+    
+    try {
+      if (docId) {
+        await deleteDoc(doc(db, "simulacoes", docId));
+      }
+      const newHistory = historyData.filter(h => h.id !== id);
+      setHistoryData(newHistory);
+      localStorage.setItem('dreLevesHistory', JSON.stringify(newHistory));
+    } catch (error) {
+      console.error("Erro ao deletar da nuvem:", error);
+      alert("Ops! Deu um erro ao apagar na nuvem.");
+    }
   };
 
   // Cálculos do Simulador
@@ -519,7 +546,7 @@ const DreCustoLeve = () => {
                         </p>
                       </div>
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => handleDeleteSimulacao(item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Apagar">
+                        <button onClick={() => handleDeleteSimulacao(item.id, item.docId)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Apagar">
                           <Trash2 className="w-4 h-4" />
                         </button>
                         <button onClick={() => handleLoadSimulacao(item)} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs rounded-lg transition-colors">
