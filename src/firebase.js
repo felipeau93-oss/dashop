@@ -2,12 +2,12 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDeKClN6EI1wjM2KVsZmZCpmHqj9QzuBxo",
-  authDomain: "dashop-eba3f.firebaseapp.com",
-  projectId: "dashop-eba3f",
-  storageBucket: "dashop-eba3f.firebasestorage.app",
-  messagingSenderId: "437302815217",
-  appId: "1:437302815217:web:ca6a79473389286ce3bc50"
+  apiKey: "AIzaSyC74gu8eCJBkT9NrzgqadrjfHcbf15Q0GY",
+  authDomain: "dashop-1291f.firebaseapp.com",
+  projectId: "dashop-1291f",
+  storageBucket: "dashop-1291f.firebasestorage.app",
+  messagingSenderId: "269337118899",
+  appId: "1:269337118899:web:9a97603346613346f5c8c6"
 };
 
 // Inicializa o Firebase
