@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, Fragment, useRef } from 'react';
 import Simulador from './Simulador';
-import DreAnaliseCusto from './DreAnaliseCusto';
-import DreCustoLeve from './DreCustoLeve';
+import DreAnaliseCusto from './DreAnaliseCusto.tsx';
+import DreCustoLeve from './DreCustoLeve.tsx/index.ts';
 import {
   Calculator,
   Lock,
