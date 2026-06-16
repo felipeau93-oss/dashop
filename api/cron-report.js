@@ -139,17 +139,20 @@ export default async function handler(req, res) {
 
       // Agrega Filial
       if (!filiaisMap[filial]) {
-        filiaisMap[filial] = { nome: filial, regional, pnr: 0, lost: 0, nv: 0, geral: 0, qtdGeral: 0 };
+        filiaisMap[filial] = { nome: filial, regional, pnr: 0, lost: 0, nv: 0, geral: 0, qtdGeral: 0, qtdPnr: 0, qtdLost: 0, qtdNv: 0 };
       }
       filiaisMap[filial].geral += valor;
       filiaisMap[filial].qtdGeral += 1;
       
       if (isNotVisited) {
         filiaisMap[filial].nv += valor;
+        filiaisMap[filial].qtdNv += 1;
       } else if (p.tipo === 'PNRs') {
         filiaisMap[filial].pnr += valor;
+        filiaisMap[filial].qtdPnr += 1;
       } else if (p.tipo === 'Lost Packages') {
         filiaisMap[filial].lost += valor;
+        filiaisMap[filial].qtdLost += 1;
       }
 
       // Agrega Tipo
@@ -232,9 +235,9 @@ export default async function handler(req, res) {
 
         <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">⚠️ Tipo de penalidades em R$:</h3>
         <ul style="font-size: 10px; padding-left: 20px; margin-bottom: 15px; line-height: 1.6;">
-          <li><strong>PNR:</strong> <span style="color: #ef4444;">${formatCurrency(pnrObj.valor)}</span></li>
-          <li><strong>Lost Packages:</strong> <span style="color: #ef4444;">${formatCurrency(lostObj.valor)}</span></li>
-          <li><strong>Not Visited:</strong> <span style="color: #ef4444;">${formatCurrency(nvObj.valor)}</span></li>
+          <li><strong>PNR:</strong> <span style="color: #ef4444;">${formatCurrency(pnrObj.valor)}</span> <span style="color: #64748b; font-size: 9px;">(${pnrObj.qtd || 0} ocorrências)</span></li>
+          <li><strong>Lost Packages:</strong> <span style="color: #ef4444;">${formatCurrency(lostObj.valor)}</span> <span style="color: #64748b; font-size: 9px;">(${lostObj.qtd || 0} ocorrências)</span></li>
+          <li><strong>Not Visited:</strong> <span style="color: #ef4444;">${formatCurrency(nvObj.valor)}</span> <span style="color: #64748b; font-size: 9px;">(${nvObj.qtd || 0} ocorrências)</span></li>
         </ul>
 
         <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🌍 Top Regionais ofensoras (R$)</h3>
@@ -258,15 +261,15 @@ export default async function handler(req, res) {
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Filial</th>
             <th style="${thStyle}">Regional</th>
-            <th style="${thStyle} text-align: right;">Valor</th>
             <th style="${thStyle} text-align: right;">Quantidade</th>
+            <th style="${thStyle} text-align: right;">Valor</th>
           </tr>
           ${topFiliaisGeral.length ? topFiliaisGeral.map(f => `
             <tr>
               <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
               <td style="${tdStyle}">${f.regional}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444; font-weight: bold;">${formatCurrency(f.geral)}</td>
               <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdGeral}</td>
+              <td style="${tdStyle} text-align: right; color: #ef4444; font-weight: bold;">${formatCurrency(f.geral)}</td>
             </tr>
           `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
@@ -276,15 +279,17 @@ export default async function handler(req, res) {
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Filial</th>
             <th style="${thStyle}">Regional</th>
+            <th style="${thStyle} text-align: right;">Quantidade</th>
             <th style="${thStyle} text-align: right;">Valor</th>
           </tr>
           ${topFiliaisPnr.length ? topFiliaisPnr.map(f => `
             <tr>
               <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
               <td style="${tdStyle}">${f.regional}</td>
+              <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdPnr}</td>
               <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.pnr)}</td>
             </tr>
-          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+          `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
         <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Filiais (Lost Packages) R$:</h3>
@@ -292,15 +297,17 @@ export default async function handler(req, res) {
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Filial</th>
             <th style="${thStyle}">Regional</th>
+            <th style="${thStyle} text-align: right;">Quantidade</th>
             <th style="${thStyle} text-align: right;">Valor</th>
           </tr>
           ${topFiliaisLost.length ? topFiliaisLost.map(f => `
             <tr>
               <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
               <td style="${tdStyle}">${f.regional}</td>
+              <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdLost}</td>
               <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.lost)}</td>
             </tr>
-          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+          `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
         <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚫 Filiais (Not Visited) R$:</h3>
@@ -308,15 +315,17 @@ export default async function handler(req, res) {
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Filial</th>
             <th style="${thStyle}">Regional</th>
+            <th style="${thStyle} text-align: right;">Quantidade</th>
             <th style="${thStyle} text-align: right;">Valor</th>
           </tr>
           ${topFiliaisNv.length ? topFiliaisNv.map(f => `
             <tr>
               <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
               <td style="${tdStyle}">${f.regional}</td>
+              <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdNv}</td>
               <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.nv)}</td>
             </tr>
-          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+          `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
         <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚚 Top 6 Motoristas Ofensores R$:</h3>
