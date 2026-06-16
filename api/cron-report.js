@@ -129,13 +129,13 @@ export default async function handler(req, res) {
         labels: ultimasQuinzenas,
         datasets: [{
           label: 'Total Descontado (R$)',
-          data: ultimasQuinzenas.map(q => quinzenasAgrupadas[q].toFixed(2)),
+          data: ultimasQuinzenas.map(q => Math.round(quinzenasAgrupadas[q])),
           borderColor: '#ef4444',
           backgroundColor: 'rgba(239, 68, 68, 0.1)',
-          borderWidth: 2,
+          borderWidth: 3,
           fill: true,
           pointBackgroundColor: '#ef4444',
-          pointRadius: 4
+          pointRadius: 6
         }]
       },
       options: {
@@ -143,33 +143,28 @@ export default async function handler(req, res) {
           datalabels: {
             display: true,
             align: 'top',
-            color: '#475569',
-            font: { weight: 'bold', size: 9 },
-            formatter: (value) => {
-              if (value >= 1000) return 'R$ ' + (value/1000).toFixed(1) + 'k';
-              return 'R$ ' + Math.round(value);
-            }
+            color: '#1e293b',
+            font: { weight: 'bold', size: 14 }
           }
         },
         title: {
           display: true,
           text: 'Evolução de Penalidades (Últimas 6 Quinzenas)',
-          fontSize: 14,
+          fontSize: 16,
           fontColor: '#0f172a'
         },
         legend: { display: false },
         scales: {
           yAxes: [{
             ticks: {
-              beginAtZero: true,
-              callback: (val) => 'R$ ' + (val/1000).toFixed(0) + 'k'
+              beginAtZero: true
             }
           }]
         }
       }
     };
 
-    const encodedChartUrl = `https://quickchart.io/chart?w=800&h=350&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;
+    const encodedChartUrl = `https://quickchart.io/chart?w=800&h=400&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;
 
     // 5. Agregar os Dados da Quinzena Atual
     const casosDaQuinzena = validPenalidades.filter(p => p.quinzena === targetQuinzena);
