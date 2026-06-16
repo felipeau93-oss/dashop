@@ -139,10 +139,14 @@ export default async function handler(req, res) {
         }]
       },
       options: {
+        layout: {
+          padding: { left: 10, right: 10, top: 20, bottom: 10 }
+        },
         plugins: {
           datalabels: {
             display: true,
             align: 'top',
+            offset: 8,
             color: '#1e293b',
             font: { weight: 'bold', size: 14 }
           }
@@ -155,6 +159,9 @@ export default async function handler(req, res) {
         },
         legend: { display: false },
         scales: {
+          xAxes: [{
+            offset: true
+          }],
           yAxes: [{
             ticks: {
               beginAtZero: true
