@@ -245,55 +245,7 @@ export default async function handler(req, res) {
           `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Top 5 Filiais (PNR) R$:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Filial</th>
-            <th style="${thStyle}">Regional</th>
-            <th style="${thStyle} text-align: right;">Valor</th>
-          </tr>
-          ${topFiliaisPnr.length ? topFiliaisPnr.map(f => `
-            <tr>
-              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
-              <td style="${tdStyle}">${f.regional}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.pnr)}</td>
-            </tr>
-          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
-        </table>
-
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Top 5 Filiais (Lost Packages) R$:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Filial</th>
-            <th style="${thStyle}">Regional</th>
-            <th style="${thStyle} text-align: right;">Valor</th>
-          </tr>
-          ${topFiliaisLost.length ? topFiliaisLost.map(f => `
-            <tr>
-              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
-              <td style="${tdStyle}">${f.regional}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.lost)}</td>
-            </tr>
-          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
-        </table>
-
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚫 Top 5 Filiais (Not Visited) R$:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Filial</th>
-            <th style="${thStyle}">Regional</th>
-            <th style="${thStyle} text-align: right;">Valor</th>
-          </tr>
-          ${topFiliaisNv.length ? topFiliaisNv.map(f => `
-            <tr>
-              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
-              <td style="${tdStyle}">${f.regional}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.nv)}</td>
-            </tr>
-          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
-        </table>
-
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">💰 Top 5 Filiais Ofensoras Geral:</h3>
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">💰 Top Filiais Ofensoras Geral:</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Filial</th>
@@ -309,6 +261,54 @@ export default async function handler(req, res) {
               <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdGeral}</td>
             </tr>
           `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+        </table>
+
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Filiais (PNR) R$:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+          <tr style="background-color: #f1f5f9;">
+            <th style="${thStyle}">Filial</th>
+            <th style="${thStyle}">Regional</th>
+            <th style="${thStyle} text-align: right;">Valor</th>
+          </tr>
+          ${topFiliaisPnr.length ? topFiliaisPnr.map(f => `
+            <tr>
+              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+              <td style="${tdStyle}">${f.regional}</td>
+              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.pnr)}</td>
+            </tr>
+          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+        </table>
+
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Filiais (Lost Packages) R$:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+          <tr style="background-color: #f1f5f9;">
+            <th style="${thStyle}">Filial</th>
+            <th style="${thStyle}">Regional</th>
+            <th style="${thStyle} text-align: right;">Valor</th>
+          </tr>
+          ${topFiliaisLost.length ? topFiliaisLost.map(f => `
+            <tr>
+              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+              <td style="${tdStyle}">${f.regional}</td>
+              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.lost)}</td>
+            </tr>
+          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+        </table>
+
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚫 Filiais (Not Visited) R$:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+          <tr style="background-color: #f1f5f9;">
+            <th style="${thStyle}">Filial</th>
+            <th style="${thStyle}">Regional</th>
+            <th style="${thStyle} text-align: right;">Valor</th>
+          </tr>
+          ${topFiliaisNv.length ? topFiliaisNv.map(f => `
+            <tr>
+              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+              <td style="${tdStyle}">${f.regional}</td>
+              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.nv)}</td>
+            </tr>
+          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
         <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚚 Top 6 Motoristas Ofensores R$:</h3>
