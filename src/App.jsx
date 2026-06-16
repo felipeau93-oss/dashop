@@ -34,8 +34,10 @@ import {
   BadgeDollarSign,
   Brain,
   Send,
-  Bot
-, ExternalLink} from 'lucide-react';
+  Bot,
+  ExternalLink,
+  Menu
+} from 'lucide-react';
 
 // ============================================================================
 // CHAVE DA API DO GEMINI (CFO VIRTUAL)
@@ -643,7 +645,7 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
               </button>
             </div>
             
-            <div className="p-0 overflow-y-auto flex-1">
+            <div className="p-0 overflow-auto flex-1">
               {ofensoresModal.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 font-medium">Nenhum ofensor encontrado para esta filial nesta quinzena.</div>
               ) : (
@@ -2109,8 +2111,8 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
                   <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">Detalhamento de Pacotes: <span className="text-orange-400">{selectedMotorista}</span></h4>
                   <button onClick={() => setSelectedMotorista(null)} className="text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"><ArrowUp className="w-3 h-3 -rotate-90" /> Voltar para Visão Geral</button>
                 </div>
-                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                  <table className="w-full text-left text-xs">
+                <div className="flex-1 overflow-auto pr-2 custom-scrollbar">
+                  <table className="w-full text-left text-xs min-w-[500px]">
                     <thead className="sticky top-0 bg-slate-800/90 text-slate-400 uppercase tracking-wider z-10 backdrop-blur-sm">
                       <tr>
                         <th className="p-3 border-b border-slate-700 font-bold">Quinzena</th>
@@ -2247,6 +2249,8 @@ export default function App() {
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('dashopTheme') === 'dark';
   });
+
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const styleId = 'dark-mode-injector';
@@ -2402,6 +2406,7 @@ export default function App() {
   const handleMenuChange = (menu) => {
     setActiveMenu(menu);
     setSortConfig({ key: null, direction: 'desc' });
+    setIsMobileMenuOpen(false);
   };
 
   const hasActiveFilters = filtroQuinzenas.length > 0 || filtroRegionais.length > 0 || filtroSupervisores.length > 0 || filtroFiliais.length > 0 || insucessosExcluidos.length > 0 || filtroDiasSemana.length > 0;
@@ -3924,9 +3929,18 @@ const fetchFromGoogleSheets = useCallback(async () => {
   // TELA PRINCIPAL (DASHBOARD)
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
+      
+      {/* OVERLAY MOBILE */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 md:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
       {/* SIDEBAR */}
-      <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 overflow-y-auto hidden md:flex border-r border-slate-800">
-        <div className="p-6 bg-slate-950 border-b border-slate-800 sticky top-0 z-10">
+      <aside className={`fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 md:relative md:translate-x-0 w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 overflow-y-auto border-r border-slate-800 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="p-6 bg-slate-950 border-b border-slate-800 sticky top-0 z-10 flex justify-between items-center">
           <div className="flex items-center gap-2 select-none">
             {/* Símbolo Abstrato (Pulso em um bloco tecnológico) */}
             <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-950 shadow-lg border border-blue-400/20">
@@ -3939,6 +3953,13 @@ const fetchFromGoogleSheets = useCallback(async () => {
               <span className="text-emerald-400 text-3xl leading-none">.</span>
             </span>
           </div>
+          {/* BOTÃO FECHAR MENU (MOBILE) */}
+          <button 
+            className="md:hidden p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
         <nav className="flex-1 py-6 flex flex-col gap-6 px-4">
           <div className="flex flex-col gap-1 pb-6">
@@ -3951,6 +3972,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
                   onClick={() => {
                     handleMenuChange('gestao_financeira');
                     if (!expandedMenus.financeiro) toggleExpandedMenu('financeiro', { stopPropagation: () => {} });
+                    setIsMobileMenuOpen(false);
                   }} 
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_financeira', 'detalhe_financeiro', 'gestao_margem'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
                 >
@@ -4043,12 +4065,20 @@ const fetchFromGoogleSheets = useCallback(async () => {
 
       {/* HEADER & MAIN */}
       <main className="flex-1 flex flex-col h-full relative overflow-hidden">
-        <header className="bg-white border-b border-slate-200 p-4 md:px-6 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 shrink-0 shadow-sm z-50">
+        <header className="bg-white border-b border-slate-200 p-4 md:px-6 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 shrink-0 shadow-sm z-30">
 
-          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-            <div className="flex items-center gap-2 text-slate-500">
-              <Filter className="w-4 h-4" />
-              <span className="text-xs font-bold uppercase tracking-wider hidden sm:block">Filtros</span>
+          <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 w-full xl:w-auto">
+            <div className="flex items-center gap-3 w-full sm:w-auto pb-2 sm:pb-0 border-b border-slate-100 sm:border-none">
+              <button 
+                className="md:hidden p-2 -ml-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 transition-colors"
+                onClick={() => setIsMobileMenuOpen(true)}
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2 text-slate-500">
+                <Filter className="w-4 h-4" />
+                <span className="text-xs font-bold uppercase tracking-wider">Filtros</span>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-200">
