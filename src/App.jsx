@@ -314,7 +314,6 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
           </>
         )}
       </div>
-      </div>
     </div>
   );
 };
