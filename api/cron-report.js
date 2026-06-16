@@ -342,40 +342,43 @@ export default async function handler(req, res) {
           `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Filiais (PNR) R$:</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Filial</th>
-            <th style="${thStyle}">Regional</th>
-            <th style="${thStyle} text-align: right;">Quantidade</th>
-            <th style="${thStyle} text-align: right;">Valor</th>
+          <tr>
+            <td style="width: 50%; vertical-align: top; padding-right: 10px;">
+              <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Filiais (PNR) R$:</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr style="background-color: #f1f5f9;">
+                  <th style="${thStyle}">Filial</th>
+                  <th style="${thStyle} text-align: right;">Qtd</th>
+                  <th style="${thStyle} text-align: right;">Valor</th>
+                </tr>
+                ${topFiliaisPnr.length ? topFiliaisPnr.map(f => `
+                  <tr>
+                    <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+                    <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdPnr}</td>
+                    <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.pnr)}</td>
+                  </tr>
+                `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+              </table>
+            </td>
+            <td style="width: 50%; vertical-align: top; padding-left: 10px;">
+              <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Filiais (Lost Packages) R$:</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr style="background-color: #f1f5f9;">
+                  <th style="${thStyle}">Filial</th>
+                  <th style="${thStyle} text-align: right;">Qtd</th>
+                  <th style="${thStyle} text-align: right;">Valor</th>
+                </tr>
+                ${topFiliaisLost.length ? topFiliaisLost.map(f => `
+                  <tr>
+                    <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+                    <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdLost}</td>
+                    <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.lost)}</td>
+                  </tr>
+                `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+              </table>
+            </td>
           </tr>
-          ${topFiliaisPnr.length ? topFiliaisPnr.map(f => `
-            <tr>
-              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
-              <td style="${tdStyle}">${f.regional}</td>
-              <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdPnr}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.pnr)}</td>
-            </tr>
-          `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
-        </table>
-
-        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Filiais (Lost Packages) R$:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Filial</th>
-            <th style="${thStyle}">Regional</th>
-            <th style="${thStyle} text-align: right;">Quantidade</th>
-            <th style="${thStyle} text-align: right;">Valor</th>
-          </tr>
-          ${topFiliaisLost.length ? topFiliaisLost.map(f => `
-            <tr>
-              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
-              <td style="${tdStyle}">${f.regional}</td>
-              <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdLost}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.lost)}</td>
-            </tr>
-          `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
         <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚫 Filiais (Not Visited) R$:</h3>
@@ -450,7 +453,7 @@ export default async function handler(req, res) {
     // 7. Disparar o e-mail via Resend
     // Nota: O e-mail do remetente e do destinatário devem ser configurados no painel da Vercel.
     const sender = process.env.REPORT_SENDER || 'relatorios@espindolalog.com';
-    const recipient = 'felipeau93@gmail.com'; // process.env.REPORT_RECIPIENT
+    const recipient = process.env.REPORT_RECIPIENT || 'felipe.augusto@espindolalog.com';
     
     if (!process.env.RESEND_API_KEY) {
       return res.status(500).json({ error: 'RESEND_API_KEY não configurada nas variáveis de ambiente da Vercel.' });
