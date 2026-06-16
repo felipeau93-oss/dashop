@@ -475,7 +475,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       message: 'Relatório enviado com sucesso!',
       quinzena: targetQuinzena,
-      totalOfensores: topMotoristasRs.length,
+      totalOfensores: topMotoristasPnr.length + topMotoristasLost.length,
       emailId: emailResponse.data.id
     });
   } catch (error) {
