@@ -2126,7 +2126,15 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
                         <tr key={i} className="hover:bg-slate-700/30 transition-colors">
                           <td className="p-3 font-medium text-slate-300">{c.quinzena}</td>
                           <td className="p-3 text-slate-400">{c.tipo}</td>
-                          <td className="p-3 font-mono text-slate-400">{c.tipo === 'Not Visited' ? (c.id_rota || '-') : (c.id_pacote || '-')}</td>
+                          <td className="p-3 font-mono text-slate-400">
+                            {(() => {
+                              const isRota = c.tipo === 'Not Visited';
+                              const idVal = isRota ? c.id_rota : c.id_pacote;
+                              if (!idVal || idVal === '-' || idVal === 'N/A') return idVal || '-';
+                              if (isRota) return <a href={`https://envios.adminml.com/logistics/monitoring-distribution/detail/${idVal}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline hover:text-blue-300" onClick={(e) => e.stopPropagation()}>{idVal}</a>;
+                              return <a href={`https://envios.adminml.com/logistics/package-management/package/${idVal}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline hover:text-blue-300" onClick={(e) => e.stopPropagation()}>{idVal}</a>;
+                            })()}
+                          </td>
                           <td className="p-3 text-right font-bold text-red-400">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(c.valor || 0)}</td>
                         </tr>
                       ))}
