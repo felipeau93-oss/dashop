@@ -180,26 +180,26 @@ export default async function handler(req, res) {
                 let linkUrl = '#';
                 if (idVal !== '-') {
                   if (isRota) {
-                    linkUrl = \`https://envios.mercadolivre.com.br/monitoring-distribution/detail/\${idVal}\`;
+                    linkUrl = `https://envios.mercadolivre.com.br/monitoring-distribution/detail/${idVal}`;
                   } else {
-                    linkUrl = \`https://envios.mercadolivre.com.br/package-management/package/\${idVal}\`;
+                    linkUrl = `https://envios.mercadolivre.com.br/package-management/package/${idVal}`;
                   }
                 }
                 
                 const linkHTML = idVal !== '-' 
-                  ? \`<a href="\${linkUrl}" target="_blank" style="color: #3b82f6; text-decoration: underline; font-family: monospace;">\${idVal}</a>\`
+                  ? `<a href="${linkUrl}" target="_blank" style="color: #3b82f6; text-decoration: underline; font-family: monospace;">${idVal}</a>`
                   : '-';
                   
                 const valorHTML = isRota 
-                  ? \`<span style="color: #94a3b8;">-</span>\`
-                  : \`<span style="color: #ef4444; font-weight: bold;">\${formatCurrency(o.valor)}</span>\`;
+                  ? `<span style="color: #94a3b8;">-</span>`
+                  : `<span style="color: #ef4444; font-weight: bold;">${formatCurrency(o.valor)}</span>`;
 
-                return \`
+                return `
                   <tr>
-                    <td style="padding: 4px 0; color: #475569; width: 60%;">\${label}: \${linkHTML}</td>
-                    <td style="padding: 4px 0; text-align: right; width: 40%;">\${valorHTML}</td>
+                    <td style="padding: 4px 0; color: #475569; width: 60%;">${label}: ${linkHTML}</td>
+                    <td style="padding: 4px 0; text-align: right; width: 40%;">${valorHTML}</td>
                   </tr>
-                \`;
+                `;
               }).join('')}
             </table>
           </div>
