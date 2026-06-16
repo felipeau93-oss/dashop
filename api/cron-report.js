@@ -203,8 +203,8 @@ export default async function handler(req, res) {
     const csvContent = Buffer.from('\uFEFF' + csvHeader + csvRows, 'utf-8');
 
     // 6. Montar Template HTML
-    const thStyle = "padding: 8px; text-align: left; border-bottom: 2px solid #cbd5e1; font-size: 11px; text-transform: uppercase; color: #475569;";
-    const tdStyle = "padding: 8px; border-bottom: 1px solid #e2e8f0; font-size: 12px; color: #1e293b;";
+    const thStyle = "padding: 5px; text-align: left; border-bottom: 2px solid #cbd5e1; font-size: 10px; text-transform: uppercase; color: #475569;";
+    const tdStyle = "padding: 6px; border-bottom: 1px solid #e2e8f0; font-size: 10px; color: #1e293b;";
     
     // Obter valores de tipos formatados para o resumo
     const pnrObj = topTipos.find(t => t.nome === 'PNRs') || { valor: 0 };
@@ -213,24 +213,32 @@ export default async function handler(req, res) {
 
     const htmlBody = `
       <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; color: #333;">
-        <h2 style="color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; font-size: 20px;">
+        <h2 style="color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; font-size: 18px;">
           Resumo de Penalidades - DashOp
         </h2>
         
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; margin-bottom: 25px;">
-          <p style="font-size: 14px; margin: 0 0 5px 0;"><strong>Quinzena:</strong> <span style="color: #3b82f6; font-weight: bold;">${targetQuinzena}</span></p>
-          <p style="font-size: 14px; margin: 0;"><strong>Total (R$):</strong> <span style="color: #ef4444; font-weight: bold; font-size: 16px;">${formatCurrency(totalPenalidades)}</span></p>
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px 15px; border-radius: 8px; margin-bottom: 15px; display: table; width: 100%; box-sizing: border-box;">
+          <div style="display: table-cell; vertical-align: middle;">
+            <p style="font-size: 10px; margin: 0 0 4px 0;"><strong>Quinzena:</strong> <span style="color: #3b82f6; font-weight: bold;">${targetQuinzena}</span></p>
+            <p style="font-size: 10px; margin: 0;"><strong>Total (R$):</strong> <span style="color: #ef4444; font-weight: bold; font-size: 10px;">${formatCurrency(totalPenalidades)}</span></p>
+          </div>
+          <div style="display: table-cell; vertical-align: middle; text-align: right;">
+            <a href="https://dashop-eight.vercel.app/?view=operacao" 
+               style="display: inline-block; background-color: #3b82f6; color: white; padding: 8px 14px; text-decoration: none; font-weight: bold; border-radius: 6px; font-size: 10px;">
+              Acessar Painel Operacional
+            </a>
+          </div>
         </div>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">⚠️ Tipo de penalidades em R$:</h3>
-        <ul style="font-size: 13px; padding-left: 20px; margin-bottom: 30px; line-height: 1.6;">
+        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">⚠️ Tipo de penalidades em R$:</h3>
+        <ul style="font-size: 10px; padding-left: 20px; margin-bottom: 15px; line-height: 1.6;">
           <li><strong>PNR:</strong> <span style="color: #ef4444;">${formatCurrency(pnrObj.valor)}</span></li>
           <li><strong>Lost Packages:</strong> <span style="color: #ef4444;">${formatCurrency(lostObj.valor)}</span></li>
           <li><strong>Not Visited:</strong> <span style="color: #ef4444;">${formatCurrency(nvObj.valor)}</span></li>
         </ul>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🌍 Top Regionais ofensoras (R$)</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🌍 Top Regionais ofensoras (R$)</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Regional</th>
             <th style="${thStyle}">Supervisor Responsável</th>
@@ -245,8 +253,8 @@ export default async function handler(req, res) {
           `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">💰 Top Filiais Ofensoras Geral:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">💰 Top Filiais Ofensoras Geral:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Filial</th>
             <th style="${thStyle}">Regional</th>
@@ -263,8 +271,8 @@ export default async function handler(req, res) {
           `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Filiais (PNR) R$:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Filiais (PNR) R$:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Filial</th>
             <th style="${thStyle}">Regional</th>
@@ -279,8 +287,8 @@ export default async function handler(req, res) {
           `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Filiais (Lost Packages) R$:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Filiais (Lost Packages) R$:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Filial</th>
             <th style="${thStyle}">Regional</th>
@@ -295,8 +303,8 @@ export default async function handler(req, res) {
           `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚫 Filiais (Not Visited) R$:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚫 Filiais (Not Visited) R$:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Filial</th>
             <th style="${thStyle}">Regional</th>
@@ -311,8 +319,8 @@ export default async function handler(req, res) {
           `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚚 Top 6 Motoristas Ofensores R$:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚚 Top 6 Motoristas Ofensores R$:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Motorista</th>
             <th style="${thStyle}">Filial</th>
@@ -331,8 +339,8 @@ export default async function handler(req, res) {
           `).join('')}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Top 6 Motoristas Ofensores Quantidade:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Top 6 Motoristas Ofensores Quantidade:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Motorista</th>
             <th style="${thStyle}">Filial</th>
@@ -351,14 +359,9 @@ export default async function handler(req, res) {
           `).join('')}
         </table>
 
-        <div style="text-align: center; margin-top: 40px; margin-bottom: 20px;">
-          <a href="https://dashop-eight.vercel.app/?view=operacao" 
-             style="display: inline-block; background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; font-size: 13px;">
-            Acessar Painel Operacional Simplificado
-          </a>
-        </div>
+        
 
-        <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+        <p style="font-size: 10px; color: #94a3b8; text-align: center; margin-top: 15px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
           Este é um e-mail automático gerado pelo sistema DashOp. O detalhamento linha a linha consta no anexo deste e-mail.
         </p>
       </div>
