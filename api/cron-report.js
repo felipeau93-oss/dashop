@@ -121,16 +121,31 @@ export default async function handler(req, res) {
     const motoristasMap = {};
 
     casosDaQuinzena.forEach(p => {
-      const valor = p.valor || 0;
+      const isNotVisited = p.tipo === 'Not Visited';
+      const valor = isNotVisited ? 0 : (p.valor || 0); // Zera custo do Not Visited
+      
       totalPenalidades += valor;
 
       // Agrega Filial
       const filial = p.filial || 'Sem Filial';
-      filiaisMap[filial] = (filiaisMap[filial] || 0) + valor;
+      if (!filiaisMap[filial]) {
+        filiaisMap[filial] = { nome: filial, pnr: 0, lost: 0, nvQtd: 0, geral: 0 };
+      }
+      
+      filiaisMap[filial].geral += valor;
+      if (isNotVisited) {
+        filiaisMap[filial].nvQtd += 1;
+      } else if (p.tipo === 'PNRs') {
+        filiaisMap[filial].pnr += valor;
+      } else if (p.tipo === 'Lost Packages') {
+        filiaisMap[filial].lost += valor;
+      }
 
       // Agrega Tipo
       const tipo = p.tipo || 'Desconhecido';
-      tiposMap[tipo] = (tiposMap[tipo] || 0) + valor;
+      if (!tiposMap[tipo]) tiposMap[tipo] = { nome: tipo, valor: 0, qtd: 0 };
+      tiposMap[tipo].valor += valor;
+      tiposMap[tipo].qtd += 1;
 
       // Agrega Motorista
       const motorista = p.motorista || 'Sem Motorista';
@@ -139,15 +154,15 @@ export default async function handler(req, res) {
       motoristasMap[mKey].valor += valor;
     });
 
-    // Ranking Top 5 Filiais
-    const topFiliais = Object.entries(filiaisMap)
-      .map(([nome, valor]) => ({ nome, valor }))
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 5);
+    // Rankings Filiais
+    const arrFiliais = Object.values(filiaisMap);
+    const topFiliaisPnr = [...arrFiliais].sort((a, b) => b.pnr - a.pnr).filter(f => f.pnr > 0).slice(0, 5);
+    const topFiliaisLost = [...arrFiliais].sort((a, b) => b.lost - a.lost).filter(f => f.lost > 0).slice(0, 5);
+    const topFiliaisNv = [...arrFiliais].sort((a, b) => b.nvQtd - a.nvQtd).filter(f => f.nvQtd > 0).slice(0, 5);
+    const topFiliaisGeral = [...arrFiliais].sort((a, b) => b.geral - a.geral).filter(f => f.geral > 0).slice(0, 5);
 
-    // Ranking Top 3 Tipos
-    const topTipos = Object.entries(tiposMap)
-      .map(([nome, valor]) => ({ nome, valor }))
+    // Ranking Top Tipos
+    const topTipos = Object.values(tiposMap)
       .sort((a, b) => b.valor - a.valor)
       .slice(0, 3);
 
@@ -159,11 +174,12 @@ export default async function handler(req, res) {
     // Gerar CSV String para o Anexo
     const csvHeader = 'Quinzena,Filial,Motorista,Tipo,Valor(R$),ID_Pacote,ID_Rota\n';
     const csvRows = casosDaQuinzena.map(p => {
+      const isNV = p.tipo === 'Not Visited';
       const q = p.quinzena || '-';
       const f = `"${p.filial || '-'}"`;
       const m = `"${p.motorista || '-'}"`;
       const t = `"${p.tipo || '-'}"`;
-      const v = (p.valor || 0).toFixed(2);
+      const v = isNV ? '-' : (p.valor || 0).toFixed(2);
       const ip = p.id_pacote || '-';
       const ir = p.id_rota || '-';
       return `${q},${f},${m},${t},${v},${ip},${ir}`;
@@ -172,59 +188,123 @@ export default async function handler(req, res) {
     const csvContent = Buffer.from('\uFEFF' + csvHeader + csvRows, 'utf-8'); // \uFEFF for Excel BOM
 
     // 6. Montar Template HTML
+    const thStyle = "padding: 6px; text-align: left; border: 1px solid #cbd5e1; font-size: 11px; text-transform: uppercase;";
+    const tdStyle = "padding: 6px; border: 1px solid #cbd5e1; font-size: 12px;";
+    
     const htmlBody = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">
+      <div style="font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto; color: #333;">
+        <h2 style="color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; font-size: 18px;">
           Relatório de Penalidades - DashOp
         </h2>
-        <p><strong>Quinzena Analisada:</strong> <span style="color: #3b82f6; font-weight: bold;">${targetQuinzena}</span></p>
-        <p><strong>Total de Descontos:</strong> <span style="color: #ef4444; font-size: 18px; font-weight: bold;">${formatCurrency(totalPenalidades)}</span></p>
-        
-        <h3 style="color: #0f172a; margin-top: 30px;">🚨 Top 5 Filiais Ofensoras</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="padding: 8px; text-align: left; border: 1px solid #cbd5e1;">Filial</th>
-            <th style="padding: 8px; text-align: right; border: 1px solid #cbd5e1;">Valor Cobrado</th>
-          </tr>
-          ${topFiliais.map(f => `
-            <tr>
-              <td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">${f.nome}</td>
-              <td style="padding: 8px; text-align: right; border: 1px solid #cbd5e1; color: #ef4444;">${formatCurrency(f.valor)}</td>
-            </tr>
-          `).join('')}
-        </table>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <p style="font-size: 14px; margin: 0;"><strong>Quinzena:</strong> <span style="color: #3b82f6; font-weight: bold;">${targetQuinzena}</span></p>
+          <p style="font-size: 14px; margin: 0;"><strong>Total (R$):</strong> <span style="color: #ef4444; font-weight: bold;">${formatCurrency(totalPenalidades)}</span></p>
+        </div>
 
-        <h3 style="color: #0f172a; margin-top: 30px;">⚠️ Principais Ofensores por Tipo</h3>
-        <ul>
-          ${topTipos.map(t => `
-            <li style="margin-bottom: 8px;"><strong>${t.nome}:</strong> <span style="color: #ef4444;">${formatCurrency(t.valor)}</span></li>
-          `).join('')}
+        <h3 style="color: #0f172a; margin-top: 20px; font-size: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Top 5 Filiais Ofensoras</h3>
+        
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+          <!-- Tabela PNR -->
+          <div style="flex: 1;">
+            <h4 style="font-size: 12px; color: #475569; margin-bottom: 5px;">Por PNR (R$)</h4>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr style="background-color: #f1f5f9;">
+                <th style="${thStyle}">Filial</th><th style="${thStyle} text-align: right;">Valor</th>
+              </tr>
+              ${topFiliaisPnr.length ? topFiliaisPnr.map(f => `
+                <tr>
+                  <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+                  <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.pnr)}</td>
+                </tr>
+              `).join('') : `<tr><td colspan="2" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+            </table>
+          </div>
+
+          <!-- Tabela Lost -->
+          <div style="flex: 1;">
+            <h4 style="font-size: 12px; color: #475569; margin-bottom: 5px;">Por Lost (R$)</h4>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr style="background-color: #f1f5f9;">
+                <th style="${thStyle}">Filial</th><th style="${thStyle} text-align: right;">Valor</th>
+              </tr>
+              ${topFiliaisLost.length ? topFiliaisLost.map(f => `
+                <tr>
+                  <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+                  <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.lost)}</td>
+                </tr>
+              `).join('') : `<tr><td colspan="2" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+            </table>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+          <!-- Tabela Not Visited -->
+          <div style="flex: 1;">
+            <h4 style="font-size: 12px; color: #475569; margin-bottom: 5px;">Por Not Visited (Qtd)</h4>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr style="background-color: #f1f5f9;">
+                <th style="${thStyle}">Filial</th><th style="${thStyle} text-align: right;">Rotas</th>
+              </tr>
+              ${topFiliaisNv.length ? topFiliaisNv.map(f => `
+                <tr>
+                  <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+                  <td style="${tdStyle} text-align: right; color: #eab308; font-weight: bold;">${f.nvQtd}</td>
+                </tr>
+              `).join('') : `<tr><td colspan="2" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+            </table>
+          </div>
+
+          <!-- Tabela Geral -->
+          <div style="flex: 1;">
+            <h4 style="font-size: 12px; color: #475569; margin-bottom: 5px;">Geral (R$)</h4>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr style="background-color: #f1f5f9;">
+                <th style="${thStyle}">Filial</th><th style="${thStyle} text-align: right;">Total</th>
+              </tr>
+              ${topFiliaisGeral.length ? topFiliaisGeral.map(f => `
+                <tr>
+                  <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+                  <td style="${tdStyle} text-align: right; color: #ef4444; font-weight: bold;">${formatCurrency(f.geral)}</td>
+                </tr>
+              `).join('') : `<tr><td colspan="2" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+            </table>
+          </div>
+        </div>
+
+        <h3 style="color: #0f172a; margin-top: 20px; font-size: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">⚠️ Principais Ofensores por Tipo</h3>
+        <ul style="font-size: 12px; padding-left: 20px; margin-bottom: 20px;">
+          ${topTipos.map(t => {
+            if (t.nome === 'Not Visited') {
+              return `<li style="margin-bottom: 6px;"><strong>${t.nome}:</strong> <span style="color: #eab308; font-weight: bold;">${t.qtd} rotas</span></li>`;
+            }
+            return `<li style="margin-bottom: 6px;"><strong>${t.nome}:</strong> <span style="color: #ef4444;">${formatCurrency(t.valor)}</span></li>`;
+          }).join('')}
         </ul>
 
-        <h3 style="color: #0f172a; margin-top: 30px;">🚚 Top 10 Motoristas Penalizados</h3>
+        <h3 style="color: #0f172a; margin-top: 20px; font-size: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚚 Top 10 Motoristas Ofensores</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
           <tr style="background-color: #f1f5f9;">
-            <th style="padding: 8px; text-align: left; border: 1px solid #cbd5e1;">Motorista</th>
-            <th style="padding: 8px; text-align: left; border: 1px solid #cbd5e1;">Filial</th>
-            <th style="padding: 8px; text-align: right; border: 1px solid #cbd5e1;">Valor</th>
+            <th style="${thStyle}">Motorista</th>
+            <th style="${thStyle}">Filial</th>
+            <th style="${thStyle} text-align: right;">Valor (R$)</th>
           </tr>
           ${topMotoristas.map(m => `
             <tr>
-              <td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">${m.motorista}</td>
-              <td style="padding: 8px; border: 1px solid #cbd5e1; font-size: 12px; color: #64748b;">${m.filial}</td>
-              <td style="padding: 8px; text-align: right; border: 1px solid #cbd5e1; color: #ef4444;">${formatCurrency(m.valor)}</td>
+              <td style="${tdStyle} font-weight: bold;">${m.motorista}</td>
+              <td style="${tdStyle} color: #64748b;">${m.filial}</td>
+              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(m.valor)}</td>
             </tr>
           `).join('')}
         </table>
 
-        <div style="text-align: center; margin-top: 40px; margin-bottom: 20px;">
+        <div style="text-align: center; margin-top: 30px; margin-bottom: 20px;">
           <a href="https://dashop-eight.vercel.app/?view=operacao" 
-             style="display: inline-block; background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; font-size: 14px;">
+             style="display: inline-block; background-color: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; font-weight: bold; border-radius: 6px; font-size: 12px;">
             Acessar Painel Operacional Simplificado
           </a>
         </div>
 
-        <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 20px;">
+        <p style="font-size: 11px; color: #94a3b8; text-align: center; margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
           Este é um e-mail automático gerado pelo sistema DashOp. O detalhamento linha a linha consta no anexo deste e-mail.
         </p>
       </div>
