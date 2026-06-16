@@ -100,24 +100,20 @@ export default async function handler(req, res) {
 
     // 4. Identificar a quinzena mais recente que possui dados
     let targetQuinzena = null;
-    let targetDateValue = 0;
     
-    const validPenalidades = penalidades.filter(p => p.valor && p.data);
-    validPenalidades.forEach(p => {
-      const q = getQuinzena(p.data);
-      const dVal = parseDate(p.data).getTime();
-      if (q !== 'N/A' && dVal > targetDateValue) {
-        targetDateValue = dVal;
-        targetQuinzena = q;
-      }
-    });
+    const validPenalidades = penalidades.filter(p => p.valor && p.quinzena);
+    
+    const quinzenasEncontradas = [...new Set(validPenalidades.map(p => p.quinzena))];
+    if (quinzenasEncontradas.length > 0) {
+      targetQuinzena = quinzenasEncontradas.sort().pop(); // '202604Q2' > '202604Q1'
+    }
 
     if (!targetQuinzena) {
       return res.status(404).json({ message: 'Nenhuma quinzena válida encontrada.' });
     }
 
     // 5. Agregar os Dados
-    const casosDaQuinzena = validPenalidades.filter(p => getQuinzena(p.data) === targetQuinzena);
+    const casosDaQuinzena = validPenalidades.filter(p => p.quinzena === targetQuinzena);
     
     let totalPenalidades = 0;
     const filiaisMap = {};
