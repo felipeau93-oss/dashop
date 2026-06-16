@@ -242,8 +242,8 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
             const nvRatio = d.penalidades > 0 ? ((d.notVisited || 0) / d.penalidades) * 100 : 0;
 
             return (
-              <div key={`bar-${i}`} className={`flex-1 flex flex-col justify-end h-full relative group max-w-[60px] ${onBarClick ? 'cursor-pointer' : ''}`} onClick={() => onBarClick && onBarClick(d[labelKey])} onMouseEnter={() => setHoveredIndex(i)} onMouseLeave={() => setHoveredIndex(null)}>
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 hidden group-hover:block z-50 w-60 bg-slate-800 text-white text-xs rounded-lg p-4 shadow-xl pointer-events-none">
+              <div key={`bar-${i}`} className={`flex-1 flex flex-col justify-end h-full relative group max-w-[60px] ${onBarClick ? 'cursor-pointer' : ''}`} onClick={(e) => { e.stopPropagation(); setHoveredIndex(hoveredIndex === i ? null : i); if(onBarClick) onBarClick(d[labelKey]); }} onMouseEnter={() => setHoveredIndex(i)} onMouseLeave={() => setHoveredIndex(null)}>
+                <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-3 ${hoveredIndex === i ? 'block' : 'hidden md:group-hover:block'} z-50 w-60 bg-slate-800 text-white text-xs rounded-lg p-4 shadow-xl pointer-events-none`}>
                   <p className="font-bold border-b border-slate-700 pb-2 mb-3 text-center text-white">{d[labelKey]}</p>
                   {showFaturamento && !hideFaturamentoTooltip && <div className="flex justify-between mb-1.5"><span className="text-emerald-400">Faturamento</span><span className="font-mono text-white">{formatCurrency(d.faturamento || 0)}</span></div>}
                   <div className={`flex justify-between mb-1 ${showFaturamento ? 'mt-2 pt-2 border-t border-slate-700' : ''}`}><span className="text-slate-300 font-bold">{tooltipSecondaryLabel || (isMarginChart ? 'Total Pago' : 'Total Penalidades')}</span><span className="font-mono text-red-400 font-bold">{formatCurrency(d.penalidades || 0)}</span></div>
@@ -2090,11 +2090,11 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
         </div>
 
         {/* BODY */}
-        <div className="p-6 overflow-y-auto flex-1 flex flex-col xl:flex-row gap-6">
+        <div className="p-6 overflow-y-auto overflow-x-hidden flex-1 flex flex-col xl:flex-row gap-6 custom-scrollbar">
           
           {/* CHARTS COLUMN */}
-          <div className="flex-1 flex flex-col gap-6">
-            <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 shadow-sm flex flex-col relative">
+          <div className="flex-none xl:flex-1 flex flex-col gap-6">
+            <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 shadow-sm flex flex-col relative shrink-0">
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Evolução por Valor (R$)</h4>
               {chartDataValor.length === 0 ? (
                 <div className="h-[200px] flex items-center justify-center text-slate-500 text-xs">Sem dados.</div>
@@ -2106,7 +2106,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
             </div>
             
             {selectedMotorista ? (
-              <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 shadow-sm flex flex-col relative flex-1 min-h-[300px] overflow-hidden">
+              <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 shadow-sm flex flex-col relative flex-none xl:flex-1 min-h-[400px] overflow-hidden">
                 <div className="flex justify-between items-center mb-4">
                   <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">Detalhamento de Pacotes: <span className="text-orange-400">{selectedMotorista}</span></h4>
                   <button onClick={() => setSelectedMotorista(null)} className="text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"><ArrowUp className="w-3 h-3 -rotate-90" /> Voltar para Visão Geral</button>
@@ -2157,10 +2157,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
                        const pct = (d.totalQtd / maxQtd) * 100;
                        return (
                          <div key={i} className="flex-1 flex flex-col justify-end h-full group relative max-w-[40px]">
-                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 bg-slate-700 text-white text-[10px] p-2 rounded shadow-xl whitespace-nowrap">
-                             <div className="font-bold text-blue-300 mb-1">{d.quinzena}</div>
-                             <div>Total: {d.totalQtd} un</div>
-                           </div>
+                           <span className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 text-[10px] font-bold text-blue-300">{d.totalQtd}</span>
                            <div className="w-full bg-blue-500/80 group-hover:bg-blue-400 transition-colors rounded-t-sm" style={{ height: `${pct}%` }}></div>
                            <span className="absolute top-full mt-2 left-1/2 -translate-x-1/2 text-[9px] text-slate-400 font-bold">{d.quinzena}</span>
                          </div>
@@ -2174,7 +2171,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
           </div>
 
           {/* TABLE COLUMN */}
-          <div className="xl:w-[450px] flex flex-col bg-slate-800/50 border border-slate-700 rounded-2xl overflow-hidden shadow-sm">
+          <div className="w-full xl:w-[450px] flex-none xl:flex-1 flex flex-col bg-slate-800/50 border border-slate-700 rounded-2xl overflow-hidden shadow-sm shrink-0 min-h-[400px]">
             <div className="p-4 border-b border-slate-700 bg-slate-800/80">
               <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
                 <span>Motoristas da Quinzena ({targetQuinzena})</span>
@@ -2192,9 +2189,9 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
                       onClick={() => setSelectedMotorista(m.motorista === selectedMotorista ? null : m.motorista)}
                       className={`p-4 border-b border-slate-700/50 cursor-pointer transition-colors ${selectedMotorista === m.motorista ? 'bg-blue-500/10 border-l-4 border-l-blue-500' : 'hover:bg-slate-700/30 border-l-4 border-l-transparent'}`}
                     >
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="font-bold text-slate-200 text-sm">{m.motorista}</div>
-                        <div className="font-black text-red-400 text-sm">{formatCurrency(m.valor)}</div>
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-2 gap-1 sm:gap-0">
+                        <div className="font-bold text-slate-200 text-sm truncate">{m.motorista}</div>
+                        <div className="font-black text-red-400 text-sm shrink-0">{formatCurrency(m.valor)}</div>
                       </div>
                       <div className="flex gap-3 text-[10px] font-bold text-slate-400">
                         {m.pnr > 0 && <span className="bg-slate-700/50 px-1.5 py-0.5 rounded text-blue-300">PNR: {formatCurrency(m.pnr)}</span>}
