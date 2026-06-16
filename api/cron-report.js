@@ -178,7 +178,7 @@ export default async function handler(req, res) {
       }
     }`;
 
-    const encodedChartUrl = \`https://quickchart.io/chart?w=800&h=400&devicePixelRatio=2&c=\${encodeURIComponent(chartConfigStr)}\`;
+    const encodedChartUrl = `https://quickchart.io/chart?w=800&h=400&devicePixelRatio=2&c=${encodeURIComponent(chartConfigStr)}`;
 
     // 5. Agregar os Dados da Quinzena Atual
     const casosDaQuinzena = validPenalidades.filter(p => p.quinzena === targetQuinzena);
