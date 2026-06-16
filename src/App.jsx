@@ -194,7 +194,7 @@ const InverseMultiSelectDropdown = ({ label, options, excluded, onChange }) => {
   );
 };
 
-const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = true, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false, showDSLine = false, dsKey = 'ds', dsLabel = 'DS' }) => {
+const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = showFaturamento, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false, showDSLine = false, dsKey = 'ds', dsLabel = 'DS' }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   useEffect(() => setHoveredIndex(null), [data]);
   const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
