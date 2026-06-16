@@ -2252,7 +2252,17 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
   );
 };
 export default function App() {
-  const isOpMode = new URLSearchParams(window.location.search).get('view') === 'operacao';
+  const urlIsOpMode = new URLSearchParams(window.location.search).get('view') === 'operacao';
+  const [currentUser, setCurrentUser] = useState(null);
+  
+  const ADMIN_EMAILS = [
+    'felipe.augusto@espindolalog.com',
+    'taylor.ferreira@espindolalog.com',
+    'paulo.cenci@espindolalog.com',
+    'josiel.espindola@espindolalog.com'
+  ];
+  const isUserAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
+  const isOpMode = urlIsOpMode || (currentUser && !isUserAdmin);
   const [drilldownFilial, setDrilldownFilial] = useState(null);
   const [returnToModalState, setReturnToModalState] = useState(null);
   const [drilldownMotorista, setDrilldownMotorista] = useState(null);
@@ -2356,6 +2366,7 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setIsAuthenticated(!!user);
+      setCurrentUser(user);
     });
     return () => unsubscribe();
   }, []);
@@ -3852,11 +3863,11 @@ const fetchFromGoogleSheets = useCallback(async () => {
   };
 
   // TELA DE LOGIN
-  if (!isOpMode && isAuthenticated === null) {
+  if (isAuthenticated === null) {
     return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div></div>;
   }
 
-  if (!isOpMode && isAuthenticated === false) {
+  if (isAuthenticated === false) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4 font-sans text-slate-800">
         <div className="absolute top-6 right-6">
@@ -4168,11 +4179,9 @@ const fetchFromGoogleSheets = useCallback(async () => {
           </div>
 
           <div className="flex shrink-0 w-full xl:w-auto mt-2 xl:mt-0 justify-end gap-3 items-center">
-            {!isOpMode && (
-              <button onClick={() => signOut(auth)} className="flex items-center justify-center gap-2 bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
-                Sair
-              </button>
-            )}
+            <button onClick={() => signOut(auth)} className="flex items-center justify-center gap-2 bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
+              Sair
+            </button>
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 transition-colors shadow-sm" title={isDarkMode ? 'Modo Claro' : 'Modo Escuro'}>
               {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
