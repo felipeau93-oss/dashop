@@ -116,45 +116,37 @@ export default async function handler(req, res) {
     const casosDaQuinzena = validPenalidades.filter(p => p.quinzena === targetQuinzena);
     
     let totalPenalidades = 0;
-    const filiaisMap = {};
-    const tiposMap = {};
     const motoristasMap = {};
 
     casosDaQuinzena.forEach(p => {
       const valor = p.valor || 0;
       totalPenalidades += valor;
 
-      // Agrega Filial
-      const filial = p.filial || 'Sem Filial';
-      filiaisMap[filial] = (filiaisMap[filial] || 0) + valor;
-
-      // Agrega Tipo
-      const tipo = p.tipo || 'Desconhecido';
-      tiposMap[tipo] = (tiposMap[tipo] || 0) + valor;
-
-      // Agrega Motorista
       const motorista = p.motorista || 'Sem Motorista';
-      const mKey = `${filial}:::${motorista}`;
-      if (!motoristasMap[mKey]) motoristasMap[mKey] = { filial, motorista, valor: 0 };
-      motoristasMap[mKey].valor += valor;
+      const mKey = `${p.filial || 'Sem Filial'}:::${motorista}`;
+      
+      if (!motoristasMap[mKey]) {
+        motoristasMap[mKey] = { 
+          filial: p.filial || 'Sem Filial', 
+          motorista, 
+          valorTotal: 0, 
+          ocorrencias: [] 
+        };
+      }
+      
+      motoristasMap[mKey].valorTotal += valor;
+      motoristasMap[mKey].ocorrencias.push({
+        id_pacote: p.id_pacote,
+        id_rota: p.id_rota,
+        tipo: p.tipo || 'Desconhecido',
+        valor
+      });
     });
 
-    // Ranking Top 5 Filiais
-    const topFiliais = Object.entries(filiaisMap)
-      .map(([nome, valor]) => ({ nome, valor }))
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 5);
-
-    // Ranking Top 3 Tipos
-    const topTipos = Object.entries(tiposMap)
-      .map(([nome, valor]) => ({ nome, valor }))
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 3);
-
-    // Ranking Top 10 Motoristas
+    // Pega os Top 20 piores motoristas (para evitar que o e-mail fique muito pesado e seja cortado pelo Gmail)
     const topMotoristas = Object.values(motoristasMap)
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 10);
+      .sort((a, b) => b.valorTotal - a.valorTotal)
+      .slice(0, 20);
 
     // 6. Montar Template HTML
     const htmlBody = `
@@ -165,42 +157,60 @@ export default async function handler(req, res) {
         <p><strong>Quinzena Analisada:</strong> <span style="color: #3b82f6; font-weight: bold;">${targetQuinzena}</span></p>
         <p><strong>Total de Descontos:</strong> <span style="color: #ef4444; font-size: 18px; font-weight: bold;">${formatCurrency(totalPenalidades)}</span></p>
         
-        <h3 style="color: #0f172a; margin-top: 30px;">🚨 Top 5 Filiais Ofensoras</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="padding: 8px; text-align: left; border: 1px solid #cbd5e1;">Filial</th>
-            <th style="padding: 8px; text-align: right; border: 1px solid #cbd5e1;">Valor Cobrado</th>
-          </tr>
-          ${topFiliais.map(f => `
-            <tr>
-              <td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">${f.nome}</td>
-              <td style="padding: 8px; text-align: right; border: 1px solid #cbd5e1; color: #ef4444;">${formatCurrency(f.valor)}</td>
-            </tr>
-          `).join('')}
-        </table>
+        <h3 style="color: #0f172a; margin-top: 30px;">🚚 Detalhamento por Motorista (Top 20)</h3>
+        
+        ${topMotoristas.map(m => `
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #cbd5e1; padding-bottom: 8px;">
+              <div>
+                <h4 style="margin: 0; color: #1e293b; font-size: 16px;">${m.motorista}</h4>
+                <span style="font-size: 12px; color: #64748b;">Filial: ${m.filial}</span>
+              </div>
+              <div style="font-size: 16px; font-weight: bold; color: #ef4444;">
+                ${formatCurrency(m.valorTotal)}
+              </div>
+            </div>
+            
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+              ${m.ocorrencias.map(o => {
+                const isRota = o.tipo === 'Not Visited';
+                const label = isRota ? 'Rota' : 'Pacote';
+                const idVal = isRota ? (o.id_rota || '-') : (o.id_pacote || '-');
+                
+                let linkUrl = '#';
+                if (idVal !== '-') {
+                  if (isRota) {
+                    linkUrl = \`https://envios.mercadolivre.com.br/monitoring-distribution/detail/\${idVal}\`;
+                  } else {
+                    linkUrl = \`https://envios.mercadolivre.com.br/package-management/package/\${idVal}\`;
+                  }
+                }
+                
+                const linkHTML = idVal !== '-' 
+                  ? \`<a href="\${linkUrl}" target="_blank" style="color: #3b82f6; text-decoration: underline; font-family: monospace;">\${idVal}</a>\`
+                  : '-';
+                  
+                const valorHTML = isRota 
+                  ? \`<span style="color: #94a3b8;">-</span>\`
+                  : \`<span style="color: #ef4444; font-weight: bold;">\${formatCurrency(o.valor)}</span>\`;
 
-        <h3 style="color: #0f172a; margin-top: 30px;">⚠️ Principais Ofensores por Tipo</h3>
-        <ul>
-          ${topTipos.map(t => `
-            <li style="margin-bottom: 8px;"><strong>${t.nome}:</strong> <span style="color: #ef4444;">${formatCurrency(t.valor)}</span></li>
-          `).join('')}
-        </ul>
+                return \`
+                  <tr>
+                    <td style="padding: 4px 0; color: #475569; width: 60%;">\${label}: \${linkHTML}</td>
+                    <td style="padding: 4px 0; text-align: right; width: 40%;">\${valorHTML}</td>
+                  </tr>
+                \`;
+              }).join('')}
+            </table>
+          </div>
+        `).join('')}
 
-        <h3 style="color: #0f172a; margin-top: 30px;">🚚 Top 10 Motoristas Penalizados</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="padding: 8px; text-align: left; border: 1px solid #cbd5e1;">Motorista</th>
-            <th style="padding: 8px; text-align: left; border: 1px solid #cbd5e1;">Filial</th>
-            <th style="padding: 8px; text-align: right; border: 1px solid #cbd5e1;">Valor</th>
-          </tr>
-          ${topMotoristas.map(m => `
-            <tr>
-              <td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">${m.motorista}</td>
-              <td style="padding: 8px; border: 1px solid #cbd5e1; font-size: 12px; color: #64748b;">${m.filial}</td>
-              <td style="padding: 8px; text-align: right; border: 1px solid #cbd5e1; color: #ef4444;">${formatCurrency(m.valor)}</td>
-            </tr>
-          `).join('')}
-        </table>
+        <div style="text-align: center; margin-top: 40px; margin-bottom: 20px;">
+          <a href="https://dashop-eight.vercel.app/?view=operacao" 
+             style="display: inline-block; background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; font-size: 14px;">
+            Acessar Painel Operacional Simplificado
+          </a>
+        </div>
 
         <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 20px;">
           Este é um e-mail automático gerado pelo sistema DashOp. Não é necessário responder.
