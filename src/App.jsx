@@ -194,7 +194,7 @@ const InverseMultiSelectDropdown = ({ label, options, excluded, onChange }) => {
   );
 };
 
-const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = showFaturamento, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false, showDSLine = false, dsKey = 'ds', dsLabel = 'DS' }) => {
+const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = showFaturamento, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false, showDSLine = false, dsKey = 'ds', dsLabel = 'DS', showTotalLine = false }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   useEffect(() => setHoveredIndex(null), [data]);
   const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
@@ -226,13 +226,18 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
               </div>
             );
           })}
-        </div>
-        <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 mx-10 sm:mx-12 border-b border-slate-300 relative">
+        </d          <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 mx-10 sm:mx-12 border-b border-slate-300 relative">
           {showLine && (<svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
             <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#0ea5e9" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
           </svg>)}
           {showDSLine && (<svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
             <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max((d[dsKey] || 0), 0), 100)}`).join(' ')} fill="none" stroke="#eab308" strokeWidth="2.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+          </svg>)}
+          {showTotalLine && (<svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <polyline points={safeData.map((d, i) => {
+              const yPct = isMarginChart ? ((d.penalidades || 0) / maxFat) * 100 : (log10(d.penalidades || 0) / logMaxFat) * 100;
+              return `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(yPct, 0), 100)}`;
+            }).join(' ')} fill="none" stroke="#8b5cf6" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
           </svg>)}
           {showLine && hoveredIndex !== null && safeData[hoveredIndex] && showFaturamento && (
             <div className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 opacity-80 z-10 pointer-events-none transition-all duration-200" style={{ bottom: `${Math.min(Math.max(((safeData[hoveredIndex].representatividade || 0) / maxRep) * 100, 0), 100)}%` }} />
@@ -286,6 +291,11 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
                     <span className="absolute bottom-full mb-1 text-[9px] font-bold text-yellow-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none">{d[labelKey]}</span>
                   </div>
                 )}
+                {showTotalLine && (
+                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-violet-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${Math.min(Math.max(penPct, 0), 100)}% - 4px)` }}>
+                    <span className="absolute bottom-full mb-1 text-[10px] font-bold text-violet-300 bg-slate-800 px-2 py-1 rounded shadow-sm whitespace-nowrap z-50 pointer-events-none hidden group-hover:block">{formatCurrency(d.penalidades || 0)}</span>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -294,6 +304,7 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
       <div className="absolute bottom-2 left-0 w-full flex justify-center gap-4 sm:gap-6 text-xs font-bold text-slate-400 flex-wrap">
         {showFaturamento && <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-emerald-500 rounded-sm"></div> Faturamento</span>}
         {showDSLine && <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-yellow-500 rounded-sm"></div> {dsLabel}</span>}
+        {showTotalLine && <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-violet-500 rounded-sm"></div> Evolução</span>}
         <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-500 rounded-sm"></div> {legendSecondaryLabel || (isMarginChart ? 'Pagamento de Agregados' : 'PNRs')}</span>
         {!isMarginChart && (
           <>
@@ -301,6 +312,7 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
             <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-slate-400 rounded-sm"></div> Not Visited</span>
           </>
         )}
+      </div>
       </div>
     </div>
   );
@@ -742,9 +754,9 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
           <div className="flex items-center justify-between mb-4 px-2 pt-2"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">{selectedRegional ? `Filiais: ${selectedRegional}` : `Penalidades por Regional`}</h3>{selectedRegional && (<button onClick={() => setSelectedRegional(null)} className="text-[10px] sm:text-xs font-bold text-blue-500 bg-blue-50/50 px-2 py-1 rounded hover:bg-blue-100 transition-colors">← Voltar</button>)}</div>
-          {!selectedRegional ? <NativeComboChart data={projRegionalData} labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} showFaturamento={false} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" showFaturamento={false} />}
+          {!selectedRegional ? <NativeComboChart data={projRegionalData} labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} showFaturamento={false} showTotalLine={true} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" showFaturamento={false} showTotalLine={true} />}
         </div>
-        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col"><h3 className="text-sm font-bold text-slate-500 text-center mb-2 pt-2 uppercase tracking-wider">Penalidades por Filial</h3><NativeComboChart data={projFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" showFaturamento={false} /></div>
+        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col"><h3 className="text-sm font-bold text-slate-500 text-center mb-2 pt-2 uppercase tracking-wider">Penalidades por Filial</h3><NativeComboChart data={projFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" showFaturamento={false} showTotalLine={true} /></div>
       </div>
 
       {prevStats && (
@@ -4470,9 +4482,9 @@ const fetchFromGoogleSheets = useCallback(async () => {
                   </p>
                   <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
                     {!selectedQuinzenaPareto ? (
-                      <NativeComboChart data={paretoQuinzenaData} labelKey="quinzena" heightClass="h-[400px]" onBarClick={(q) => setSelectedQuinzenaPareto(q)} showFaturamento={false} />
+                      <NativeComboChart data={paretoQuinzenaData} labelKey="quinzena" heightClass="h-[400px]" onBarClick={(q) => setSelectedQuinzenaPareto(q)} showFaturamento={false} showTotalLine={true} />
                     ) : (
-                      <NativeComboChart data={paretoFilialDrilldownData} labelKey="filial" heightClass="h-[400px]" showFaturamento={false} />
+                      <NativeComboChart data={paretoFilialDrilldownData} labelKey="filial" heightClass="h-[400px]" showFaturamento={false} showTotalLine={true} />
                     )}
                   </div>
                 </div>
