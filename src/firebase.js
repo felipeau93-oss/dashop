@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC74gu8eCJBkT9NrzgqadrjfHcbf15Q0GY",
@@ -13,5 +14,6 @@ const firebaseConfig = {
 // Inicializa o Firebase
 const app = initializeApp(firebaseConfig);
 
-// Exporta o Banco de Dados (Firestore) para usarmos no seu painel
+// Exporta o Banco de Dados (Firestore) e Autenticação (Auth)
 export const db = getFirestore(app);
+export const auth = getAuth(app);

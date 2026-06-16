@@ -2,8 +2,9 @@ import React, { useState, useCallback, useMemo, useEffect, Fragment, useRef } fr
 import Simulador from './Simulador';
 import DreAnaliseCusto from './DreAnaliseCusto';
 import DreCustoLeve from './DreCustoLeve';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import { collection, writeBatch, doc, getDocs } from 'firebase/firestore';
+import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
 import {
   Calculator,
   Lock,
@@ -2222,14 +2223,14 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
     </div>
   );
 };
-
 export default function App() {
   const isOpMode = new URLSearchParams(window.location.search).get('view') === 'operacao';
   const [drilldownFilial, setDrilldownFilial] = useState(null);
   const [returnToModalState, setReturnToModalState] = useState(null);
   const [drilldownMotorista, setDrilldownMotorista] = useState(null);
   const [modalEvolutivoFilial, setModalEvolutivoFilial] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(null);
+  const [emailLogin, setEmailLogin] = useState('');
   const [senhaDigitada, setSenhaDigitada] = useState('');
   const [erroLogin, setErroLogin] = useState(false);
 
@@ -2324,26 +2325,20 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  const SENHA_CORRETA = 'operacao2026';
-
   useEffect(() => {
-    let interval;
-    if (isAuthenticated) {
-      interval = setInterval(() => {
-        if (!verificarAcesso()) setIsAuthenticated(false);
-      }, 5000);
-    }
-    return () => clearInterval(interval);
-  }, [isAuthenticated]);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setIsAuthenticated(!!user);
+    });
+    return () => unsubscribe();
+  }, []);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (senhaDigitada === SENHA_CORRETA) {
-      localStorage.setItem('dashopAuthTime', Date.now().toString());
-      setIsAuthenticated(true);
+    try {
+      await signInWithEmailAndPassword(auth, emailLogin, senhaDigitada);
       setErroLogin(false);
       setSenhaDigitada('');
-    } else {
+    } catch (err) {
       setErroLogin(true);
     }
   };
@@ -3829,7 +3824,11 @@ const fetchFromGoogleSheets = useCallback(async () => {
   };
 
   // TELA DE LOGIN
-  if (!isAuthenticated) {
+  if (!isOpMode && isAuthenticated === null) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div></div>;
+  }
+
+  if (!isOpMode && isAuthenticated === false) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4 font-sans text-slate-800">
         <div className="absolute top-6 right-6">
@@ -3843,18 +3842,27 @@ const fetchFromGoogleSheets = useCallback(async () => {
               <Lock className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-black text-slate-800 tracking-tight">DashOp Login</h1>
-            <p className="text-slate-500 text-center text-sm font-medium">Acesso restrito. Insira a senha operacional.</p>
+            <p className="text-slate-500 text-center text-sm font-medium">Acesso restrito. Faça login com sua conta Firebase.</p>
           </div>
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
             <div>
               <input
+                type="email"
+                value={emailLogin}
+                onChange={(e) => setEmailLogin(e.target.value)}
+                placeholder="E-mail"
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 mb-3"
+                required
+              />
+              <input
                 type="password"
                 value={senhaDigitada}
                 onChange={(e) => setSenhaDigitada(e.target.value)}
-                placeholder="Digite a senha..."
+                placeholder="Senha"
                 className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800"
+                required
               />
-              {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">Senha incorreta. Tente novamente.</p>}
+              {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">E-mail ou senha incorretos. Tente novamente.</p>}
             </div>
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98]">
               Acessar Dashboard
@@ -4132,6 +4140,11 @@ const fetchFromGoogleSheets = useCallback(async () => {
           </div>
 
           <div className="flex shrink-0 w-full xl:w-auto mt-2 xl:mt-0 justify-end gap-3 items-center">
+            {!isOpMode && (
+              <button onClick={() => signOut(auth)} className="flex items-center justify-center gap-2 bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
+                Sair
+              </button>
+            )}
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 transition-colors shadow-sm" title={isDarkMode ? 'Modo Claro' : 'Modo Escuro'}>
               {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
