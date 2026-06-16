@@ -296,7 +296,7 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
   );
 };
 
-const NativeDSChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]" }) => {
+const NativeDSChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showLine = true }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   useEffect(() => setHoveredIndex(null), [data]);
   const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
@@ -408,7 +408,7 @@ const NativeDSChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[
   );
 };
 
-const NativeRunRateChart = ({ diasOperados, totalDias, currentSaldo, currentEntregues, projSaldo, projEntregues, isClosed }) => {
+const NativeRunRateChart = ({ diasOperados, totalDias, currentSaldo, currentEntregues, projSaldo, projEntregues, isClosed, heightClass = "h-[400px]" }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const currentInsucessos = Math.max(0, currentSaldo - currentEntregues);
   const projInsucessos = Math.max(0, projSaldo - projEntregues);
@@ -2788,30 +2788,41 @@ export default function App() {
   const syncToFirebase = async (collectionName, dataArray) => {
     try {
       const fullString = JSON.stringify(dataArray);
-      const CHUNK_SIZE = 800000; // ~800KB por chunk para ficar longe do limite de 1MB do Firestore
+      const CHUNK_SIZE = 800000;
       const numChunks = Math.ceil(fullString.length / CHUNK_SIZE);
       
       const colRef = collection(db, 'app_dados_comprimidos');
       const snapshot = await getDocs(colRef);
       
-      let batch = writeBatch(db);
-      
-      // Apaga os chunks antigos desta coleção específica
+      let deleteBatch = writeBatch(db);
+      let deleteCount = 0;
       snapshot.forEach(docSnap => {
          if (docSnap.id.startsWith(collectionName + '_chunk_')) {
-            batch.delete(docSnap.ref);
+            deleteBatch.delete(docSnap.ref);
+            deleteCount++;
          }
       });
-      await batch.commit(); // É seguro pois teremos no máximo de 10 a 20 chunks
+      if (deleteCount > 0) {
+         await deleteBatch.commit();
+      }
       
-      batch = writeBatch(db);
+      let writeCount = 0;
+      let batch = writeBatch(db);
       for (let i = 0; i < numChunks; i++) {
         const chunkStr = fullString.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
         const docRef = doc(colRef, `${collectionName}_chunk_${i}`);
-        batch.set(docRef, { payload: chunkStr });
+        batch.set(docRef, { payload: chunkStr, index: i });
+        writeCount++;
+        
+        if (writeCount === 10) {
+           await batch.commit();
+           batch = writeBatch(db);
+           writeCount = 0;
+        }
       }
-      
-      await batch.commit();
+      if (writeCount > 0) {
+         await batch.commit();
+      }
       console.log(`[Chunk Sync] ${collectionName} salvo em ${numChunks} fatias com sucesso!`);
     } catch (err) {
       console.error(`Erro ao sincronizar ${collectionName}:`, err);
@@ -4024,15 +4035,19 @@ const fetchFromGoogleSheets = useCallback(async () => {
                 <button onClick={() => handleMenuChange('gestao_penalidades')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_penalidades' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                   <span className="truncate">Penalidades (Operação)</span>
                 </button>
-                <button onClick={() => handleMenuChange('gestao_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Visão BSC</span>
-                </button>
-                <button onClick={() => handleMenuChange('comparativo_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'comparativo_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Comparativo BSC</span>
-                </button>
-                <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Gaps Operacionais</span>
-                </button>
+                {!isOpMode && (
+                  <>
+                    <button onClick={() => handleMenuChange('gestao_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                      <span className="truncate">Visão BSC</span>
+                    </button>
+                    <button onClick={() => handleMenuChange('comparativo_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'comparativo_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                      <span className="truncate">Comparativo BSC</span>
+                    </button>
+                    <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                      <span className="truncate">Gaps Operacionais</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             {/* Accordion Planejamento */}

@@ -112,7 +112,63 @@ export default async function handler(req, res) {
       return res.status(404).json({ message: 'Nenhuma quinzena válida encontrada.' });
     }
 
-    // 5. Agregar os Dados
+    // 4.5. Gráfico de Evolução Quinzenal via QuickChart
+    const quinzenasAgrupadas = {};
+    validPenalidades.forEach(p => {
+      const q = p.quinzena;
+      if (!quinzenasAgrupadas[q]) quinzenasAgrupadas[q] = 0;
+      quinzenasAgrupadas[q] += (p.valor || 0);
+    });
+
+    const quinzenasOrdenadas = Object.keys(quinzenasAgrupadas).sort();
+    const ultimasQuinzenas = quinzenasOrdenadas.slice(-6); // Últimas 6 quinzenas
+    
+    const chartConfig = {
+      type: 'line',
+      data: {
+        labels: ultimasQuinzenas,
+        datasets: [{
+          label: 'Total Descontado (R$)',
+          data: ultimasQuinzenas.map(q => quinzenasAgrupadas[q].toFixed(2)),
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          borderWidth: 2,
+          fill: true,
+          pointBackgroundColor: '#ef4444',
+          pointRadius: 4
+        }]
+      },
+      options: {
+        plugins: {
+          datalabels: {
+            display: true,
+            align: 'top',
+            color: '#475569',
+            font: { weight: 'bold', size: 10 },
+            formatter: (value) => 'R$ ' + (value/1000).toFixed(1) + 'k'
+          }
+        },
+        title: {
+          display: true,
+          text: 'Evolução de Penalidades (Últimas 6 Quinzenas)',
+          fontSize: 14,
+          fontColor: '#0f172a'
+        },
+        legend: { display: false },
+        scales: {
+          yAxes: [{
+            ticks: {
+              beginAtZero: true,
+              callback: (val) => 'R$ ' + (val/1000).toFixed(0) + 'k'
+            }
+          }]
+        }
+      }
+    };
+
+    const encodedChartUrl = `https://quickchart.io/chart?w=600&h=300&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;
+
+    // 5. Agregar os Dados da Quinzena Atual
     const casosDaQuinzena = validPenalidades.filter(p => p.quinzena === targetQuinzena);
     
     let totalPenalidades = 0;
@@ -164,10 +220,17 @@ export default async function handler(req, res) {
       // Agrega Motorista
       const motorista = p.motorista || 'Sem Motorista';
       const mKey = `${filial}:::${motorista}`;
-      if (!motoristasMap[mKey]) motoristasMap[mKey] = { filial, regional, supervisor, motorista, valor: 0, qtd: 0 };
+      if (!motoristasMap[mKey]) motoristasMap[mKey] = { filial, regional, supervisor, motorista, valor: 0, qtd: 0, pnrValor: 0, lostValor: 0, pnrQtd: 0, lostQtd: 0 };
       motoristasMap[mKey].valor += valor;
       motoristasMap[mKey].qtd += 1;
-    });
+      
+      if (p.tipo === 'PNRs') {
+        motoristasMap[mKey].pnrValor += valor;
+        motoristasMap[mKey].pnrQtd += 1;
+      } else if (p.tipo === 'Lost Packages') {
+        motoristasMap[mKey].lostValor += valor;
+        motoristasMap[mKey].lostQtd += 1;
+      }
 
     // Rankings Regionais (com Supervisor)
     const topRegionais = Object.values(regionaisMap).sort((a, b) => b.valor - a.valor).slice(0, 5);
@@ -182,10 +245,10 @@ export default async function handler(req, res) {
     // Ranking Top Tipos
     const topTipos = Object.values(tiposMap).sort((a, b) => b.valor - a.valor);
 
-    // Ranking Motoristas
+    // Ranking Motoristas (10 Ofensores em PNRs e 10 em Lost Packages)
     const arrMotoristas = Object.values(motoristasMap);
-    const topMotoristasRs = [...arrMotoristas].sort((a, b) => b.valor - a.valor).slice(0, 6);
-    const topMotoristasQtd = [...arrMotoristas].sort((a, b) => b.qtd - a.qtd).slice(0, 6);
+    const topMotoristasPnr = [...arrMotoristas].filter(m => m.pnrValor > 0).sort((a, b) => b.pnrValor - a.pnrValor).slice(0, 10);
+    const topMotoristasLost = [...arrMotoristas].filter(m => m.lostValor > 0).sort((a, b) => b.lostValor - a.lostValor).slice(0, 10);
 
     // Gerar CSV String para o Anexo
     const csvHeader = 'Quinzena,Regional,Supervisor,Filial,Motorista,Tipo,Valor(R$),ID_Pacote,ID_Rota\n';
@@ -231,6 +294,10 @@ export default async function handler(req, res) {
               Acessar Painel Operacional
             </a>
           </div>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 20px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
+           <img src="${encodedChartUrl}" alt="Gráfico de Evolução Quinzenal" style="max-width: 100%; height: auto;" />
         </div>
 
         <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">⚠️ Tipo de penalidades em R$:</h3>
@@ -328,44 +395,47 @@ export default async function handler(req, res) {
           `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚚 Top 6 Motoristas Ofensores R$:</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Motorista</th>
-            <th style="${thStyle}">Filial</th>
-            <th style="${thStyle}">Regional</th>
-            <th style="${thStyle}">Supervisor</th>
-            <th style="${thStyle} text-align: right;">Valor</th>
+          <tr>
+            <td style="width: 50%; vertical-align: top; padding-right: 10px;">
+              <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚚 Top 10 Motoristas (PNRs):</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr style="background-color: #f1f5f9;">
+                  <th style="${thStyle}">Motorista</th>
+                  <th style="${thStyle}">Filial</th>
+                  <th style="${thStyle} text-align: right;">Qtd</th>
+                  <th style="${thStyle} text-align: right;">Valor</th>
+                </tr>
+                ${topMotoristasPnr.map(m => `
+                  <tr>
+                    <td style="${tdStyle} font-weight: bold;">${m.motorista}</td>
+                    <td style="${tdStyle}">${m.filial}</td>
+                    <td style="${tdStyle} text-align: right; font-weight: bold;">${m.pnrQtd}</td>
+                    <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(m.pnrValor)}</td>
+                  </tr>
+                `).join('')}
+              </table>
+            </td>
+            <td style="width: 50%; vertical-align: top; padding-left: 10px;">
+              <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Top 10 Motoristas (Lost Packages):</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr style="background-color: #f1f5f9;">
+                  <th style="${thStyle}">Motorista</th>
+                  <th style="${thStyle}">Filial</th>
+                  <th style="${thStyle} text-align: right;">Qtd</th>
+                  <th style="${thStyle} text-align: right;">Valor</th>
+                </tr>
+                ${topMotoristasLost.map(m => `
+                  <tr>
+                    <td style="${tdStyle} font-weight: bold;">${m.motorista}</td>
+                    <td style="${tdStyle}">${m.filial}</td>
+                    <td style="${tdStyle} text-align: right; font-weight: bold;">${m.lostQtd}</td>
+                    <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(m.lostValor)}</td>
+                  </tr>
+                `).join('')}
+              </table>
+            </td>
           </tr>
-          ${topMotoristasRs.map(m => `
-            <tr>
-              <td style="${tdStyle} font-weight: bold;">${m.motorista}</td>
-              <td style="${tdStyle}">${m.filial}</td>
-              <td style="${tdStyle}">${m.regional}</td>
-              <td style="${tdStyle}">${m.supervisor}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444; font-weight: bold;">${formatCurrency(m.valor)}</td>
-            </tr>
-          `).join('')}
-        </table>
-
-        <h3 style="color: #0f172a; margin-top: 15px; font-size: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Top 6 Motoristas Ofensores Quantidade:</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Motorista</th>
-            <th style="${thStyle}">Filial</th>
-            <th style="${thStyle}">Regional</th>
-            <th style="${thStyle}">Supervisor</th>
-            <th style="${thStyle} text-align: right;">Quantidade</th>
-          </tr>
-          ${topMotoristasQtd.map(m => `
-            <tr>
-              <td style="${tdStyle} font-weight: bold;">${m.motorista}</td>
-              <td style="${tdStyle}">${m.filial}</td>
-              <td style="${tdStyle}">${m.regional}</td>
-              <td style="${tdStyle}">${m.supervisor}</td>
-              <td style="${tdStyle} text-align: right; font-weight: bold;">${m.qtd}</td>
-            </tr>
-          `).join('')}
         </table>
 
         
@@ -379,7 +449,7 @@ export default async function handler(req, res) {
     // 7. Disparar o e-mail via Resend
     // Nota: O e-mail do remetente e do destinatário devem ser configurados no painel da Vercel.
     const sender = process.env.REPORT_SENDER || 'relatorios@espindolalog.com';
-    const recipient = process.env.REPORT_RECIPIENT || 'felipeau93@gmail.com';
+    const recipient = 'felipeau93@gmail.com'; // process.env.REPORT_RECIPIENT
     
     if (!process.env.RESEND_API_KEY) {
       return res.status(500).json({ error: 'RESEND_API_KEY não configurada nas variáveis de ambiente da Vercel.' });
