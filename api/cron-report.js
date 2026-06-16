@@ -19,6 +19,24 @@ const parseDate = (dateStr) => {
   return new Date(0);
 };
 
+const getPrevQuinzena = (q) => {
+  if (!q || q === 'N/A') return 'N/A';
+  const year = parseInt(q.substring(0, 4));
+  const month = parseInt(q.substring(4, 6));
+  const quinzena = q.substring(6, 8);
+  if (quinzena === 'Q2') return `${year}${month.toString().padStart(2, '0')}Q1`;
+  if (month === 1) return `${year - 1}12Q2`;
+  return `${year}${(month - 1).toString().padStart(2, '0')}Q2`;
+};
+
+const renderEvolution = (atual, anterior) => {
+  if (anterior === undefined) return `<span style="font-size: 9px; color: #64748b; margin-left: 4px; font-weight: normal;">(Nova)</span>`;
+  const diff = atual - anterior;
+  if (Math.abs(diff) < 0.01) return `<span style="font-size: 9px; color: #64748b; margin-left: 4px; font-weight: normal;">(= R$ 0,00)</span>`;
+  if (diff > 0) return `<span style="font-size: 9px; color: #ef4444; margin-left: 4px; font-weight: normal;">(⬆️ +${formatCurrency(diff).replace(/R\$\s*/, 'R$')})</span>`;
+  return `<span style="font-size: 9px; color: #16a34a; margin-left: 4px; font-weight: normal;">(⬇️ ${formatCurrency(diff).replace(/R\$\s*/, 'R$')})</span>`;
+};
+
 const getQuinzena = (dateStr) => {
   if (!dateStr || dateStr === 'N/A') return 'N/A';
   const str = String(dateStr).trim();
@@ -113,7 +131,22 @@ export default async function handler(req, res) {
     }
 
     // 5. Agregar os Dados
+    const prevQuinzena = getPrevQuinzena(targetQuinzena);
     const casosDaQuinzena = validPenalidades.filter(p => p.quinzena === targetQuinzena);
+    const casosAnterior = validPenalidades.filter(p => p.quinzena === prevQuinzena);
+    
+    const filiaisPrevMap = {};
+    casosAnterior.forEach(p => {
+      const filial = p.filial || 'Sem Filial';
+      const valor = p.valor || 0;
+      if (!filiaisPrevMap[filial]) filiaisPrevMap[filial] = { geral: 0, pnr: 0, lost: 0, nv: 0 };
+      filiaisPrevMap[filial].geral += valor;
+      if (p.tipo === 'Not Visited') filiaisPrevMap[filial].nv += valor;
+      else if (p.tipo === 'PNRs') filiaisPrevMap[filial].pnr += valor;
+      else if (p.tipo === 'Lost Packages') filiaisPrevMap[filial].lost += valor;
+    });
+
+    
     
     let totalPenalidades = 0;
     const filiaisMap = {};
@@ -265,7 +298,7 @@ export default async function handler(req, res) {
             <tr>
               <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
               <td style="${tdStyle}">${f.regional}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444; font-weight: bold;">${formatCurrency(f.geral)}</td>
+              <td style="${tdStyle} text-align: right; color: #ef4444; font-weight: bold;">${formatCurrency(f.geral)} ${renderEvolution(f.geral, filiaisPrevMap[f.nome]?.geral)}</td>
               <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdGeral}</td>
             </tr>
           `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
@@ -282,7 +315,7 @@ export default async function handler(req, res) {
             <tr>
               <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
               <td style="${tdStyle}">${f.regional}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.pnr)}</td>
+              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.pnr)} ${renderEvolution(f.pnr, filiaisPrevMap[f.nome]?.pnr)}</td>
             </tr>
           `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
@@ -298,7 +331,7 @@ export default async function handler(req, res) {
             <tr>
               <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
               <td style="${tdStyle}">${f.regional}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.lost)}</td>
+              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.lost)} ${renderEvolution(f.lost, filiaisPrevMap[f.nome]?.lost)}</td>
             </tr>
           `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
@@ -314,7 +347,7 @@ export default async function handler(req, res) {
             <tr>
               <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
               <td style="${tdStyle}">${f.regional}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.nv)}</td>
+              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.nv)} ${renderEvolution(f.nv, filiaisPrevMap[f.nome]?.nv)}</td>
             </tr>
           `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
