@@ -144,8 +144,11 @@ export default async function handler(req, res) {
             display: true,
             align: 'top',
             color: '#475569',
-            font: { weight: 'bold', size: 10 },
-            formatter: (value) => 'R$ ' + (value/1000).toFixed(1) + 'k'
+            font: { weight: 'bold', size: 9 },
+            formatter: (value) => {
+              if (value >= 1000) return 'R$ ' + (value/1000).toFixed(1) + 'k';
+              return 'R$ ' + Math.round(value);
+            }
           }
         },
         title: {
@@ -166,7 +169,7 @@ export default async function handler(req, res) {
       }
     };
 
-    const encodedChartUrl = `https://quickchart.io/chart?w=600&h=300&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;
+    const encodedChartUrl = `https://quickchart.io/chart?w=800&h=350&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;
 
     // 5. Agregar os Dados da Quinzena Atual
     const casosDaQuinzena = validPenalidades.filter(p => p.quinzena === targetQuinzena);
@@ -284,17 +287,9 @@ export default async function handler(req, res) {
           Resumo de Penalidades - DashOp
         </h2>
         
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px 15px; border-radius: 8px; margin-bottom: 15px; display: table; width: 100%; box-sizing: border-box;">
-          <div style="display: table-cell; vertical-align: middle;">
-            <p style="font-size: 10px; margin: 0 0 4px 0;"><strong>Quinzena:</strong> <span style="color: #3b82f6; font-weight: bold;">${targetQuinzena}</span></p>
-            <p style="font-size: 10px; margin: 0;"><strong>Total (R$):</strong> <span style="color: #ef4444; font-weight: bold; font-size: 10px;">${formatCurrency(totalPenalidades)}</span></p>
-          </div>
-          <div style="display: table-cell; vertical-align: middle; text-align: right;">
-            <a href="https://dashop-eight.vercel.app/?view=operacao" 
-               style="display: inline-block; background-color: #3b82f6; color: white; padding: 8px 14px; text-decoration: none; font-weight: bold; border-radius: 6px; font-size: 10px;">
-              Acessar Painel Operacional
-            </a>
-          </div>
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px 15px; border-radius: 8px; margin-bottom: 15px; text-align: center;">
+          <p style="font-size: 14px; margin: 0 0 4px 0;"><strong>Quinzena:</strong> <span style="color: #3b82f6; font-weight: bold;">${targetQuinzena}</span></p>
+          <p style="font-size: 14px; margin: 0;"><strong>Total (R$):</strong> <span style="color: #ef4444; font-weight: bold;">${formatCurrency(totalPenalidades)}</span></p>
         </div>
 
         <div style="text-align: center; margin-bottom: 20px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
