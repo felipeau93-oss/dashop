@@ -194,7 +194,7 @@ const InverseMultiSelectDropdown = ({ label, options, excluded, onChange }) => {
   );
 };
 
-const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = true, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false }) => {
+const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = true, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false, showDSLine = false, dsKey = 'ds', dsLabel = 'DS' }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   useEffect(() => setHoveredIndex(null), [data]);
   const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
@@ -228,10 +228,13 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
           })}
         </div>
         <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 mx-10 sm:mx-12 border-b border-slate-300 relative">
-            {showLine && (<svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#0ea5e9" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-            </svg>)}
-            {showLine && hoveredIndex !== null && safeData[hoveredIndex] && showFaturamento && (
+          {showLine && (<svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(((d.representatividade || 0) / maxRep) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#0ea5e9" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+          </svg>)}
+          {showDSLine && (<svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max((d[dsKey] || 0), 0), 100)}`).join(' ')} fill="none" stroke="#eab308" strokeWidth="2.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+          </svg>)}
+          {showLine && hoveredIndex !== null && safeData[hoveredIndex] && showFaturamento && (
             <div className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 opacity-80 z-10 pointer-events-none transition-all duration-200" style={{ bottom: `${Math.min(Math.max(((safeData[hoveredIndex].representatividade || 0) / maxRep) * 100, 0), 100)}%` }} />
           )}
           {safeData.map((d, i) => {
@@ -243,19 +246,19 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
             const nvRatio = d.penalidades > 0 ? ((d.notVisited || 0) / d.penalidades) * 100 : 0;
 
             return (
-              <div key={`bar-${i}`} className={`flex-1 flex flex-col justify-end h-full relative group max-w-[60px] ${onBarClick ? 'cursor-pointer' : ''}`} onClick={(e) => { e.stopPropagation(); setHoveredIndex(hoveredIndex === i ? null : i); if(onBarClick) onBarClick(d[labelKey]); }} onMouseEnter={() => setHoveredIndex(i)} onMouseLeave={() => setHoveredIndex(null)}>
-                <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-3 ${hoveredIndex === i ? 'block' : 'hidden md:group-hover:block'} z-50 w-60 bg-slate-800 text-white text-xs rounded-lg p-4 shadow-xl pointer-events-none`}>
-                  <p className="font-bold border-b border-slate-700 pb-2 mb-3 text-center text-white">{d[labelKey]}</p>
-                  {showFaturamento && !hideFaturamentoTooltip && <div className="flex justify-between mb-1.5"><span className="text-emerald-400">Faturamento</span><span className="font-mono text-white">{formatCurrency(d.faturamento || 0)}</span></div>}
-                  <div className={`flex justify-between mb-1 ${showFaturamento ? 'mt-2 pt-2 border-t border-slate-700' : ''}`}><span className="text-slate-300 font-bold">{tooltipSecondaryLabel || (isMarginChart ? 'Total Pago' : 'Total Penalidades')}</span><span className="font-mono text-red-400 font-bold">{formatCurrency(d.penalidades || 0)}</span></div>
+              <div key={i} className="flex-1 flex flex-col justify-end h-full group relative max-w-[40px]" onMouseEnter={() => setHoveredIndex(i)} onMouseLeave={() => setHoveredIndex(null)} onClick={() => onBarClick && onBarClick(d[labelKey])} style={{ cursor: onBarClick ? 'pointer' : 'default' }}>
+                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] sm:text-xs py-1.5 sm:py-2 px-2 sm:px-3 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700">
+                  <div className="font-bold text-slate-300 mb-1.5 border-b border-slate-700 pb-1 w-full text-center">{d[labelKey]}</div>
+                  {showFaturamento && !hideFaturamentoTooltip && <div className="flex justify-between gap-4 mb-0.5"><span className="text-emerald-400 font-bold">Faturamento</span><span className="font-mono font-bold">{formatCurrency(d.faturamento || 0)}</span></div>}
+                  <div className={`flex justify-between gap-4 ${!isMarginChart ? 'border-b border-slate-700' : ''}`}><span className="text-slate-300 font-bold">{tooltipSecondaryLabel || (isMarginChart ? 'Total Pago' : 'Total Penalidades')}</span><span className="font-mono text-red-400 font-bold">{formatCurrency(d.penalidades || 0)}</span></div>
                   {isMarginChart && (showMargemErro !== false) && (
                     <div className="flex justify-between mb-1"><span className="text-orange-500 font-bold">Margem Erro (±)</span><span className="font-mono text-orange-500 font-bold">± {formatCurrency(d.margemErro || 0)}</span></div>
                   )}
                   {!isMarginChart && (
                     <>
-                      <div className="flex justify-between mb-0.5 pl-2"><span className="text-blue-400 text-[10px]">↳ PNRs</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.pnr || 0)}</span></div>
-                      <div className="flex justify-between mb-0.5 pl-2"><span className="text-orange-400 text-[10px]">↳ Lost</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.lost || 0)}</span></div>
-                      <div className="flex justify-between mb-1.5 pl-2"><span className="text-slate-400 text-[10px]">↳ Not Visited</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.notVisited || 0)}</span></div>
+                      <div className="flex justify-between mb-0.5 pl-2"><span className="text-blue-400 text-[10px]">└ PNRs</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.pnr || 0)}</span></div>
+                      <div className="flex justify-between mb-0.5 pl-2"><span className="text-orange-400 text-[10px]">└ Lost</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.lost || 0)}</span></div>
+                      <div className="flex justify-between mb-1.5 pl-2"><span className="text-slate-400 text-[10px]">└ Not Visited</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.notVisited || 0)}</span></div>
                     </>
                   )}
                   {showFaturamento && (
@@ -278,6 +281,11 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
                     <span className="absolute bottom-full mb-1 text-[9px] font-bold text-violet-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none">{d[labelKey]}</span>
                   </div>
                 )}
+                {showDSLine && (
+                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-yellow-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${Math.min(Math.max((d[dsKey] || 0), 0), 100)}% - 4px)` }}>
+                    <span className="absolute bottom-full mb-1 text-[9px] font-bold text-yellow-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none">{d[labelKey]}</span>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -285,6 +293,7 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
       </div>
       <div className="absolute bottom-2 left-0 w-full flex justify-center gap-4 sm:gap-6 text-xs font-bold text-slate-400 flex-wrap">
         {showFaturamento && <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-emerald-500 rounded-sm"></div> Faturamento</span>}
+        {showDSLine && <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-yellow-500 rounded-sm"></div> {dsLabel}</span>}
         <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-500 rounded-sm"></div> {legendSecondaryLabel || (isMarginChart ? 'Pagamento de Agregados' : 'PNRs')}</span>
         {!isMarginChart && (
           <>
@@ -2009,7 +2018,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
     const fatFilial = (faturamentoPlanilha || []).filter(f => norm(f.filial) === fName);
     fatFilial.forEach(f => {
       const q = f.quinzena;
-      if (!mapEvolucao[q]) mapEvolucao[q] = { quinzena: q, valor: 0, faturamento: 0, pnrQtd: 0, lostQtd: 0, nvQtd: 0, totalQtd: 0 };
+      if (!mapEvolucao[q]) mapEvolucao[q] = { quinzena: q, valor: 0, faturamento: 0, pnrQtd: 0, lostQtd: 0, nvQtd: 0, totalQtd: 0, pnr: 0, lost: 0, notVisited: 0 };
       mapEvolucao[q].faturamento += (f.faturamento || 0);
     });
 
@@ -2017,15 +2026,22 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
       if (mName && norm(c.motorista) !== mName) return;
       const q = c.quinzena;
       if (!mapEvolucao[q]) {
-        mapEvolucao[q] = { quinzena: q, valor: 0, faturamento: 0, pnrQtd: 0, lostQtd: 0, nvQtd: 0, totalQtd: 0 };
+        mapEvolucao[q] = { quinzena: q, valor: 0, faturamento: 0, pnrQtd: 0, lostQtd: 0, nvQtd: 0, totalQtd: 0, pnr: 0, lost: 0, notVisited: 0 };
       }
       mapEvolucao[q].valor += (c.valor || 0);
       const peso = c._pesoQtd || 1;
       const baseQtd = (c.qtd || 1) * peso;
       
-      if (c.tipo === 'PNRs') mapEvolucao[q].pnrQtd += baseQtd;
-      else if (c.tipo === 'Lost Packages') mapEvolucao[q].lostQtd += baseQtd;
-      else if (c.tipo === 'Not Visited') mapEvolucao[q].nvQtd += baseQtd;
+      if (c.tipo === 'PNRs') {
+        mapEvolucao[q].pnrQtd += baseQtd;
+        mapEvolucao[q].pnr += (c.valor || 0);
+      } else if (c.tipo === 'Lost Packages') {
+        mapEvolucao[q].lostQtd += baseQtd;
+        mapEvolucao[q].lost += (c.valor || 0);
+      } else if (c.tipo === 'Not Visited') {
+        mapEvolucao[q].nvQtd += baseQtd;
+        mapEvolucao[q].notVisited += (c.valor || 0);
+      }
     });
 
     const evolutionArray = Object.values(mapEvolucao).sort((a, b) => a.quinzena.localeCompare(b.quinzena));
@@ -2101,7 +2117,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
                 <div className="h-[200px] flex items-center justify-center text-slate-500 text-xs">Sem dados.</div>
               ) : (
                 <div className="h-[260px] pt-10">
-                    <NativeComboChart data={chartDataValor} labelKey="quinzena" heightClass="h-[220px]" isMarginChart={true} showFaturamento={!isOpMode} showLine={!isOpMode} tooltipSecondaryLabel="Penalidades" legendSecondaryLabel="Penalidades" showMargemErro={false} hideFaturamentoTooltip={true} dsKey="qtdNormalizada" showDSLine={true} dsLabel="Quantidade" tooltipRender={(d) => (`${d.totalQtd} pacotes`)} />
+                    <NativeComboChart data={chartDataValor} labelKey="quinzena" heightClass="h-[220px]" isMarginChart={!isOpMode} showFaturamento={!isOpMode} showLine={!isOpMode} tooltipSecondaryLabel="Penalidades" legendSecondaryLabel="Penalidades" showMargemErro={false} hideFaturamentoTooltip={true} dsKey="qtdNormalizada" showDSLine={isOpMode} dsLabel="Qtd Pacotes" tooltipRender={(d) => (`${d.totalQtd} pacotes`)} />
                   </div>
               )}
             </div>
