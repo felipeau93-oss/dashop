@@ -231,7 +231,6 @@ export default async function handler(req, res) {
         motoristasMap[mKey].lostValor += valor;
         motoristasMap[mKey].lostQtd += 1;
       }
-    });
 
     // Rankings Regionais (com Supervisor)
     const topRegionais = Object.values(regionaisMap).sort((a, b) => b.valor - a.valor).slice(0, 5);
