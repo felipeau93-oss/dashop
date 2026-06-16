@@ -120,11 +120,10 @@ export default async function handler(req, res) {
     const tiposMap = {};
     const motoristasMap = {};
     const regionaisMap = {};
-    const supervisoresMap = {};
 
     casosDaQuinzena.forEach(p => {
       const isNotVisited = p.tipo === 'Not Visited';
-      const valor = isNotVisited ? 0 : (p.valor || 0); // Zera custo do Not Visited
+      const valor = p.valor || 0; // O Not Visited volta a somar o seu valor em R$
       
       totalPenalidades += valor;
 
@@ -133,21 +132,20 @@ export default async function handler(req, res) {
       const regional = p.regional || 'N/A';
       const supervisor = p.supervisor || 'N/A';
 
-      // Agrega Regional
-      if (!regionaisMap[regional]) regionaisMap[regional] = { nome: regional, valor: 0 };
-      regionaisMap[regional].valor += valor;
-
-      // Agrega Supervisor
-      if (!supervisoresMap[supervisor]) supervisoresMap[supervisor] = { nome: supervisor, valor: 0 };
-      supervisoresMap[supervisor].valor += valor;
+      // Agrega Regional + Supervisor
+      const rsKey = `${regional}:::${supervisor}`;
+      if (!regionaisMap[rsKey]) regionaisMap[rsKey] = { regional, supervisor, valor: 0 };
+      regionaisMap[rsKey].valor += valor;
 
       // Agrega Filial
       if (!filiaisMap[filial]) {
-        filiaisMap[filial] = { nome: filial, regional, pnr: 0, lost: 0, nvQtd: 0, geral: 0 };
+        filiaisMap[filial] = { nome: filial, regional, pnr: 0, lost: 0, nv: 0, geral: 0, qtdGeral: 0 };
       }
       filiaisMap[filial].geral += valor;
+      filiaisMap[filial].qtdGeral += 1;
+      
       if (isNotVisited) {
-        filiaisMap[filial].nvQtd += 1;
+        filiaisMap[filial].nv += valor;
       } else if (p.tipo === 'PNRs') {
         filiaisMap[filial].pnr += valor;
       } else if (p.tipo === 'Lost Packages') {
@@ -163,26 +161,28 @@ export default async function handler(req, res) {
       // Agrega Motorista
       const motorista = p.motorista || 'Sem Motorista';
       const mKey = `${filial}:::${motorista}`;
-      if (!motoristasMap[mKey]) motoristasMap[mKey] = { filial, regional, supervisor, motorista, valor: 0 };
+      if (!motoristasMap[mKey]) motoristasMap[mKey] = { filial, regional, supervisor, motorista, valor: 0, qtd: 0 };
       motoristasMap[mKey].valor += valor;
+      motoristasMap[mKey].qtd += 1;
     });
 
-    // Rankings Regionais e Supervisores
+    // Rankings Regionais (com Supervisor)
     const topRegionais = Object.values(regionaisMap).sort((a, b) => b.valor - a.valor).slice(0, 5);
-    const topSupervisores = Object.values(supervisoresMap).sort((a, b) => b.valor - a.valor).slice(0, 5);
 
     // Rankings Filiais
     const arrFiliais = Object.values(filiaisMap);
     const topFiliaisPnr = [...arrFiliais].sort((a, b) => b.pnr - a.pnr).filter(f => f.pnr > 0).slice(0, 5);
     const topFiliaisLost = [...arrFiliais].sort((a, b) => b.lost - a.lost).filter(f => f.lost > 0).slice(0, 5);
-    const topFiliaisNv = [...arrFiliais].sort((a, b) => b.nvQtd - a.nvQtd).filter(f => f.nvQtd > 0).slice(0, 5);
+    const topFiliaisNv = [...arrFiliais].sort((a, b) => b.nv - a.nv).filter(f => f.nv > 0).slice(0, 5);
     const topFiliaisGeral = [...arrFiliais].sort((a, b) => b.geral - a.geral).filter(f => f.geral > 0).slice(0, 5);
 
     // Ranking Top Tipos
-    const topTipos = Object.values(tiposMap).sort((a, b) => b.valor - a.valor).slice(0, 3);
+    const topTipos = Object.values(tiposMap).sort((a, b) => b.valor - a.valor);
 
-    // Ranking Top 10 Motoristas
-    const topMotoristas = Object.values(motoristasMap).sort((a, b) => b.valor - a.valor).slice(0, 10);
+    // Ranking Motoristas
+    const arrMotoristas = Object.values(motoristasMap);
+    const topMotoristasRs = [...arrMotoristas].sort((a, b) => b.valor - a.valor).slice(0, 6);
+    const topMotoristasQtd = [...arrMotoristas].sort((a, b) => b.qtd - a.qtd).slice(0, 6);
 
     // Gerar CSV String para o Anexo
     const csvHeader = 'Quinzena,Regional,Supervisor,Filial,Motorista,Tipo,Valor(R$),ID_Pacote,ID_Rota\n';
@@ -206,119 +206,147 @@ export default async function handler(req, res) {
     const thStyle = "padding: 8px; text-align: left; border-bottom: 2px solid #cbd5e1; font-size: 11px; text-transform: uppercase; color: #475569;";
     const tdStyle = "padding: 8px; border-bottom: 1px solid #e2e8f0; font-size: 12px; color: #1e293b;";
     
+    // Obter valores de tipos formatados para o resumo
+    const pnrObj = topTipos.find(t => t.nome === 'PNRs') || { valor: 0 };
+    const lostObj = topTipos.find(t => t.nome === 'Lost Packages') || { valor: 0 };
+    const nvObj = topTipos.find(t => t.nome === 'Not Visited') || { valor: 0 };
+
     const htmlBody = `
-      <div style="font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto; color: #333;">
+      <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; color: #333;">
         <h2 style="color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; font-size: 20px;">
-          Relatório de Penalidades - DashOp
+          Resumo de Penalidades - DashOp
         </h2>
+        
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; margin-bottom: 25px;">
           <p style="font-size: 14px; margin: 0 0 5px 0;"><strong>Quinzena:</strong> <span style="color: #3b82f6; font-weight: bold;">${targetQuinzena}</span></p>
           <p style="font-size: 14px; margin: 0;"><strong>Total (R$):</strong> <span style="color: #ef4444; font-weight: bold; font-size: 16px;">${formatCurrency(totalPenalidades)}</span></p>
         </div>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🌍 Top 5 Regionais Ofensoras (R$)</h3>
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">⚠️ Tipo de penalidades em R$:</h3>
+        <ul style="font-size: 13px; padding-left: 20px; margin-bottom: 30px; line-height: 1.6;">
+          <li><strong>PNR:</strong> <span style="color: #ef4444;">${formatCurrency(pnrObj.valor)}</span></li>
+          <li><strong>Lost Packages:</strong> <span style="color: #ef4444;">${formatCurrency(lostObj.valor)}</span></li>
+          <li><strong>Not Visited:</strong> <span style="color: #ef4444;">${formatCurrency(nvObj.valor)}</span></li>
+        </ul>
+
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🌍 Top Regionais ofensoras (R$)</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
           <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Regional</th><th style="${thStyle} text-align: right;">Total</th>
+            <th style="${thStyle}">Regional</th>
+            <th style="${thStyle}">Supervisor Responsável</th>
+            <th style="${thStyle} text-align: right;">Valor</th>
           </tr>
           ${topRegionais.length ? topRegionais.map(r => `
             <tr>
-              <td style="${tdStyle} font-weight: bold;">${r.nome}</td>
+              <td style="${tdStyle} font-weight: bold;">${r.regional}</td>
+              <td style="${tdStyle}">${r.supervisor}</td>
               <td style="${tdStyle} text-align: right; color: #ef4444; font-weight: bold;">${formatCurrency(r.valor)}</td>
             </tr>
-          `).join('') : `<tr><td colspan="2" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">👤 Top 5 Supervisores Ofensores (R$)</h3>
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Top 5 Filiais (PNR) R$:</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
           <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Supervisor</th><th style="${thStyle} text-align: right;">Total</th>
-          </tr>
-          ${topSupervisores.length ? topSupervisores.map(s => `
-            <tr>
-              <td style="${tdStyle} font-weight: bold;">${s.nome}</td>
-              <td style="${tdStyle} text-align: right; color: #ef4444; font-weight: bold;">${formatCurrency(s.valor)}</td>
-            </tr>
-          `).join('') : `<tr><td colspan="2" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
-        </table>
-
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Top 5 Filiais por PNR (R$)</h3>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-          <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Filial</th><th style="${thStyle} text-align: right;">Valor</th>
+            <th style="${thStyle}">Filial</th>
+            <th style="${thStyle}">Regional</th>
+            <th style="${thStyle} text-align: right;">Valor</th>
           </tr>
           ${topFiliaisPnr.length ? topFiliaisPnr.map(f => `
             <tr>
-              <td style="${tdStyle}"><strong>${f.nome}</strong> <span style="color: #64748b; font-size: 10px;">(${f.regional})</span></td>
+              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+              <td style="${tdStyle}">${f.regional}</td>
               <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.pnr)}</td>
             </tr>
-          `).join('') : `<tr><td colspan="2" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Top 5 Filiais por Lost (R$)</h3>
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Top 5 Filiais (Lost Packages) R$:</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
           <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Filial</th><th style="${thStyle} text-align: right;">Valor</th>
+            <th style="${thStyle}">Filial</th>
+            <th style="${thStyle}">Regional</th>
+            <th style="${thStyle} text-align: right;">Valor</th>
           </tr>
           ${topFiliaisLost.length ? topFiliaisLost.map(f => `
             <tr>
-              <td style="${tdStyle}"><strong>${f.nome}</strong> <span style="color: #64748b; font-size: 10px;">(${f.regional})</span></td>
+              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+              <td style="${tdStyle}">${f.regional}</td>
               <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.lost)}</td>
             </tr>
-          `).join('') : `<tr><td colspan="2" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚫 Top 5 Filiais por Not Visited (Qtd)</h3>
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚫 Top 5 Filiais (Not Visited) R$:</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
           <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Filial</th><th style="${thStyle} text-align: right;">Rotas</th>
+            <th style="${thStyle}">Filial</th>
+            <th style="${thStyle}">Regional</th>
+            <th style="${thStyle} text-align: right;">Valor</th>
           </tr>
           ${topFiliaisNv.length ? topFiliaisNv.map(f => `
             <tr>
-              <td style="${tdStyle}"><strong>${f.nome}</strong> <span style="color: #64748b; font-size: 10px;">(${f.regional})</span></td>
-              <td style="${tdStyle} text-align: right; color: #eab308; font-weight: bold;">${f.nvQtd}</td>
+              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+              <td style="${tdStyle}">${f.regional}</td>
+              <td style="${tdStyle} text-align: right; color: #ef4444;">${formatCurrency(f.nv)}</td>
             </tr>
-          `).join('') : `<tr><td colspan="2" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+          `).join('') : `<tr><td colspan="3" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">💰 Top 5 Filiais Geral (R$)</h3>
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">💰 Top 5 Filiais Ofensoras Geral:</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
           <tr style="background-color: #f1f5f9;">
-            <th style="${thStyle}">Filial</th><th style="${thStyle} text-align: right;">Total</th>
+            <th style="${thStyle}">Filial</th>
+            <th style="${thStyle}">Regional</th>
+            <th style="${thStyle} text-align: right;">Valor</th>
+            <th style="${thStyle} text-align: right;">Quantidade</th>
           </tr>
           ${topFiliaisGeral.length ? topFiliaisGeral.map(f => `
             <tr>
-              <td style="${tdStyle}"><strong>${f.nome}</strong> <span style="color: #64748b; font-size: 10px;">(${f.regional})</span></td>
+              <td style="${tdStyle} font-weight: bold;">${f.nome}</td>
+              <td style="${tdStyle}">${f.regional}</td>
               <td style="${tdStyle} text-align: right; color: #ef4444; font-weight: bold;">${formatCurrency(f.geral)}</td>
+              <td style="${tdStyle} text-align: right; font-weight: bold;">${f.qtdGeral}</td>
             </tr>
-          `).join('') : `<tr><td colspan="2" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
+          `).join('') : `<tr><td colspan="4" style="${tdStyle} text-align: center; color: #94a3b8;">Sem dados</td></tr>`}
         </table>
 
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">⚠️ Principais Ofensores por Tipo</h3>
-        <ul style="font-size: 12px; padding-left: 20px; margin-bottom: 30px;">
-          ${topTipos.map(t => {
-            if (t.nome === 'Not Visited') {
-              return `<li style="margin-bottom: 6px;"><strong>${t.nome}:</strong> <span style="color: #eab308; font-weight: bold;">${t.qtd} rotas</span></li>`;
-            }
-            return `<li style="margin-bottom: 6px;"><strong>${t.nome}:</strong> <span style="color: #ef4444;">${formatCurrency(t.valor)}</span></li>`;
-          }).join('')}
-        </ul>
-
-        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚚 Top 10 Motoristas Ofensores</h3>
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🚚 Top 6 Motoristas Ofensores R$:</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
           <tr style="background-color: #f1f5f9;">
             <th style="${thStyle}">Motorista</th>
-            <th style="${thStyle}">Local / Resp.</th>
-            <th style="${thStyle} text-align: right;">Valor (R$)</th>
+            <th style="${thStyle}">Filial</th>
+            <th style="${thStyle}">Regional</th>
+            <th style="${thStyle}">Supervisor</th>
+            <th style="${thStyle} text-align: right;">Valor</th>
           </tr>
-          ${topMotoristas.map(m => `
+          ${topMotoristasRs.map(m => `
             <tr>
               <td style="${tdStyle} font-weight: bold;">${m.motorista}</td>
-              <td style="${tdStyle} color: #64748b; font-size: 10px;">
-                ${m.filial} (${m.regional})<br/>
-                <span style="color: #94a3b8;">Sup: ${m.supervisor}</span>
-              </td>
+              <td style="${tdStyle}">${m.filial}</td>
+              <td style="${tdStyle}">${m.regional}</td>
+              <td style="${tdStyle}">${m.supervisor}</td>
               <td style="${tdStyle} text-align: right; color: #ef4444; font-weight: bold;">${formatCurrency(m.valor)}</td>
+            </tr>
+          `).join('')}
+        </table>
+
+        <h3 style="color: #0f172a; margin-top: 30px; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📦 Top 6 Motoristas Ofensores Quantidade:</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+          <tr style="background-color: #f1f5f9;">
+            <th style="${thStyle}">Motorista</th>
+            <th style="${thStyle}">Filial</th>
+            <th style="${thStyle}">Regional</th>
+            <th style="${thStyle}">Supervisor</th>
+            <th style="${thStyle} text-align: right;">Quantidade</th>
+          </tr>
+          ${topMotoristasQtd.map(m => `
+            <tr>
+              <td style="${tdStyle} font-weight: bold;">${m.motorista}</td>
+              <td style="${tdStyle}">${m.filial}</td>
+              <td style="${tdStyle}">${m.regional}</td>
+              <td style="${tdStyle}">${m.supervisor}</td>
+              <td style="${tdStyle} text-align: right; font-weight: bold;">${m.qtd}</td>
             </tr>
           `).join('')}
         </table>
