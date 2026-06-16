@@ -123,13 +123,17 @@ export default async function handler(req, res) {
     const quinzenasOrdenadas = Object.keys(quinzenasAgrupadas).sort();
     const ultimasQuinzenas = quinzenasOrdenadas.slice(-6); // Últimas 6 quinzenas
     
-    const chartConfig = {
+    const dataValues = ultimasQuinzenas.map(q => quinzenasAgrupadas[q].toFixed(2));
+    const labelsStr = JSON.stringify(ultimasQuinzenas);
+    const dataStr = JSON.stringify(dataValues.map(Number));
+
+    const chartConfigStr = `{
       type: 'line',
       data: {
-        labels: ultimasQuinzenas,
+        labels: ${labelsStr},
         datasets: [{
           label: 'Total Descontado (R$)',
-          data: ultimasQuinzenas.map(q => Math.round(quinzenasAgrupadas[q])),
+          data: ${dataStr},
           borderColor: '#ef4444',
           backgroundColor: 'rgba(239, 68, 68, 0.1)',
           borderWidth: 3,
@@ -140,7 +144,7 @@ export default async function handler(req, res) {
       },
       options: {
         layout: {
-          padding: { left: 10, right: 10, top: 20, bottom: 10 }
+          padding: { left: 20, right: 20, top: 30, bottom: 10 }
         },
         plugins: {
           datalabels: {
@@ -148,7 +152,10 @@ export default async function handler(req, res) {
             align: 'top',
             offset: 8,
             color: '#1e293b',
-            font: { weight: 'bold', size: 14 }
+            font: { weight: 'bold', size: 14 },
+            formatter: (val) => {
+              return 'R$ ' + Number(val).toFixed(2).replace('.', ',').replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');
+            }
           }
         },
         title: {
@@ -169,9 +176,9 @@ export default async function handler(req, res) {
           }]
         }
       }
-    };
+    }`;
 
-    const encodedChartUrl = `https://quickchart.io/chart?w=800&h=400&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;
+    const encodedChartUrl = \`https://quickchart.io/chart?w=800&h=400&devicePixelRatio=2&c=\${encodeURIComponent(chartConfigStr)}\`;
 
     // 5. Agregar os Dados da Quinzena Atual
     const casosDaQuinzena = validPenalidades.filter(p => p.quinzena === targetQuinzena);
