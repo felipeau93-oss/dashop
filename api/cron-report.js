@@ -50,20 +50,35 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2. Buscar dados da API REST do Firestore (Sem depender do SDK, mais rápido e leve)
-    const firestoreUrl = 'https://firestore.googleapis.com/v1/projects/dashop-1291f/databases/(default)/documents/app_dados_comprimidos';
-    const dbResponse = await fetch(firestoreUrl);
-    
-    if (!dbResponse.ok) {
-      throw new Error(`Erro ao conectar com Firebase: ${dbResponse.statusText}`);
-    }
+    // 2. Buscar dados da API REST do Firestore com paginação
+    let documents = [];
+    let pageToken = '';
+    let hasMore = true;
 
-    const data = await dbResponse.json();
+    while (hasMore) {
+      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/dashop-1291f/databases/(default)/documents/app_dados_comprimidos?pageSize=100${pageToken ? '&pageToken=' + pageToken : ''}`;
+      const dbResponse = await fetch(firestoreUrl);
+      
+      if (!dbResponse.ok) {
+        throw new Error(`Erro ao conectar com Firebase: ${dbResponse.statusText}`);
+      }
+
+      const data = await dbResponse.json();
+      if (data.documents) {
+        documents = documents.concat(data.documents);
+      }
+      
+      if (data.nextPageToken) {
+        pageToken = data.nextPageToken;
+      } else {
+        hasMore = false;
+      }
+    }
     
     // 3. Remontar os chunks das penalidades
     const penalidadesChunks = [];
-    if (data.documents) {
-      data.documents.forEach(doc => {
+    if (documents.length > 0) {
+      documents.forEach(doc => {
         const idPath = doc.name.split('/');
         const id = idPath[idPath.length - 1]; // ex: penalidades_chunk_0
         
