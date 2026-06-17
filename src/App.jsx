@@ -3968,9 +3968,12 @@ Diretrizes:
         const data = await response.json();
         if (data.candidates && data.candidates[0].content.parts[0].text) {
           setExecutiveSummary(data.candidates[0].content.parts[0].text);
+        } else {
+          setExecutiveSummary(`⚠️ Erro na API Gemini: Falha de autenticação ou resposta inválida. Verifique se a chave GEMINI_API_KEY no código (linha 48) é uma chave válida (e não um token temporário).`);
         }
       } catch (err) {
         console.error('Error fetching summary:', err);
+        setExecutiveSummary(`⚠️ Erro ao conectar com o CFO Virtual (Gemini). Verifique sua conexão e a validade da GEMINI_API_KEY. Detalhes: ${err.message}`);
       } finally {
         setIsSummaryLoading(false);
       }
@@ -4438,11 +4441,17 @@ Diretrizes:
                         <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
                         <div>
                           <h2 className="text-sm md:text-base font-bold text-blue-400/70 mb-2 z-10 tracking-widest uppercase">Penalidades vs Faturamento</h2>
-                          <div className="flex flex-col mb-8 z-10">
-                            <span className="text-4xl font-black leading-tight tracking-tight text-red-400/70 flex items-center gap-3">
-                              {formatCurrency(prevMargemBrutaMetrics.penalidades)}
-                            </span>
-                            <span className="text-sm text-slate-400/70 mt-2 font-medium bg-slate-800/50 self-start px-4 py-1.5 rounded-lg border border-slate-700/50">Penalidades na quinzena</span>
+                          <div className="flex flex-col z-10 h-full justify-between">
+                            <div className="flex flex-col mb-4">
+                              <span className="text-4xl font-black leading-tight tracking-tight text-red-400/70 flex items-center gap-3">
+                                {formatCurrency(prevMargemBrutaMetrics.penalidades)}
+                              </span>
+                              <span className="text-sm text-slate-400/70 mt-2 font-medium bg-slate-800/50 self-start px-4 py-1.5 rounded-lg border border-slate-700/50">Penalidades na quinzena</span>
+                            </div>
+                            <div className="flex flex-col gap-2 text-sm pt-4 border-t border-slate-700/50">
+                              <div className="flex justify-between items-center"><span className="text-emerald-400/70 font-bold">Faturamento Total</span> <span className="text-emerald-400/70 font-bold">{formatCurrency(prevMargemBrutaMetrics.faturamento)}</span></div>
+                              <div className="flex justify-between items-center"><span className="text-violet-400/70 font-bold">% de Representatividade</span> <span className="text-slate-300 font-bold">{prevMargemBrutaMetrics.faturamento > 0 ? ((prevMargemBrutaMetrics.penalidades / prevMargemBrutaMetrics.faturamento) * 100).toFixed(2) + '%' : '0%'}</span></div>
+                            </div>
                           </div>
                         </div>
                       </div>
