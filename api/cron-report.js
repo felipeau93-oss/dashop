@@ -166,8 +166,8 @@ export default async function handler(req, res) {
             offset: 8,
             color: '#1e293b',
             font: { weight: 'bold', size: 14 },
-            formatter: function(val) {
-              return 'R$ ' + Number(val).toFixed(2).replace('.', ',').replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');
+            formatter: (val) => {
+              return 'R$ ' + Number(val).toFixed(2).replace('.', ',');
             }
           }
         },
@@ -184,7 +184,10 @@ export default async function handler(req, res) {
           }],
           yAxes: [{
             ticks: {
-              beginAtZero: true
+              beginAtZero: true,
+              callback: (val) => {
+                return 'R$ ' + Number(val).toFixed(2).replace('.', ',');
+              }
             }
           }]
         }

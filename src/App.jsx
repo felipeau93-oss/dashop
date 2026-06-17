@@ -3,6 +3,8 @@ import Simulador from './Simulador';
 import DreAnaliseCusto from './DreAnaliseCusto';
 import DreCustoLeve from './DreCustoLeve';
 import DreViabilidade from './DreViabilidade';
+import DataImporter from './DataImporter';
+import ConfigFiliais from './ConfigFiliais';
 import { db, auth } from './firebase';
 import { collection, writeBatch, doc, getDocs } from 'firebase/firestore';
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
@@ -39,7 +41,10 @@ import {
   Bot,
   ExternalLink,
   Menu,
-  Sparkles
+  Sparkles,
+  Database,
+  UploadCloud,
+  Settings
 } from 'lucide-react';
 
 // ============================================================================
@@ -2396,12 +2401,12 @@ export default function App() {
   const [rawOperacionalData, setRawOperacionalData] = useState(initialOperacionalData);
   const [rawBscData, setRawBscData] = useState(initialBscData);
   const [rawCustosData, setRawCustosData] = useState(initialCustosData);
+  const [mapeamentoFiliais, setMapeamentoFiliais] = useState([]);
 
   const [error, setError] = useState(null);
 
   const [sheetUrl, setSheetUrl] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=0#gid=0');
   const [sheetUrlFaturamento, setSheetUrlFaturamento] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=2143847273#gid=2143847273');
-  const [sheetUrlOperacional, setSheetUrlOperacional] = useState('https://docs.google.com/spreadsheets/d/1yi_-uvB744ShPzratm_aO09Mm9rFWyvCqHXgxJcZOW4/edit?gid=1256508653#gid=1256508653');
   const [sheetUrlBsc, setSheetUrlBsc] = useState('https://docs.google.com/spreadsheets/d/1TngDQ58wD8Zz43AHrrtJLGfB2Po_Wqc6LqUzrlTIytw/edit?gid=1433063454#gid=1433063454');
   const [sheetUrlCustos, setSheetUrlCustos] = useState('https://docs.google.com/spreadsheets/d/1zabomWsXNX1xwZbj0xNRx683re1QAYFcPYackB2kXU0/edit?gid=1452775904#gid=1452775904');
   
@@ -2573,98 +2578,6 @@ export default function App() {
     } catch (err) { setError('Erro ao processar Faturamento. Verifique a planilha.'); }
   }, []);
 
-  const processOperacionalData = useCallback((text) => {
-    try {
-      const lines = text.split('\n').filter(line => line.trim() !== '');
-      if (lines.length < 2) return;
-      const delimiter = lines[0].includes(';') ? ';' : ',';
-      const rawHeaders = parseCSVLine(lines[0], delimiter).map(h => h.trim());
-      const headers = rawHeaders.map(normalizeHeader);
-
-      let idxRegional = -1;
-      let idxSupervisor = -1;
-      for (let j = headers.length - 1; j >= 0; j--) {
-        if (idxRegional === -1 && (headers[j] === 'regional' || headers[j] === 'regiao' || headers[j].includes('regional'))) idxRegional = j;
-        if (idxSupervisor === -1 && (headers[j] === 'supervisor' || headers[j].includes('superv') || headers[j].includes('gestor') || headers[j].includes('coord'))) idxSupervisor = j;
-      }
-
-      let idxQuinzena = headers.findIndex(h => h.includes('quinzena') || h.includes('data') || h.includes('periodo') || h.includes('mes') || h.includes('ciclo'));
-      if (idxQuinzena === -1) idxQuinzena = 0;
-
-      const idxFilial = headers.findIndex(h => h.includes('filial') || h.includes('operacao') || h.includes('base') || h.includes('unidade'));
-      const idxMotorista = headers.findIndex(h => h.includes('motorista') || h.includes('nome') || h.includes('entregador'));
-
-      let idxCluster = headers.findIndex(h => h.includes('cluster'));
-      if (idxCluster === -1) idxCluster = 10;
-
-      let idxIdRota = 1;
-      if (headers[1] && !headers[1].includes('rota') && !headers[1].includes('route')) {
-        const found = headers.findIndex(h => h.includes('rota') || h.includes('route'));
-        if (found !== -1) idxIdRota = found;
-      }
-
-      let idxSaldo = headers.findIndex(h => (h === 'saldo' || h.includes('saldo') || h.includes('pacote') || h.includes('volume') || h.includes('envio')) && !h.includes('insucesso') && !h.includes('falha'));
-      if (idxSaldo === -1) idxSaldo = headers.findIndex(h => h.startsWith('total') && !h.includes('insucesso') && !h.includes('desconto'));
-
-      const idxEntregues = headers.findIndex(h => (h === 'entregues' || h.includes('entreg') || h.includes('sucesso') || h.includes('realizado')) && !h.includes('%') && !h.includes('taxa') && !h.includes('insucesso'));
-
-      let idxDiaSemana = 11;
-
-      const insucessosHeaders = [];
-      for (let j = 89; j <= 103; j++) {
-        if (j === 91) continue;
-        if (rawHeaders[j] && rawHeaders[j].trim() !== '') {
-          insucessosHeaders.push({ index: j, name: rawHeaders[j].trim() });
-        }
-      }
-
-      const parsed = [];
-      for (let i = 1; i < lines.length; i++) {
-        let cols = parseCSVLine(lines[i], delimiter);
-        const filialRaw = idxFilial !== -1 ? cols[idxFilial] : 'N/A';
-        if (!filialRaw || filialRaw.trim().toUpperCase() === '#N/A') continue;
-        const filial = filialRaw;
-
-        const quinzena = normalizeQuinzena(cols[idxQuinzena]);
-        const regional = cols[idxRegional] ? extractRegional(cols[idxRegional]) : 'N/A';
-        const supervisor = cols[idxSupervisor] ? cols[idxSupervisor].trim() : 'N/A';
-        const clusterRaw = cols[idxCluster] ? String(cols[idxCluster]).trim() : '';
-        const cluster = clusterRaw && clusterRaw !== '-' && clusterRaw.toUpperCase() !== 'N/A' ? clusterRaw : 'Ambulâncias';
-        const motorista = cols[idxMotorista] && String(cols[idxMotorista]).trim() !== '' ? String(cols[idxMotorista]).trim() : 'N/A';
-        const id_rota = cols[idxIdRota] && String(cols[idxIdRota]).trim() !== '' ? String(cols[idxIdRota]).trim() : '-';
-
-        const saldoRaw = idxSaldo !== -1 ? cols[idxSaldo] : cols[15];
-        const entreguesRaw = idxEntregues !== -1 ? cols[idxEntregues] : cols[17];
-
-        let saldoOriginal = parseNumber(saldoRaw);
-        let entregues = parseNumber(entreguesRaw);
-
-        const insucessosDetalhados = {};
-
-        let qtdCancelados = 0;
-        let val91 = parseNumber(cols[91]);
-        if (val91 > 0) qtdCancelados += val91;
-
-        insucessosHeaders.forEach(h => {
-          const v = parseNumber(cols[h.index]);
-          if (v > 0) {
-            insucessosDetalhados[h.name] = v;
-          }
-        });
-
-        let saldo = Math.max(0, saldoOriginal - qtdCancelados);
-        const dia_semana = cols[idxDiaSemana] ? formatDiaSemana(cols[idxDiaSemana]) : 'N/A';
-
-        const somaIns = Object.values(insucessosDetalhados).reduce((a, b) => a + b, 0);
-        if (saldo > 0 || entregues > 0 || somaIns > 0) {
-          parsed.push({ quinzena, regional, supervisor, filial, cluster, motorista, id_rota, saldo, entregues, insucessosDetalhados, dia_semana });
-        }
-      }
-      if (parsed.length > 0) setRawOperacionalData(parsed);
-      setError(null);
-      return parsed;
-    } catch (err) { setError('Erro ao processar Operacional. Verifique a planilha.'); }
-  }, []);
 
   const processBscData = useCallback((text) => {
     try {
@@ -2893,6 +2806,7 @@ export default function App() {
       const operacional = parseChunks('operacional');
       const bsc = parseChunks('bsc');
       const custosFinanceiros = parseChunks('custosFinanceiros');
+      const mapeamento = parseChunks('mapeamento_filiais');
 
       setRawData(penalidades);
       if (rawDataRef) rawDataRef.current = penalidades;
@@ -2908,6 +2822,8 @@ export default function App() {
 
       setRawCustosData(custosFinanceiros);
       if (rawCustosDataRef) rawCustosDataRef.current = custosFinanceiros;
+
+      setMapeamentoFiliais(mapeamento);
 
     } catch(err) {
       console.error(err);
@@ -2953,9 +2869,6 @@ const fetchFromGoogleSheets = useCallback(async () => {
       const d2 = t2 ? processFaturamentoData(t2) : null;
       if (d2) await syncToFirebase('faturamento', d2);
 
-      const t3 = await fetchCSV(sheetUrlOperacional, 'Operacional');
-      const d3 = t3 ? processOperacionalData(t3) : null;
-      if (d3) await syncToFirebase('operacional', d3);
 
       const t4 = await fetchCSV(sheetUrlBsc, 'BSC');
       const d4 = t4 ? processBscData(t4) : null;
@@ -2970,7 +2883,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
       setError(err instanceof Error ? err.message : String(err));
     }
     finally { setIsLoading(false); }
-  }, [sheetUrl, sheetUrlFaturamento, sheetUrlOperacional, sheetUrlBsc, sheetUrlCustos, processRawCSV, processFaturamentoData, processOperacionalData, processBscData, processCustosData]);
+  }, [sheetUrl, sheetUrlFaturamento, sheetUrlBsc, sheetUrlCustos, processRawCSV, processFaturamentoData, processBscData, processCustosData]);
 
   useEffect(() => {
     if (isAuthenticated && !hasInitialSynced) {
@@ -2994,77 +2907,91 @@ const fetchFromGoogleSheets = useCallback(async () => {
     return ratios;
   }, [rawFaturamentoData]);
 
+  const getRegionalSupervisor = (filial, d) => {
+    const fKey = normalizeText(filial);
+    const mapped = mapeamentoFiliais.find(m => normalizeText(m.filial) === fKey);
+    return mapped ? { regional: mapped.regional, supervisor: mapped.supervisor } : { regional: d.regional, supervisor: d.supervisor };
+  };
+
   const distributedDados = useMemo(() => {
     const result = [];
     rawData.forEach(d => {
+      const rs = getRegionalSupervisor(d.filial, d);
       if (normalizeText(d.filial) === 'SSC4') {
         const ratios = ssc4RatiosPerQuinzena[d.quinzena];
         if (ratios) {
           ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-            if (ratios[target] > 0) result.push({ ...d, filial: target, valor: d.valor * ratios[target], _pesoQtd: ratios[target] });
+            const rsTarget = getRegionalSupervisor(target, rs);
+            if (ratios[target] > 0) result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, valor: d.valor * ratios[target], _pesoQtd: ratios[target] });
           });
-        } else { result.push({ ...d, _pesoQtd: 1 }); }
-      } else { result.push({ ...d, _pesoQtd: 1 }); }
+        } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor, _pesoQtd: 1 }); }
+      } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor, _pesoQtd: 1 }); }
     });
     return result;
-  }, [rawData, ssc4RatiosPerQuinzena]);
+  }, [rawData, ssc4RatiosPerQuinzena, mapeamentoFiliais]);
 
   const distributedFaturamento = useMemo(() => {
     const result = [];
     rawFaturamentoData.forEach(d => {
+      const rs = getRegionalSupervisor(d.filial, d);
       if (normalizeText(d.filial) === 'SSC4') {
         const ratios = ssc4RatiosPerQuinzena[d.quinzena];
         if (ratios) {
           ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-            if (ratios[target] > 0) result.push({ ...d, filial: target, faturamento: d.faturamento * ratios[target] });
+            const rsTarget = getRegionalSupervisor(target, rs);
+            if (ratios[target] > 0) result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, faturamento: d.faturamento * ratios[target], faturamento_paradas: (d.faturamento_paradas || 0) * ratios[target] });
           });
-        } else { result.push(d); }
-      } else { result.push(d); }
+        } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
+      } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
     });
     return result;
-  }, [rawFaturamentoData, ssc4RatiosPerQuinzena]);
+  }, [rawFaturamentoData, ssc4RatiosPerQuinzena, mapeamentoFiliais]);
 
   const distributedOperacional = useMemo(() => {
     const result = [];
     rawOperacionalData.forEach(d => {
+      const rs = getRegionalSupervisor(d.filial, d);
       if (normalizeText(d.filial) === 'SSC4') {
         const ratios = ssc4RatiosPerQuinzena[d.quinzena];
         if (ratios) {
           ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
+            const rsTarget = getRegionalSupervisor(target, rs);
             if (ratios[target] > 0) {
               const newIns = {};
               if (d.insucessosDetalhados) {
                 Object.entries(d.insucessosDetalhados).forEach(([k, v]) => newIns[k] = v * ratios[target]);
               }
-              result.push({ ...d, filial: target, saldo: d.saldo * ratios[target], entregues: d.entregues * ratios[target], insucessosDetalhados: newIns });
+              result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, saldo: d.saldo * ratios[target], entregues: d.entregues * ratios[target], insucessosDetalhados: newIns });
             }
           });
-        } else { result.push(d); }
-      } else { result.push(d); }
+        } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
+      } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
     });
     return result;
-  }, [rawOperacionalData, ssc4RatiosPerQuinzena]);
+  }, [rawOperacionalData, ssc4RatiosPerQuinzena, mapeamentoFiliais]);
 
   const distributedBsc = useMemo(() => {
     const result = [];
     rawBscData.forEach(d => {
+      const rs = getRegionalSupervisor(d.filial, d);
       if (normalizeText(d.filial) === 'SSC4') {
         const ratios = ssc4RatiosPerQuinzena[d.quinzena];
         if (ratios) {
           ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
+            const rsTarget = getRegionalSupervisor(target, rs);
             if (ratios[target] > 0) {
               const newIns = {};
               if (d.insucessosDetalhados) {
                 Object.entries(d.insucessosDetalhados).forEach(([k, v]) => newIns[k] = v * ratios[target]);
               }
-              result.push({ ...d, filial: target, saldo: d.saldo * ratios[target], entregues: d.entregues * ratios[target], insucessosDetalhados: newIns });
+              result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, saldo: d.saldo * ratios[target], entregues: d.entregues * ratios[target], insucessosDetalhados: newIns });
             }
           });
-        } else { result.push(d); }
-      } else { result.push(d); }
+        } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
+      } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
     });
     return result;
-  }, [rawBscData, ssc4RatiosPerQuinzena]);
+  }, [rawBscData, ssc4RatiosPerQuinzena, mapeamentoFiliais]);
 
   const quinzenasDisponiveis = useMemo(() => {
     const q1 = distributedDados.map(d => d.quinzena);
@@ -3313,7 +3240,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
   }, [faturamentoFiltrado]);
 
   const margemBrutaMetrics = useMemo(() => {
-    const totalFat = custosFiltrados.reduce((acc, curr) => acc + (curr.receitaTotal || 0), 0);
+    const totalFat = faturamentoFiltrado.reduce((acc, curr) => acc + (curr.faturamento || 0) + (curr.faturamento_paradas || 0), 0);
     const totalCustos = custosFiltrados.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
     const margemErroDescontada = totalFat * 0.025;
@@ -3542,7 +3469,8 @@ const fetchFromGoogleSheets = useCallback(async () => {
 
   const prevMargemBrutaMetrics = useMemo(() => {
     if (!prevQuinzenaName) return null;
-    const totalFat = prevCustosFiltrados.reduce((acc, curr) => acc + (curr.receitaTotal || 0), 0);
+    const prevFaturamento = faturamentoFiltradoEvolucao.filter(d => d.quinzena === prevQuinzenaName);
+    const totalFat = prevFaturamento.reduce((acc, curr) => acc + (curr.faturamento || 0) + (curr.faturamento_paradas || 0), 0);
     const totalCustos = prevCustosFiltrados.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
     const margemErroDescontada = totalFat * 0.025;
@@ -3568,7 +3496,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
     const validKeys = new Set(prevPrevFaturamento.map(f => `${f.filial}|${f.quinzena}`));
     const custos = rawCustosData.filter(c => validKeys.has(`${c.filial}|${c.quinzena}`));
 
-    const totalFat = custos.reduce((acc, curr) => acc + (curr.receitaTotal || 0), 0);
+    const totalFat = prevPrevFaturamento.reduce((acc, curr) => acc + (curr.faturamento || 0) + (curr.faturamento_paradas || 0), 0);
     const totalCustos = custos.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
     
@@ -4249,6 +4177,36 @@ Diretrizes:
                 </div>
               </div>
             )}
+
+            {/* Importador Inteligente */}
+            {!isOpMode && isUserAdmin && (
+              <div className="flex flex-col mt-4 pt-4 border-t border-slate-800">
+                <button 
+                  onClick={() => {
+                    handleMenuChange('importador');
+                    setIsMobileMenuOpen(false);
+                  }} 
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'importador' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Database className={`w-4 h-4 shrink-0 ${activeMenu === 'importador' ? 'text-blue-400' : ''}`} />
+                    <span className={`truncate ${activeMenu === 'importador' ? 'font-bold' : ''}`}>Importador Inteligente</span>
+                  </div>
+                </button>
+                <button 
+                  onClick={() => {
+                    handleMenuChange('config_filiais');
+                    setIsMobileMenuOpen(false);
+                  }} 
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_filiais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_filiais' ? 'text-blue-400' : ''}`} />
+                    <span className={`truncate ${activeMenu === 'config_filiais' ? 'font-bold' : ''}`}>Config. de Filiais</span>
+                  </div>
+                </button>
+              </div>
+            )}
           </div>
         </nav>
       </aside>
@@ -4328,6 +4286,64 @@ Diretrizes:
         <div className="flex-1 overflow-y-auto p-4 md:p-8" ref={mainScrollRef}>
           <div className="max-w-7xl mx-auto h-full flex flex-col gap-6">
 
+            {/* IMPORTADOR INTELIGENTE */}
+            {activeMenu === 'importador' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <DataImporter 
+                  rawFaturamentoData={rawFaturamentoData}
+                  rawOperacionalData={rawOperacionalData}
+                  mapeamentoFiliais={mapeamentoFiliais}
+                  onImportComplete={async (diarias, penalidades, novoOperacional) => {
+                     const importedQuinzena = diarias.length > 0 ? diarias[0].quinzena : (penalidades.length > 0 ? penalidades[0].quinzena : null);
+                     
+                     let finalFaturamento = diarias;
+                     let finalPenalidades = penalidades;
+                     let finalOperacional = novoOperacional || [];
+
+                     if (importedQuinzena && importedQuinzena !== 'N/A') {
+                        const faturamentoMap = new Map();
+                        rawFaturamentoData.forEach(d => faturamentoMap.set(d.id_rota || Math.random().toString(), d));
+                        diarias.forEach(d => faturamentoMap.set(d.id_rota, d));
+                        finalFaturamento = Array.from(faturamentoMap.values());
+
+                        const penalidadesMap = new Map();
+                        rawData.forEach(d => penalidadesMap.set(`${d.id_rota}_${d.id_pacote}`, d));
+                        penalidades.forEach(d => penalidadesMap.set(`${d.id_rota}_${d.id_pacote}`, d));
+                        finalPenalidades = Array.from(penalidadesMap.values());
+                        
+                        const operacionalMap = new Map();
+                        rawOperacionalData.forEach(d => operacionalMap.set(`${d.id_rota}_${d.quinzena}`, d));
+                        if (novoOperacional) {
+                            novoOperacional.forEach(d => operacionalMap.set(`${d.id_rota}_${d.quinzena}`, d));
+                        }
+                        finalOperacional = Array.from(operacionalMap.values());
+                     }
+
+                     await syncToFirebase('faturamento', finalFaturamento);
+                     await syncToFirebase('penalidades', finalPenalidades);
+                     if (finalOperacional && finalOperacional.length > 0) {
+                        await syncToFirebase('operacional', finalOperacional);
+                     }
+                     fetchFromFirebase();
+                     setActiveMenu('gestao_financeira');
+                  }}
+                />
+              </div>
+            )}
+
+            {/* CONFIGURAÇÕES DE FILIAIS */}
+            {activeMenu === 'config_filiais' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <ConfigFiliais 
+                  mapeamentoFiliais={mapeamentoFiliais} 
+                  onSave={async (newMap) => {
+                    await syncToFirebase('mapeamento_filiais', newMap);
+                    fetchFromFirebase();
+                  }}
+                />
+              </div>
+            )}
+
             {/* PLANEJAMENTO SIMULADOR */}
             {activeMenu === 'planejamento' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -4360,6 +4376,7 @@ Diretrizes:
             {activeMenu === 'gestao_financeira' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                 
+                {/* AI SUMMARY TEMPORARILY DISABLED 
                 {isUserAdmin && (executiveSummary || isSummaryLoading) && (
                   <div className="mb-8 bg-gradient-to-r from-blue-900 to-indigo-900 p-6 md:p-8 rounded-3xl shadow-xl text-white relative overflow-hidden">
                     <div className="flex items-center gap-3 mb-3 relative z-10">
@@ -4379,6 +4396,7 @@ Diretrizes:
                     )}
                   </div>
                 )}
+                */}
 
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
                   <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
@@ -4508,6 +4526,7 @@ Diretrizes:
             {activeMenu === 'gestao_margem' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                 
+                {/* AI SUMMARY TEMPORARILY DISABLED 
                 {isUserAdmin && (executiveSummary || isSummaryLoading) && (
                   <div className="mb-8 bg-gradient-to-r from-blue-900 to-indigo-900 p-6 md:p-8 rounded-3xl shadow-xl text-white relative overflow-hidden">
                     <div className="flex items-center gap-3 mb-3 relative z-10">
@@ -4527,6 +4546,7 @@ Diretrizes:
                     )}
                   </div>
                 )}
+                */}
 
                 <div className="mb-6 flex flex-col gap-2 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
                   <div className="flex items-center gap-4 w-full">
@@ -4885,6 +4905,7 @@ Diretrizes:
             </div>
           )}
 
+          {/* BOTÃO DO AGENTE TEMPORARIAMENTE DESATIVADO
           <button onClick={() => setIsChatOpen(!isChatOpen)} className={`p-4 rounded-full shadow-2xl transition-all transform hover:scale-105 flex items-center gap-3 ${isChatOpen ? 'bg-slate-800 text-slate-400 border border-slate-700' : 'bg-blue-600 text-white hover:bg-blue-500'}`}>
             {isChatOpen ? <X className="w-6 h-6" /> : (
               <>
@@ -4893,6 +4914,7 @@ Diretrizes:
               </>
             )}
           </button>
+          */}
         </div>
 
       </main>
