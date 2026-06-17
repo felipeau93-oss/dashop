@@ -2278,6 +2278,8 @@ export default function App() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [executiveSummary, setExecutiveSummary] = useState('');
+  const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [agentContext, setAgentContext] = useState(''); // Contexto dinâmico da tela atual
   const [chatMessages, setChatMessages] = useState([
     { role: 'ai', text: 'Olá! Sou seu Agente Virtual e Especialista Logístico. Analisei os dados do seu dashboard. O que você gostaria de investigar hoje?' }
@@ -3129,6 +3131,13 @@ const fetchFromGoogleSheets = useCallback(async () => {
     return rawCustosData.filter(c => validKeys.has(`${c.filial}|${c.quinzena}`));
   }, [rawCustosData, faturamentoFiltrado]);
 
+  const prevCustosFiltrados = useMemo(() => {
+    if (!prevQuinzenaName) return [];
+    const prevFaturamento = faturamentoFiltradoEvolucao.filter(d => d.quinzena === prevQuinzenaName);
+    const validKeys = new Set(prevFaturamento.map(f => `${f.filial}|${f.quinzena}`));
+    return rawCustosData.filter(c => validKeys.has(`${c.filial}|${c.quinzena}`));
+  }, [rawCustosData, faturamentoFiltradoEvolucao, prevQuinzenaName]);
+
   const operacionalFiltrado = useMemo(() => {
     return distributedOperacional.filter(d =>
       matchFiltro(d.quinzena, filtroQuinzenas) &&
@@ -3330,6 +3339,28 @@ const fetchFromGoogleSheets = useCallback(async () => {
       margemPct: margemPct
     };
   }, [custosFiltrados, dadosFiltrados, percentualImpostoFinanceiro]);
+
+  const prevMargemBrutaMetrics = useMemo(() => {
+    if (!prevQuinzenaName) return null;
+    const totalFat = prevCustosFiltrados.reduce((acc, curr) => acc + (curr.receitaTotal || 0), 0);
+    const totalCustos = prevCustosFiltrados.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
+    const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
+    const margemErroDescontada = totalFat * 0.025;
+    
+    // Penalidades the previous quinzena (we can use prevQuinzenaStats or calculate again)
+    const totalPenalidades = dadosFiltradosEvolucao.filter(d => d.quinzena === prevQuinzenaName).reduce((acc, curr) => acc + (curr.valor || 0), 0);
+    
+    const margemBase = totalFat - impostoDescontado - totalCustos - totalPenalidades;
+    const margemPct = totalFat > 0 ? (margemBase / totalFat) * 100 : 0;
+    
+    return {
+      faturamento: totalFat,
+      custos: totalCustos,
+      penalidades: totalPenalidades,
+      margemRS: margemBase,
+      margemPct: margemPct
+    };
+  }, [prevCustosFiltrados, percentualImpostoFinanceiro, dadosFiltradosEvolucao, prevQuinzenaName]);
 
   const [selectedRegionalForMargin, setSelectedRegionalForMargin] = useState(null);
   const [selectedFilialForMargin, setSelectedFilialForMargin] = useState(null);
@@ -3989,6 +4020,54 @@ const fetchFromGoogleSheets = useCallback(async () => {
     }
   };
 
+  useEffect(() => {
+    // Apenas admins em visões estratégicas
+    if (!isUserAdmin || !targetQuinzenaRunRate || !['gestao_financeira', 'gestao_margem'].includes(activeMenu)) return;
+    
+    // Evitar fetch se as métricas ainda não calcularam
+    if (!margemBrutaMetrics) return;
+
+    const fetchExecutiveSummary = async () => {
+      setIsSummaryLoading(true);
+      const prompt = `Você é um Analista Executivo Sênior de uma transportadora.
+Escreva um resumo executivo direto e inspirador (máximo 2 parágrafos) analisando a quinzena atual (${targetQuinzenaRunRate}) em relação à anterior (${prevQuinzenaName || 'N/A'}).
+FOCO: Margem de Contribuição, Custos/Penalidades e Delivery Success.
+DADOS DA QUINZENA ATUAL:
+Margem: R$ ${margemBrutaMetrics.margemRS.toFixed(2)} (${margemBrutaMetrics.margemPct.toFixed(1)}%)
+Penalidades: R$ ${margemBrutaMetrics.penalidades.toFixed(2)}
+Faturamento: R$ ${margemBrutaMetrics.faturamento.toFixed(2)}
+DADOS DA QUINZENA ANTERIOR:
+Margem: R$ ${prevMargemBrutaMetrics?.margemRS?.toFixed(2) || 0} (${prevMargemBrutaMetrics?.margemPct?.toFixed(1) || 0}%)
+Penalidades: R$ ${prevMargemBrutaMetrics?.penalidades?.toFixed(2) || 0}
+Faturamento: R$ ${prevMargemBrutaMetrics?.faturamento?.toFixed(2) || 0}
+Diretrizes: 
+- Use emojis profissionais. 
+- Seja muito breve, focado em insights e variação percentual. 
+- Se a quinzena anterior for N/A ou não tiver dados, analise apenas a atual.
+- NÃO escreva "Olá" nem despedidas. Comece direto na análise.`;
+
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }]
+          })
+        });
+        const data = await response.json();
+        if (data.candidates && data.candidates[0].content.parts[0].text) {
+          setExecutiveSummary(data.candidates[0].content.parts[0].text);
+        }
+      } catch (err) {
+        console.error('Error fetching summary:', err);
+      } finally {
+        setIsSummaryLoading(false);
+      }
+    };
+
+    fetchExecutiveSummary();
+  }, [targetQuinzenaRunRate, activeMenu, isUserAdmin, margemBrutaMetrics, prevMargemBrutaMetrics, prevQuinzenaName]);
+
   // TELA PRINCIPAL (DASHBOARD)
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
@@ -4230,13 +4309,40 @@ const fetchFromGoogleSheets = useCallback(async () => {
             {activeMenu === 'gestao_financeira' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                 
+                {isUserAdmin && (executiveSummary || isSummaryLoading) && (
+                  <div className="mb-8 bg-gradient-to-r from-blue-900 to-indigo-900 p-6 md:p-8 rounded-3xl shadow-xl text-white relative overflow-hidden">
+                    <div className="flex items-center gap-3 mb-3 relative z-10">
+                      <Sparkles className="w-5 h-5 text-blue-300" />
+                      <h3 className="text-lg font-bold text-blue-100">Resumo Executivo ({targetQuinzenaRunRate})</h3>
+                    </div>
+                    {isSummaryLoading ? (
+                      <div className="animate-pulse flex space-x-4 relative z-10">
+                        <div className="flex-1 space-y-4 py-2">
+                          <div className="h-2 bg-blue-400/30 rounded w-3/4"></div>
+                          <div className="h-2 bg-blue-400/30 rounded w-full"></div>
+                          <div className="h-2 bg-blue-400/30 rounded w-5/6"></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative z-10 text-sm md:text-base text-blue-50 leading-relaxed space-y-2 whitespace-pre-wrap">{executiveSummary}</div>
+                    )}
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
                   <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
                     <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
                     <div>
                       <h2 className="text-sm md:text-base font-bold text-blue-400 mb-2 z-10 tracking-widest uppercase">Penalidades vs Faturamento</h2>
                       <div className="flex flex-col mb-8 z-10">
-                        <span className="text-5xl font-black leading-tight tracking-tight text-red-400">{formatCurrency(resumoMetrics.total)}</span>
+                        <span className="text-5xl font-black leading-tight tracking-tight text-red-400 flex items-center gap-3">
+                          {formatCurrency(resumoMetrics.total)}
+                          {prevMargemBrutaMetrics && (
+                            <span className={`text-sm px-2 py-1 rounded-lg flex items-center font-bold ${resumoMetrics.total <= prevMargemBrutaMetrics.penalidades ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                              {resumoMetrics.total <= prevMargemBrutaMetrics.penalidades ? '⬇' : '⬆'} {Math.abs(((resumoMetrics.total - prevMargemBrutaMetrics.penalidades) / (prevMargemBrutaMetrics.penalidades || 1)) * 100).toFixed(1)}% vs anterior
+                            </span>
+                          )}
+                        </span>
                         <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Total Descontado ({formatQtd(resumoMetrics.qtdTotal)} infrações)</span>
                       </div>
                     </div>
@@ -4244,7 +4350,17 @@ const fetchFromGoogleSheets = useCallback(async () => {
                       <div className="flex justify-between items-center"><span className="text-blue-400 font-bold">PNRs</span> <span>{formatCurrency(pnrTot.valor)}</span></div>
                       <div className="flex justify-between items-center"><span className="text-orange-400 font-bold">Lost Packages</span> <span>{formatCurrency(lostTot.valor)}</span></div>
                       <div className="flex justify-between items-center"><span className="text-slate-400 font-bold">Not Visited</span> <span>{formatCurrency(nvTot.valor)}</span></div>
-                      <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-700"><span className="text-emerald-400 font-bold">Faturamento Total</span> <span className="text-emerald-400 font-bold text-base">{formatCurrency(faturamentoTotalMetrics)}</span></div>
+                      <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-700">
+                        <span className="text-emerald-400 font-bold">Faturamento Total</span> 
+                        <div className="flex flex-col items-end">
+                          <span className="text-emerald-400 font-bold text-base">{formatCurrency(faturamentoTotalMetrics)}</span>
+                          {prevMargemBrutaMetrics && prevMargemBrutaMetrics.faturamento > 0 && (
+                            <span className={`text-[10px] font-bold ${faturamentoTotalMetrics >= prevMargemBrutaMetrics.faturamento ? 'text-emerald-500' : 'text-red-400'}`}>
+                              {faturamentoTotalMetrics >= prevMargemBrutaMetrics.faturamento ? '⬆' : '⬇'} {Math.abs(((faturamentoTotalMetrics - prevMargemBrutaMetrics.faturamento) / prevMargemBrutaMetrics.faturamento) * 100).toFixed(1)}% vs ant.
+                            </span>
+                          )}
+                        </div>
+                      </div>
                       <div className="flex justify-between items-center"><span className="text-violet-400 font-bold">% de Representatividade</span> <span className="text-white font-bold">{faturamentoTotalMetrics > 0 ? ((resumoMetrics.total / faturamentoTotalMetrics) * 100).toFixed(2) + '%' : '0%'}</span></div>
                     </div>
                   </div>
@@ -4301,6 +4417,27 @@ const fetchFromGoogleSheets = useCallback(async () => {
             {/* GESTÃO DE MARGEM DE CONTRIBUIÇÃO */}
             {activeMenu === 'gestao_margem' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                
+                {isUserAdmin && (executiveSummary || isSummaryLoading) && (
+                  <div className="mb-8 bg-gradient-to-r from-blue-900 to-indigo-900 p-6 md:p-8 rounded-3xl shadow-xl text-white relative overflow-hidden">
+                    <div className="flex items-center gap-3 mb-3 relative z-10">
+                      <Sparkles className="w-5 h-5 text-blue-300" />
+                      <h3 className="text-lg font-bold text-blue-100">Resumo Executivo ({targetQuinzenaRunRate})</h3>
+                    </div>
+                    {isSummaryLoading ? (
+                      <div className="animate-pulse flex space-x-4 relative z-10">
+                        <div className="flex-1 space-y-4 py-2">
+                          <div className="h-2 bg-blue-400/30 rounded w-3/4"></div>
+                          <div className="h-2 bg-blue-400/30 rounded w-full"></div>
+                          <div className="h-2 bg-blue-400/30 rounded w-5/6"></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative z-10 text-sm md:text-base text-blue-50 leading-relaxed space-y-2 whitespace-pre-wrap">{executiveSummary}</div>
+                    )}
+                  </div>
+                )}
+
                 <div className="mb-6 flex flex-col gap-2 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
                   <div className="flex items-center gap-4 w-full">
                     <div className="flex-1">
@@ -4332,7 +4469,14 @@ const fetchFromGoogleSheets = useCallback(async () => {
                     <div>
                       <h2 className="text-sm md:text-base font-bold text-emerald-400 mb-2 z-10 tracking-widest uppercase">Margem de Contribuição</h2>
                       <div className="flex flex-col mb-8 z-10">
-                        <span className={`text-5xl font-black leading-tight tracking-tight ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemBrutaMetrics.margemRS)}</span>
+                        <span className={`text-5xl font-black leading-tight tracking-tight flex items-center gap-3 ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {formatCurrency(margemBrutaMetrics.margemRS)}
+                          {prevMargemBrutaMetrics && (
+                            <span className={`text-sm px-2 py-1 rounded-lg flex items-center font-bold ${margemBrutaMetrics.margemRS >= (prevMargemBrutaMetrics.margemRS || 0) ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                              {margemBrutaMetrics.margemRS >= (prevMargemBrutaMetrics.margemRS || 0) ? '⬆' : '⬇'} {Math.abs(prevMargemBrutaMetrics.margemRS ? ((margemBrutaMetrics.margemRS - prevMargemBrutaMetrics.margemRS) / Math.abs(prevMargemBrutaMetrics.margemRS)) * 100 : 0).toFixed(1)}% vs anterior
+                            </span>
+                          )}
+                        </span>
                         <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Margem global de {margemBrutaMetrics.margemPct.toFixed(1)}%</span>
                       </div>
                     </div>
