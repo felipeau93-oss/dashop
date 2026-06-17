@@ -3131,13 +3131,6 @@ const fetchFromGoogleSheets = useCallback(async () => {
     return rawCustosData.filter(c => validKeys.has(`${c.filial}|${c.quinzena}`));
   }, [rawCustosData, faturamentoFiltrado]);
 
-  const prevCustosFiltrados = useMemo(() => {
-    if (!prevQuinzenaName) return [];
-    const prevFaturamento = faturamentoFiltradoEvolucao.filter(d => d.quinzena === prevQuinzenaName);
-    const validKeys = new Set(prevFaturamento.map(f => `${f.filial}|${f.quinzena}`));
-    return rawCustosData.filter(c => validKeys.has(`${c.filial}|${c.quinzena}`));
-  }, [rawCustosData, faturamentoFiltradoEvolucao, prevQuinzenaName]);
-
   const operacionalFiltrado = useMemo(() => {
     return distributedOperacional.filter(d =>
       matchFiltro(d.quinzena, filtroQuinzenas) &&
@@ -3340,28 +3333,6 @@ const fetchFromGoogleSheets = useCallback(async () => {
     };
   }, [custosFiltrados, dadosFiltrados, percentualImpostoFinanceiro]);
 
-  const prevMargemBrutaMetrics = useMemo(() => {
-    if (!prevQuinzenaName) return null;
-    const totalFat = prevCustosFiltrados.reduce((acc, curr) => acc + (curr.receitaTotal || 0), 0);
-    const totalCustos = prevCustosFiltrados.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
-    const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
-    const margemErroDescontada = totalFat * 0.025;
-    
-    // Penalidades the previous quinzena (we can use prevQuinzenaStats or calculate again)
-    const totalPenalidades = dadosFiltradosEvolucao.filter(d => d.quinzena === prevQuinzenaName).reduce((acc, curr) => acc + (curr.valor || 0), 0);
-    
-    const margemBase = totalFat - impostoDescontado - totalCustos - totalPenalidades;
-    const margemPct = totalFat > 0 ? (margemBase / totalFat) * 100 : 0;
-    
-    return {
-      faturamento: totalFat,
-      custos: totalCustos,
-      penalidades: totalPenalidades,
-      margemRS: margemBase,
-      margemPct: margemPct
-    };
-  }, [prevCustosFiltrados, percentualImpostoFinanceiro, dadosFiltradosEvolucao, prevQuinzenaName]);
-
   const [selectedRegionalForMargin, setSelectedRegionalForMargin] = useState(null);
   const [selectedFilialForMargin, setSelectedFilialForMargin] = useState(null);
 
@@ -3550,6 +3521,35 @@ const fetchFromGoogleSheets = useCallback(async () => {
     });
     return { name: prevQuinzenaName, fat, pen, pnr, lost, nv, filiaisMap };
   }, [dadosFiltradosEvolucao, faturamentoFiltradoEvolucao, prevQuinzenaName]);
+
+  const prevCustosFiltrados = useMemo(() => {
+    if (!prevQuinzenaName) return [];
+    const prevFaturamento = faturamentoFiltradoEvolucao.filter(d => d.quinzena === prevQuinzenaName);
+    const validKeys = new Set(prevFaturamento.map(f => `${f.filial}|${f.quinzena}`));
+    return rawCustosData.filter(c => validKeys.has(`${c.filial}|${c.quinzena}`));
+  }, [rawCustosData, faturamentoFiltradoEvolucao, prevQuinzenaName]);
+
+  const prevMargemBrutaMetrics = useMemo(() => {
+    if (!prevQuinzenaName) return null;
+    const totalFat = prevCustosFiltrados.reduce((acc, curr) => acc + (curr.receitaTotal || 0), 0);
+    const totalCustos = prevCustosFiltrados.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
+    const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
+    const margemErroDescontada = totalFat * 0.025;
+    
+    // Penalidades the previous quinzena (we can use prevQuinzenaStats or calculate again)
+    const totalPenalidades = dadosFiltradosEvolucao.filter(d => d.quinzena === prevQuinzenaName).reduce((acc, curr) => acc + (curr.valor || 0), 0);
+    
+    const margemBase = totalFat - impostoDescontado - totalCustos - totalPenalidades;
+    const margemPct = totalFat > 0 ? (margemBase / totalFat) * 100 : 0;
+    
+    return {
+      faturamento: totalFat,
+      custos: totalCustos,
+      penalidades: totalPenalidades,
+      margemRS: margemBase,
+      margemPct: margemPct
+    };
+  }, [prevCustosFiltrados, percentualImpostoFinanceiro, dadosFiltradosEvolucao, prevQuinzenaName]);
 
   const baseRunRateData = useMemo(() => {
     if (!targetQuinzenaRunRate) return [];
