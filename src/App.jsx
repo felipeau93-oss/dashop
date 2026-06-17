@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo, useEffect, Fragment, useRef } fr
 import Simulador from './Simulador';
 import DreAnaliseCusto from './DreAnaliseCusto';
 import DreCustoLeve from './DreCustoLeve';
+import DreViabilidade from './DreViabilidade';
 import { db, auth } from './firebase';
 import { collection, writeBatch, doc, getDocs } from 'firebase/firestore';
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
@@ -37,7 +38,8 @@ import {
   Send,
   Bot,
   ExternalLink,
-  Menu
+  Menu,
+  Sparkles
 } from 'lucide-react';
 
 // ============================================================================
@@ -3492,6 +3494,15 @@ const fetchFromGoogleSheets = useCallback(async () => {
     return null;
   }, [quinzenasDisponiveis, targetQuinzenaRunRate]);
 
+  const prevPrevQuinzenaName = useMemo(() => {
+    if (!targetQuinzenaRunRate || quinzenasDisponiveis.length < 3) return null;
+    const currentIndex = quinzenasDisponiveis.indexOf(targetQuinzenaRunRate);
+    if (currentIndex !== -1 && currentIndex + 2 < quinzenasDisponiveis.length) {
+      return quinzenasDisponiveis[currentIndex + 2];
+    }
+    return null;
+  }, [quinzenasDisponiveis, targetQuinzenaRunRate]);
+
   const prevQuinzenaStats = useMemo(() => {
     if (!prevQuinzenaName) return null;
     let fat = 0, pen = 0, pnr = 0, lost = 0, nv = 0;
@@ -3550,6 +3561,30 @@ const fetchFromGoogleSheets = useCallback(async () => {
       margemPct: margemPct
     };
   }, [prevCustosFiltrados, percentualImpostoFinanceiro, dadosFiltradosEvolucao, prevQuinzenaName]);
+
+  const prevPrevMargemBrutaMetrics = useMemo(() => {
+    if (!prevPrevQuinzenaName) return null;
+    const prevPrevFaturamento = faturamentoFiltradoEvolucao.filter(d => d.quinzena === prevPrevQuinzenaName);
+    const validKeys = new Set(prevPrevFaturamento.map(f => `${f.filial}|${f.quinzena}`));
+    const custos = rawCustosData.filter(c => validKeys.has(`${c.filial}|${c.quinzena}`));
+
+    const totalFat = custos.reduce((acc, curr) => acc + (curr.receitaTotal || 0), 0);
+    const totalCustos = custos.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
+    const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
+    
+    const totalPenalidades = dadosFiltradosEvolucao.filter(d => d.quinzena === prevPrevQuinzenaName).reduce((acc, curr) => acc + (curr.valor || 0), 0);
+    
+    const margemBase = totalFat - impostoDescontado - totalCustos - totalPenalidades;
+    const margemPct = totalFat > 0 ? (margemBase / totalFat) * 100 : 0;
+    
+    return {
+      faturamento: totalFat,
+      custos: totalCustos,
+      penalidades: totalPenalidades,
+      margemRS: margemBase,
+      margemPct: margemPct
+    };
+  }, [rawCustosData, faturamentoFiltradoEvolucao, percentualImpostoFinanceiro, dadosFiltradosEvolucao, prevPrevQuinzenaName]);
 
   const baseRunRateData = useMemo(() => {
     if (!targetQuinzenaRunRate) return [];
@@ -3893,6 +3928,57 @@ const fetchFromGoogleSheets = useCallback(async () => {
     finally { setExportingType(null); }
   };
 
+  useEffect(() => {
+    // Apenas admins em visões estratégicas
+    if (!isUserAdmin || !targetQuinzenaRunRate || !['gestao_financeira', 'gestao_margem'].includes(activeMenu)) return;
+    
+    // Evitar fetch se as métricas ainda não calcularam
+    if (!margemBrutaMetrics) return;
+
+    const fetchExecutiveSummary = async () => {
+      setIsSummaryLoading(true);
+      const prompt = `Você é um Analista Executivo Sênior de uma transportadora.
+Escreva um resumo executivo extremamente sucinto e direto (máximo 1 parágrafo) analisando a quinzena atual (${targetQuinzenaRunRate}) e comparando-a com as duas anteriores (${prevQuinzenaName || 'N/A'} e ${prevPrevQuinzenaName || 'N/A'}).
+FOCO PRINCIPAL: Evolução da Rentabilidade Final (Margem Operacional), e variação percentual dos custos operacionais e faturamento.
+DADOS DA QUINZENA ATUAL (${targetQuinzenaRunRate}):
+Rentabilidade Final: R$ ${margemBrutaMetrics.margemRS.toFixed(2)} (${margemBrutaMetrics.margemPct.toFixed(1)}%)
+Custos Operacionais: R$ ${margemBrutaMetrics.custos.toFixed(2)}
+Faturamento Bruto: R$ ${margemBrutaMetrics.faturamento.toFixed(2)}
+DADOS DA QUINZENA ANTERIOR 1 (${prevQuinzenaName || 'N/A'}):
+Rentabilidade Final: R$ ${prevMargemBrutaMetrics?.margemRS?.toFixed(2) || 0} (${prevMargemBrutaMetrics?.margemPct?.toFixed(1) || 0}%)
+Custos Operacionais: R$ ${prevMargemBrutaMetrics?.custos?.toFixed(2) || 0}
+Faturamento Bruto: R$ ${prevMargemBrutaMetrics?.faturamento?.toFixed(2) || 0}
+DADOS DA QUINZENA ANTERIOR 2 (${prevPrevQuinzenaName || 'N/A'}):
+Rentabilidade Final: R$ ${prevPrevMargemBrutaMetrics?.margemRS?.toFixed(2) || 0} (${prevPrevMargemBrutaMetrics?.margemPct?.toFixed(1) || 0}%)
+Custos Operacionais: R$ ${prevPrevMargemBrutaMetrics?.custos?.toFixed(2) || 0}
+Faturamento Bruto: R$ ${prevPrevMargemBrutaMetrics?.faturamento?.toFixed(2) || 0}
+Diretrizes: 
+- Use linguagem estritamente corporativa e de fácil entendimento. 
+- Aponte a tendência clara de melhora, piora ou estabilidade. 
+- Sem introduções ou fechamentos, foque 100% no insight dos números.`;
+
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }]
+          })
+        });
+        const data = await response.json();
+        if (data.candidates && data.candidates[0].content.parts[0].text) {
+          setExecutiveSummary(data.candidates[0].content.parts[0].text);
+        }
+      } catch (err) {
+        console.error('Error fetching summary:', err);
+      } finally {
+        setIsSummaryLoading(false);
+      }
+    };
+
+    fetchExecutiveSummary();
+  }, [targetQuinzenaRunRate, activeMenu, isUserAdmin, margemBrutaMetrics, prevMargemBrutaMetrics, prevQuinzenaName, prevPrevMargemBrutaMetrics, prevPrevQuinzenaName]);
+
   // TELA DE LOGIN
   if (isAuthenticated === null) {
     return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div></div>;
@@ -4020,54 +4106,6 @@ const fetchFromGoogleSheets = useCallback(async () => {
     }
   };
 
-  useEffect(() => {
-    // Apenas admins em visões estratégicas
-    if (!isUserAdmin || !targetQuinzenaRunRate || !['gestao_financeira', 'gestao_margem'].includes(activeMenu)) return;
-    
-    // Evitar fetch se as métricas ainda não calcularam
-    if (!margemBrutaMetrics) return;
-
-    const fetchExecutiveSummary = async () => {
-      setIsSummaryLoading(true);
-      const prompt = `Você é um Analista Executivo Sênior de uma transportadora.
-Escreva um resumo executivo direto e inspirador (máximo 2 parágrafos) analisando a quinzena atual (${targetQuinzenaRunRate}) em relação à anterior (${prevQuinzenaName || 'N/A'}).
-FOCO: Margem de Contribuição, Custos/Penalidades e Delivery Success.
-DADOS DA QUINZENA ATUAL:
-Margem: R$ ${margemBrutaMetrics.margemRS.toFixed(2)} (${margemBrutaMetrics.margemPct.toFixed(1)}%)
-Penalidades: R$ ${margemBrutaMetrics.penalidades.toFixed(2)}
-Faturamento: R$ ${margemBrutaMetrics.faturamento.toFixed(2)}
-DADOS DA QUINZENA ANTERIOR:
-Margem: R$ ${prevMargemBrutaMetrics?.margemRS?.toFixed(2) || 0} (${prevMargemBrutaMetrics?.margemPct?.toFixed(1) || 0}%)
-Penalidades: R$ ${prevMargemBrutaMetrics?.penalidades?.toFixed(2) || 0}
-Faturamento: R$ ${prevMargemBrutaMetrics?.faturamento?.toFixed(2) || 0}
-Diretrizes: 
-- Use emojis profissionais. 
-- Seja muito breve, focado em insights e variação percentual. 
-- Se a quinzena anterior for N/A ou não tiver dados, analise apenas a atual.
-- NÃO escreva "Olá" nem despedidas. Comece direto na análise.`;
-
-      try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }]
-          })
-        });
-        const data = await response.json();
-        if (data.candidates && data.candidates[0].content.parts[0].text) {
-          setExecutiveSummary(data.candidates[0].content.parts[0].text);
-        }
-      } catch (err) {
-        console.error('Error fetching summary:', err);
-      } finally {
-        setIsSummaryLoading(false);
-      }
-    };
-
-    fetchExecutiveSummary();
-  }, [targetQuinzenaRunRate, activeMenu, isUserAdmin, margemBrutaMetrics, prevMargemBrutaMetrics, prevQuinzenaName]);
-
   // TELA PRINCIPAL (DASHBOARD)
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
@@ -4184,7 +4222,7 @@ Diretrizes:
                     handleMenuChange('planejamento');
                     if (!expandedMenus.planejamento) toggleExpandedMenu('planejamento', { stopPropagation: () => {} });
                   }} 
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['planejamento', 'dre_custos', 'dre_leves'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['planejamento', 'dre_custos', 'dre_leves', 'dre_viabilidade'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
                 >
                   <div className="flex items-center gap-3">
                     <Calculator className={`w-4 h-4 shrink-0 ${activeMenu === 'planejamento' ? 'text-blue-400' : ''}`} />
@@ -4195,12 +4233,15 @@ Diretrizes:
                   </div>
                 </button>
 
-                <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.planejamento ? 'max-h-40 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
+                <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.planejamento ? 'max-h-60 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
                   <button onClick={() => handleMenuChange('dre_custos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_custos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                     <span className="truncate">DRE Custo Pesados</span>
                   </button>
                   <button onClick={() => handleMenuChange('dre_leves')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_leves' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                     <span className="truncate">DRE Custo Leves</span>
+                  </button>
+                  <button onClick={() => handleMenuChange('dre_viabilidade')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_viabilidade' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                    <span className="truncate">DRE Viabilidade</span>
                   </button>
                 </div>
               </div>
@@ -4298,6 +4339,13 @@ Diretrizes:
               </div>
             )}
 
+            {/* DRE VIABILIDADE DE PROJETO */}
+            {activeMenu === 'dre_viabilidade' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <DreViabilidade setAgentContext={setAgentContext} />
+              </div>
+            )}
+
             {/* DRE ANÁLISE DE CUSTO LEVES */}
             {activeMenu === 'dre_leves' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
@@ -4381,6 +4429,39 @@ Diretrizes:
                     </div>
                   </div>
                 </div>
+
+                {prevMargemBrutaMetrics && (
+                  <>
+                    <h3 className="text-lg font-bold text-blue-100 mb-4 mt-8">Comparativo: Quinzena Anterior ({prevQuinzenaName})</h3>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+                      <div className="bg-slate-800/50 p-8 md:p-10 rounded-3xl shadow-xl text-slate-300 relative overflow-hidden flex flex-col justify-between border border-slate-700/50">
+                        <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
+                        <div>
+                          <h2 className="text-sm md:text-base font-bold text-blue-400/70 mb-2 z-10 tracking-widest uppercase">Penalidades vs Faturamento</h2>
+                          <div className="flex flex-col mb-8 z-10">
+                            <span className="text-4xl font-black leading-tight tracking-tight text-red-400/70 flex items-center gap-3">
+                              {formatCurrency(prevMargemBrutaMetrics.penalidades)}
+                            </span>
+                            <span className="text-sm text-slate-400/70 mt-2 font-medium bg-slate-800/50 self-start px-4 py-1.5 rounded-lg border border-slate-700/50">Penalidades na quinzena</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-800/50 p-8 md:p-10 rounded-3xl shadow-xl text-slate-300 relative overflow-hidden flex flex-col justify-between border border-slate-700/50">
+                        <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
+                        <div>
+                          <h2 className="text-sm md:text-base font-bold text-emerald-400/70 mb-2 z-10 tracking-widest uppercase">Resumo de Margem (Global)</h2>
+                          <div className="flex flex-col mb-8 z-10">
+                            <span className={`text-4xl font-black leading-tight tracking-tight flex items-center gap-3 ${(prevMargemBrutaMetrics.margemRS || 0) >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                              {formatCurrency(prevMargemBrutaMetrics.margemRS || 0)}
+                            </span>
+                            <span className="text-sm text-slate-400/70 mt-2 font-medium bg-slate-800/50 self-start px-4 py-1.5 rounded-lg border border-slate-700/50">Rentabilidade: {(prevMargemBrutaMetrics.margemPct || 0).toFixed(1)}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <div className="mb-8">
                   <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { setModalEvolutivoFilial(f); }} />
