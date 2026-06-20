@@ -4271,7 +4271,7 @@ Diretrizes:
                   handleMenuChange('gestao_operacional');
                   if (!expandedMenus.operacional) toggleExpandedMenu('operacional', { stopPropagation: () => {} });
                 }} 
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_operacional', 'gestao_penalidades', 'gestao_bsc', 'comparativo_bsc', 'gaps_operacionais'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_operacional', 'gestao_penalidades', 'gestao_bsc', 'comparativo_bsc', 'gaps_operacionais', 'painel_treinamentos'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
               >
                 <div className="flex items-center gap-3">
                   <Box className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_operacional' ? 'text-blue-400' : ''}`} />
@@ -4296,6 +4296,9 @@ Diretrizes:
                     </button>
                     <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                       <span className="truncate">Gaps Operacionais</span>
+                    </button>
+                    <button onClick={() => handleMenuChange('painel_treinamentos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'painel_treinamentos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                      <span className="truncate">Treinamentos</span>
                     </button>
                   </>
                 )}
@@ -4371,18 +4374,6 @@ Diretrizes:
                   <div className="flex items-center gap-3">
                     <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_tarifas' ? 'text-blue-400' : ''}`} />
                     <span className={`truncate ${activeMenu === 'config_tarifas' ? 'font-bold' : ''}`}>Config. de Tarifas</span>
-                  </div>
-                </button>
-                <button 
-                  onClick={() => {
-                    handleMenuChange('painel_treinamentos');
-                    setIsMobileMenuOpen(false);
-                  }} 
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'painel_treinamentos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
-                >
-                  <div className="flex items-center gap-3">
-                    <GraduationCap className={`w-4 h-4 shrink-0 ${activeMenu === 'painel_treinamentos' ? 'text-blue-400' : ''}`} />
-                    <span className={`truncate ${activeMenu === 'painel_treinamentos' ? 'font-bold' : ''}`}>Compliance & Treinamentos</span>
                   </div>
                 </button>
               </div>
