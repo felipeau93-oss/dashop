@@ -2810,7 +2810,10 @@ export default function App() {
          return items;
       };
 
+      await new Promise(r => setTimeout(r, 50));
       const penalidadesRaw = await extractItems('penalidades_testes');
+      await new Promise(r => setTimeout(r, 50));
+      
       const penalidades = penalidadesRaw.map(p => {
          if (!p.tipo && p.descricao) {
             let tipoFinal = 'Outros';
@@ -2822,17 +2825,24 @@ export default function App() {
          }
          return p;
       });
+      
+      await new Promise(r => setTimeout(r, 50));
       const faturamento = await extractItems('faturamento_testes');
+      await new Promise(r => setTimeout(r, 50));
       const operacional_raw = await extractItems('operacional_testes');
+      await new Promise(r => setTimeout(r, 50));
       const capcar = await extractItems('capcar_testes');
       
+      await new Promise(r => setTimeout(r, 50));
       const bsc_old = [];
       const bsc_new_raw = await extractItems('operacional_bsc_testes');
       const bsc = [...bsc_old, ...bsc_new_raw];
 
+      await new Promise(r => setTimeout(r, 50));
       const custosFinanceiros = await extractItems('custosFinanceiros_testes');
       const mergedCustos = [...custosFinanceiros, ...capcar];
 
+      await new Promise(r => setTimeout(r, 50));
       const tarifasAtuais = await extractItems('tarifas_testes');
 
       const ignoradasSnap = await getDocs(collection(db, getCollectionName('rotas_ignoradas_testes')));
@@ -2840,9 +2850,12 @@ export default function App() {
       ignoradasSnap.forEach(doc => rotasIgnoradas.add(String(doc.id).trim()));
       
       // Keep old getDocs for chunked map
+      await new Promise(r => setTimeout(r, 50));
       const colRef = collection(db, getCollectionName('app_dados_comprimidos_testes'));
       const oldSnap = await getDocs(colRef);
       const chunksData = {};
+      
+      let chunkCount = 0;
       oldSnap.forEach(doc => {
         const id = doc.id;
         if (id.includes('___chunk_')) {
@@ -2853,12 +2866,15 @@ export default function App() {
           if (!chunksData[colName]) chunksData[colName] = {};
           if (!chunksData[colName][quinzena]) chunksData[colName][quinzena] = [];
           chunksData[colName][quinzena][index] = doc.data().payload;
+          chunkCount++;
         }
       });
-      const parseChunks = (colName) => {
+      
+      const parseChunks = async (colName) => {
         if (!chunksData[colName]) return [];
         let combinedData = [];
         for (const [quinzena, chunkArr] of Object.entries(chunksData[colName])) {
+           await new Promise(r => setTimeout(r, 10)); // Yield while parsing huge JSONs
            const fullString = chunkArr.join('');
            if (fullString) {
               try {
@@ -2874,7 +2890,8 @@ export default function App() {
         return combinedData;
       };
       
-      const mapeamento = parseChunks('mapeamento_filiais');
+      await new Promise(r => setTimeout(r, 50));
+      const mapeamento = await parseChunks('mapeamento_filiais');
       
       // Corrigir Nomes Errados no Operacional (limpeza de chaves indesejadas)
       const validOpKeys = [
@@ -2883,6 +2900,7 @@ export default function App() {
         'nao visitado', 'nao localizado', 'faltante', 'fora de rota', 
         'cliente ausente', 'tentativa roubo', 'insucessos'
       ];
+      await new Promise(r => setTimeout(r, 50));
       const operacional = operacional_raw.map(d => {
         if (d.insucessosDetalhados) {
            const cleanedInsucessos = {};
