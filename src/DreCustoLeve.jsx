@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Car, Truck, DollarSign, TrendingUp, TrendingDown, Package, Percent, MapPin, Calendar, Clock, Map, Save, History, Trash2, X, Check } from 'lucide-react';
-import { tarifas } from './data/tarifas';
-import { db } from "./firebase";
+import { tarifas as defaultTarifas } from './data/tarifas';
+import { db, getCollectionName } from './firebase';
 import { collection, addDoc, getDocs, doc, deleteDoc } from "firebase/firestore";
 
 const formatCurrency = (value) => {
@@ -18,7 +18,7 @@ const KM_LABELS = {
   '301/99999': 'Acima de 300 km'
 };
 
-const VehicleCard = ({ title, icon: Icon, data, custosMotorista, setCustosMotorista, isCompetitorMode, compCustos, setCompCustos }) => {
+const VehicleCard = ({ title, icon: Icon, data, custosMotorista, setCustosMotorista, isCompetitorMode, compCustos, setCompCustos, activeTarifas }) => {
   const { imposto, diaSemana, turno } = data;
 
   const normalizeString = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -31,7 +31,7 @@ const VehicleCard = ({ title, icon: Icon, data, custosMotorista, setCustosMotori
 
     // Se alterou a primeira faixa, calcula o sugerido para as demais
     if (range === '1/100') {
-      const tarifaBaseObj = tarifas.find(t => normalizeString(t.categoria) === normalizeString(title) && t.range === '1/100' && t.diaSem === diaSemana && t.ciclo === turno);
+      const tarifaBaseObj = activeTarifas.find(t => normalizeString(t.categoria) === normalizeString(title) && t.range === '1/100' && t.diaSem === diaSemana && t.ciclo === turno);
       const faturamentoBase100 = tarifaBaseObj ? tarifaBaseObj.tarifa : 0;
       const receitaTotal100 = faturamentoBase100;
       const impostoTotal100 = receitaTotal100 * (Number(imposto) / 100);
@@ -40,7 +40,7 @@ const VehicleCard = ({ title, icon: Icon, data, custosMotorista, setCustosMotori
 
       KM_RANGES.forEach(r => {
         if (r !== '1/100') {
-          const tObj = tarifas.find(t => normalizeString(t.categoria) === normalizeString(title) && t.range === r && t.diaSem === diaSemana && t.ciclo === turno);
+          const tObj = activeTarifas.find(t => normalizeString(t.categoria) === normalizeString(title) && t.range === r && t.diaSem === diaSemana && t.ciclo === turno);
           const rBase = tObj ? tObj.tarifa : 0;
           const rTot = rBase;
           const imp = rTot * (Number(imposto) / 100);
@@ -68,7 +68,7 @@ const VehicleCard = ({ title, icon: Icon, data, custosMotorista, setCustosMotori
       <div className="p-3 flex-1 flex flex-col gap-3 justify-between">
         <div className="flex flex-col gap-3">
           {KM_RANGES.map((range, index) => {
-            const tarifaObj = tarifas.find(t => normalizeString(t.categoria) === normalizeString(title) && t.range === range && t.diaSem === diaSemana && t.ciclo === turno);
+            const tarifaObj = activeTarifas.find(t => normalizeString(t.categoria) === normalizeString(title) && t.range === range && t.diaSem === diaSemana && t.ciclo === turno);
             const faturamentoBase = tarifaObj ? tarifaObj.tarifa : 0;
             
             const receitaTotal = faturamentoBase;
@@ -173,7 +173,9 @@ const VehicleCard = ({ title, icon: Icon, data, custosMotorista, setCustosMotori
   );
 };
 
-const DreCustoLeve = () => {
+export default function DreCustoLeve({ setAgentContext, dynamicTarifas = [] }) {
+  const activeTarifas = dynamicTarifas && dynamicTarifas.length > 0 ? dynamicTarifas : defaultTarifas;
+  
   const [imposto, setImposto] = useState(6.56);
   
   const [diaSemana, setDiaSemana] = useState('Seg-Sab');
@@ -201,7 +203,7 @@ const DreCustoLeve = () => {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const querySnapshot = await getDocs(collection(db, "simulacoes"));
+        const querySnapshot = await getDocs(collection(db, getCollectionName("simulacoes_testes")));
         const data = [];
         querySnapshot.forEach((document) => {
           data.push({ ...document.data(), docId: document.id });
@@ -240,7 +242,7 @@ const DreCustoLeve = () => {
     };
     
     try {
-      const docRef = await addDoc(collection(db, "simulacoes"), newState);
+      const docRef = await addDoc(collection(db, getCollectionName("simulacoes_testes")), newState);
       console.log("Salvo na nuvem com ID: ", docRef.id);
       
       const newHistory = [newState, ...historyData];
@@ -284,7 +286,7 @@ const DreCustoLeve = () => {
     
     try {
       if (docId) {
-        await deleteDoc(doc(db, "simulacoes", docId));
+        await deleteDoc(doc(db, getCollectionName("simulacoes"), docId));
       }
       const newHistory = historyData.filter(h => h.id !== id);
       setHistoryData(newHistory);
@@ -508,10 +510,10 @@ const DreCustoLeve = () => {
 
         {/* COMPARAÇÃO DOS VEÍCULOS */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-          <VehicleCard title="Passeio" icon={Car} data={globalData} custosMotorista={motPasseio} setCustosMotorista={setMotPasseio} isCompetitorMode={isCompetitorMode} compCustos={compMotPasseio} setCompCustos={setCompMotPasseio} />
-          <VehicleCard title="Utilitário" icon={Truck} data={globalData} custosMotorista={motUtil} setCustosMotorista={setMotUtil} isCompetitorMode={isCompetitorMode} compCustos={compMotUtil} setCompCustos={setCompMotUtil} />
-          <VehicleCard title="Van" icon={Truck} data={globalData} custosMotorista={motVan} setCustosMotorista={setMotVan} isCompetitorMode={isCompetitorMode} compCustos={compMotVan} setCompCustos={setCompMotVan} />
-          <VehicleCard title="VUC" icon={Truck} data={globalData} custosMotorista={motVuc} setCustosMotorista={setMotVuc} isCompetitorMode={isCompetitorMode} compCustos={compMotVuc} setCompCustos={setCompMotVuc} />
+          <VehicleCard title="Passeio" icon={Car} data={globalData} custosMotorista={motPasseio} setCustosMotorista={setMotPasseio} isCompetitorMode={isCompetitorMode} compCustos={compMotPasseio} setCompCustos={setCompMotPasseio} activeTarifas={activeTarifas} />
+          <VehicleCard title="Utilitário" icon={Truck} data={globalData} custosMotorista={motUtil} setCustosMotorista={setMotUtil} isCompetitorMode={isCompetitorMode} compCustos={compMotUtil} setCompCustos={setCompMotUtil} activeTarifas={activeTarifas} />
+          <VehicleCard title="Van" icon={Truck} data={globalData} custosMotorista={motVan} setCustosMotorista={setMotVan} isCompetitorMode={isCompetitorMode} compCustos={compMotVan} setCompCustos={setCompMotVan} activeTarifas={activeTarifas} />
+          <VehicleCard title="VUC" icon={Truck} data={globalData} custosMotorista={motVuc} setCustosMotorista={setMotVuc} isCompetitorMode={isCompetitorMode} compCustos={compMotVuc} setCompCustos={setCompMotVuc} activeTarifas={activeTarifas} />
         </div>
 
       </div>
@@ -565,4 +567,4 @@ const DreCustoLeve = () => {
   );
 };
 
-export default DreCustoLeve;
+

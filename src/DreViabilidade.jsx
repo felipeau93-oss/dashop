@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Truck, DollarSign, TrendingUp, TrendingDown, Save, History, Trash2, X, Clock, Plus, Fuel, Wrench, Shield, Users, CircleDollarSign, Percent, FileText, ChevronDown, ChevronUp, Copy, CalendarDays } from 'lucide-react';
-import { db } from "./firebase";
+import { db, getCollectionName } from './firebase';
 import { collection, addDoc, getDocs, doc, deleteDoc } from "firebase/firestore";
 
 const formatCurrency = (value) => {
@@ -418,6 +418,8 @@ const DreViabilidade = ({ setAgentContext }) => {
   const [analyses, setAnalyses] = useState([createBlankAnalysis(Date.now().toString())]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyData, setHistoryData] = useState([]);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveName, setSaveName] = useState('');
 
   // Contexto para o agente IA
   useEffect(() => {
@@ -442,7 +444,7 @@ const DreViabilidade = ({ setAgentContext }) => {
           setHistoryData(JSON.parse(cached));
         }
 
-        const querySnapshot = await getDocs(collection(db, "simulacoes"));
+        const querySnapshot = await getDocs(collection(db, getCollectionName("simulacoes_testes")));
         const data = [];
         querySnapshot.forEach((document) => {
           const docData = document.data();
@@ -483,31 +485,34 @@ const DreViabilidade = ({ setAgentContext }) => {
   };
 
   const handleSave = async () => {
-    const name = window.prompt("Digite um nome para identificar este conjunto de análises:");
-    if (!name) return;
+    setShowSaveModal(true);
+    setSaveName('');
+  };
+
+  const confirmSave = async () => {
+    if (!saveName.trim()) return;
+    setShowSaveModal(false);
 
     const saveData = {
       id: Date.now().toString(),
       date: new Date().toLocaleString('pt-BR'),
-      name,
+      name: saveName.trim(),
       type: 'viabilidade',
       analyses: analyses,
     };
 
     try {
-      const docRef = await addDoc(collection(db, "simulacoes"), saveData);
+      const docRef = await addDoc(collection(db, getCollectionName("simulacoes_testes")), saveData);
       const newHistory = [{ ...saveData, docId: docRef.id }, ...historyData];
       setHistoryData(newHistory);
       localStorage.setItem('dreViabilidadeHistory', JSON.stringify(newHistory));
-      alert("Análises salvas na nuvem com sucesso! ☁️");
     } catch (error) {
       console.error("Erro ao salvar:", error);
-      // Salva no cache local mesmo se o Firebase falhar
       const newHistory = [saveData, ...historyData];
       setHistoryData(newHistory);
       localStorage.setItem('dreViabilidadeHistory', JSON.stringify(newHistory));
-      alert("Salvo localmente (offline). Houve um erro de permissão ou rede ao salvar na nuvem.");
     }
+    setSaveName('');
   };
 
   const handleLoad = (item) => {
@@ -520,7 +525,7 @@ const DreViabilidade = ({ setAgentContext }) => {
     if (!window.confirm("Deseja apagar esta simulação do histórico?")) return;
     try {
       if (docId) {
-        await deleteDoc(doc(db, "simulacoes", docId));
+        await deleteDoc(doc(db, getCollectionName("simulacoes"), docId));
       }
       const newHistory = historyData.filter(h => h.id !== id);
       setHistoryData(newHistory);
@@ -562,9 +567,9 @@ const DreViabilidade = ({ setAgentContext }) => {
   }, [analyses]);
 
   return (
-    <div className="h-full w-full bg-slate-50 flex flex-col overflow-hidden relative">
+    <div className="w-full bg-slate-50 flex flex-col relative">
       {/* Header */}
-      <div className="p-6 bg-white border-b border-slate-200 sticky top-0 z-10 shrink-0 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="p-6 bg-white border-b border-slate-200 shrink-0 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 rounded-t-2xl">
         <div>
           <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3 tracking-tight">
             <FileText className="w-7 h-7 text-violet-600" /> DRE Viabilidade de Projeto
@@ -582,7 +587,7 @@ const DreViabilidade = ({ setAgentContext }) => {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 pb-20 flex flex-col gap-6">
+      <div className="p-6 flex flex-col gap-6">
 
         {/* Resumo Consolidado */}
         {analyses.length > 1 && (
@@ -629,9 +634,38 @@ const DreViabilidade = ({ setAgentContext }) => {
         </button>
       </div>
 
+      {/* Modal Salvar */}
+      {showSaveModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-slate-200 bg-violet-50">
+              <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                <Save className="w-5 h-5 text-violet-500" /> Salvar Análises
+              </h3>
+            </div>
+            <div className="p-6">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Nome da Simulação</label>
+              <input
+                type="text"
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && confirmSave()}
+                placeholder="Ex: Rota SP-RJ Fiorino"
+                className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all"
+                autoFocus
+              />
+            </div>
+            <div className="px-6 pb-6 flex gap-3 justify-end">
+              <button onClick={() => setShowSaveModal(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-xl font-bold text-sm transition-colors">Cancelar</button>
+              <button onClick={confirmSave} disabled={!saveName.trim()} className="px-6 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-bold text-sm transition-all disabled:opacity-50 shadow-md">Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Histórico */}
       {showHistoryModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
               <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">

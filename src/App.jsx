@@ -5,7 +5,9 @@ import DreCustoLeve from './DreCustoLeve';
 import DreViabilidade from './DreViabilidade';
 import DataImporter from './DataImporter';
 import ConfigFiliais from './ConfigFiliais';
-import { db, auth } from './firebase';
+import ConfigTarifas from './ConfigTarifas';
+import PainelTreinamentos from './PainelTreinamentos';
+import { db, auth, getCollectionName } from './firebase';
 import { collection, writeBatch, doc, getDocs } from 'firebase/firestore';
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
 import {
@@ -44,7 +46,8 @@ import {
   Sparkles,
   Database,
   UploadCloud,
-  Settings
+  Settings,
+  GraduationCap
 } from 'lucide-react';
 
 // ============================================================================
@@ -168,7 +171,7 @@ const InverseMultiSelectDropdown = ({ label, options, excluded, onChange }) => {
   else if (includedCount < options.length) displayText = `${includedCount} ativas`;
 
   return (
-    <div className="relative shrink-0 flex items-center z-50">
+    <div className={`relative shrink-0 flex items-center ${isOpen ? 'z-50' : 'z-10'}`}>
       <span className="text-[10px] font-bold text-slate-500 uppercase px-2 hidden sm:block">{label}:</span>
       <button onClick={() => setIsOpen(!isOpen)} className={`bg-white border text-sm rounded-xl px-3 py-1.5 outline-none font-bold cursor-pointer shadow-sm flex items-center justify-between min-w-[120px] max-w-[180px] transition-all duration-200 ${isOpen ? 'border-blue-500 ring-2 ring-blue-500/20 text-blue-700' : 'border-slate-300 text-slate-700 hover:border-blue-400'}`}>
         <span className="truncate">{displayText}</span>
@@ -2038,7 +2041,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
     fatFilial.forEach(f => {
       const q = f.quinzena;
       if (!mapEvolucao[q]) mapEvolucao[q] = { quinzena: q, valor: 0, faturamento: 0, pnrQtd: 0, lostQtd: 0, nvQtd: 0, totalQtd: 0, pnr: 0, lost: 0, notVisited: 0 };
-      mapEvolucao[q].faturamento += (f.faturamento || 0);
+      mapEvolucao[q].faturamento += (f.faturamento || 0) + (f.faturamento_paradas || 0);
     });
 
     casosFilial.forEach(c => {
@@ -2402,6 +2405,7 @@ export default function App() {
   const [rawBscData, setRawBscData] = useState(initialBscData);
   const [rawCustosData, setRawCustosData] = useState(initialCustosData);
   const [mapeamentoFiliais, setMapeamentoFiliais] = useState([]);
+  const [tarifasMap, setTarifasMap] = useState([]);
 
   const [error, setError] = useState(null);
 
@@ -2436,6 +2440,7 @@ export default function App() {
   const [selectedQuinzenaDS, setSelectedQuinzenaDS] = useState(null);
 
   const [hasInitialSynced, setHasInitialSynced] = useState(false);
+  const [dataSource, setDataSource] = useState('firebase'); // 'planilhas' | 'firebase'
 
   useEffect(() => {
     setSelectedQuinzenaPareto(null);
@@ -2737,44 +2742,52 @@ export default function App() {
 
   
   const syncToFirebase = async (collectionName, dataArray) => {
+    if (!dataArray || dataArray.length === 0) return;
     try {
-      const fullString = JSON.stringify(dataArray);
-      const CHUNK_SIZE = 800000;
-      const numChunks = Math.ceil(fullString.length / CHUNK_SIZE);
-      
-      const colRef = collection(db, 'app_dados_comprimidos');
-      const snapshot = await getDocs(colRef);
-      
-      let deleteBatch = writeBatch(db);
-      let deleteCount = 0;
-      snapshot.forEach(docSnap => {
-         if (docSnap.id.startsWith(collectionName + '_chunk_')) {
-            deleteBatch.delete(docSnap.ref);
-            deleteCount++;
-         }
+      const groupedData = {};
+      dataArray.forEach(item => {
+        const q = (item && item.quinzena) ? String(item.quinzena).replace(/[^a-zA-Z0-9_-]/g, '') : 'GERAL';
+        if (!groupedData[q]) groupedData[q] = [];
+        groupedData[q].push(item);
       });
-      if (deleteCount > 0) {
-         await deleteBatch.commit();
+
+      const colRef = collection(db, getCollectionName('app_dados_comprimidos_testes'));
+      const snapshot = await getDocs(colRef);
+      const CHUNK_SIZE = 800000;
+
+      for (const [quinzena, items] of Object.entries(groupedData)) {
+         const prefix = `${collectionName}___${quinzena}___chunk_`;
+         
+         let deleteBatch = writeBatch(db);
+         let deleteCount = 0;
+         snapshot.forEach(docSnap => {
+            if (docSnap.id.startsWith(prefix)) {
+               deleteBatch.delete(docSnap.ref);
+               deleteCount++;
+            }
+         });
+         if (deleteCount > 0) await deleteBatch.commit();
+
+         const fullString = JSON.stringify(items);
+         const numChunks = Math.ceil(fullString.length / CHUNK_SIZE);
+         let writeCount = 0;
+         let batch = writeBatch(db);
+         
+         for (let i = 0; i < numChunks; i++) {
+           const chunkStr = fullString.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+           const docRef = doc(colRef, `${prefix}${i}`);
+           batch.set(docRef, { payload: chunkStr, index: i, collection: collectionName, quinzena: quinzena });
+           writeCount++;
+           
+           if (writeCount === 10) {
+              await batch.commit();
+              batch = writeBatch(db);
+              writeCount = 0;
+           }
+         }
+         if (writeCount > 0) await batch.commit();
+         console.log(`[Chunk Sync] ${collectionName} (${quinzena}) salvo em ${numChunks} fatias!`);
       }
-      
-      let writeCount = 0;
-      let batch = writeBatch(db);
-      for (let i = 0; i < numChunks; i++) {
-        const chunkStr = fullString.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-        const docRef = doc(colRef, `${collectionName}_chunk_${i}`);
-        batch.set(docRef, { payload: chunkStr, index: i });
-        writeCount++;
-        
-        if (writeCount === 10) {
-           await batch.commit();
-           batch = writeBatch(db);
-           writeCount = 0;
-        }
-      }
-      if (writeCount > 0) {
-         await batch.commit();
-      }
-      console.log(`[Chunk Sync] ${collectionName} salvo em ${numChunks} fatias com sucesso!`);
     } catch (err) {
       console.error(`Erro ao sincronizar ${collectionName}:`, err);
     }
@@ -2783,36 +2796,174 @@ export default function App() {
   const fetchFromFirebase = useCallback(async () => {
     setIsLoading(true); setError(null);
     try {
-      const snapshot = await getDocs(collection(db, 'app_dados_comprimidos'));
-      const chunks = {};
-      
-      snapshot.forEach(doc => {
-        const id = doc.id; // Ex: faturamento_chunk_0
-        if (id.includes('_chunk_')) {
-          const [colName, index] = id.split('_chunk_');
-          if (!chunks[colName]) chunks[colName] = [];
-          chunks[colName][parseInt(index)] = doc.data().payload;
-        }
-      });
-
-      const parseChunks = (colName) => {
-        if (!chunks[colName]) return [];
-        const fullString = chunks[colName].join('');
-        return fullString ? JSON.parse(fullString) : [];
+      const extractItems = async (colName) => {
+         const items = [];
+         const snap = await getDocs(collection(db, getCollectionName(colName)));
+         snap.forEach(doc => {
+            const data = doc.data();
+            if (data.items && Array.isArray(data.items)) {
+               data.items.forEach(item => items.push({ ...item, quinzena: item.quinzena || data.quinzena }));
+            } else if (!data.items) {
+               items.push({ ...data, quinzena: data.quinzena || 'N/A' });
+            }
+         });
+         return items;
       };
 
-      const penalidades = parseChunks('penalidades');
-      const faturamento = parseChunks('faturamento');
-      const operacional = parseChunks('operacional');
-      const bsc = parseChunks('bsc');
-      const custosFinanceiros = parseChunks('custosFinanceiros');
+      const penalidadesRaw = await extractItems('penalidades_testes');
+      const penalidades = penalidadesRaw.map(p => {
+         if (!p.tipo && p.descricao) {
+            let tipoFinal = 'Outros';
+            const rawTipo = String(p.descricao).toLowerCase();
+            if (rawTipo.includes('lost')) tipoFinal = 'Lost Packages';
+            else if (rawTipo.includes('pnr')) tipoFinal = 'PNRs';
+            else if (rawTipo.includes('not visited') || rawTipo.includes('nv')) tipoFinal = 'Not Visited';
+            return { ...p, tipo: tipoFinal };
+         }
+         return p;
+      });
+      const faturamento = await extractItems('faturamento_testes');
+      const operacional_raw = await extractItems('operacional_testes');
+      const capcar = await extractItems('capcar_testes');
+      
+      const bsc_old = [];
+      const bsc_new_raw = await extractItems('operacional_bsc_testes');
+      const bsc = [...bsc_old, ...bsc_new_raw];
+
+      const custosFinanceiros = await extractItems('custosFinanceiros_testes');
+      const mergedCustos = [...custosFinanceiros, ...capcar];
+
+      const tarifasAtuais = await extractItems('tarifas_testes');
+
+      const ignoradasSnap = await getDocs(collection(db, getCollectionName('rotas_ignoradas_testes')));
+      const rotasIgnoradas = new Set();
+      ignoradasSnap.forEach(doc => rotasIgnoradas.add(String(doc.id).trim()));
+      
+      // Keep old getDocs for chunked map
+      const colRef = collection(db, getCollectionName('app_dados_comprimidos_testes'));
+      const oldSnap = await getDocs(colRef);
+      const chunksData = {};
+      oldSnap.forEach(doc => {
+        const id = doc.id;
+        if (id.includes('___chunk_')) {
+          const parts = id.split('___');
+          const colName = parts[0];
+          const quinzena = parts[1];
+          const index = parseInt(parts[2].replace('chunk_', ''));
+          if (!chunksData[colName]) chunksData[colName] = {};
+          if (!chunksData[colName][quinzena]) chunksData[colName][quinzena] = [];
+          chunksData[colName][quinzena][index] = doc.data().payload;
+        }
+      });
+      const parseChunks = (colName) => {
+        if (!chunksData[colName]) return [];
+        let combinedData = [];
+        for (const [quinzena, chunkArr] of Object.entries(chunksData[colName])) {
+           const fullString = chunkArr.join('');
+           if (fullString) {
+              try {
+                const parsed = JSON.parse(fullString);
+                if (Array.isArray(parsed)) {
+                   combinedData = combinedData.concat(parsed.map(item => ({ ...item, quinzena: item.quinzena || quinzena })));
+                } else if (parsed) {
+                   combinedData = combinedData.concat([{ ...parsed, quinzena: parsed.quinzena || quinzena }]);
+                }
+              } catch(e) {}
+           }
+        }
+        return combinedData;
+      };
+      
       const mapeamento = parseChunks('mapeamento_filiais');
+      
+      // Corrigir Nomes Errados no Operacional (limpeza de chaves indesejadas)
+      const validOpKeys = [
+        'bloqueado', 'palavra chave', 'cancelado', 'coleta', 'comercial', 
+        'recusa', 'avaria', 'mudou endereco', 'area inacessivel', 
+        'nao visitado', 'nao localizado', 'faltante', 'fora de rota', 
+        'cliente ausente', 'tentativa roubo', 'insucessos'
+      ];
+      const operacional = operacional_raw.map(d => {
+        if (d.insucessosDetalhados) {
+           const cleanedInsucessos = {};
+           Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+             const kLower = String(k).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+             if (validOpKeys.includes(kLower)) {
+                cleanedInsucessos[k] = v;
+             }
+           });
+           return { ...d, insucessosDetalhados: cleanedInsucessos };
+        }
+        return d;
+      });
 
-      setRawData(penalidades);
-      if (rawDataRef) rawDataRef.current = penalidades;
+      // Mapeamento is loaded from chunks for compatibility
 
-      setRawFaturamentoData(faturamento);
-      if (rawFaturamentoDataRef) rawFaturamentoDataRef.current = faturamento;
+      // Vincula motorista nas penalidades retroativamente (caso já tenham sido importadas sem motorista)
+      const mapRotaMotorista = {};
+      operacional.forEach(d => {
+         if (d.id_rota && d.motorista) {
+            mapRotaMotorista[d.id_rota] = d.motorista;
+         }
+      });
+
+      const penalidadesComMotorista = penalidades.map(p => {
+         let fallbackIdPacote = p.id_pacote;
+         let fallbackIdRota = p.id_rota;
+
+         if (p.descricao) {
+            // Extrai ID do pacote (geralmente números com 8+ dígitos) da descrição
+            if (!fallbackIdPacote || fallbackIdPacote === '-') {
+               const matches = String(p.descricao).match(/\b\d{8,}\b/g);
+               if (matches) {
+                   fallbackIdPacote = matches[0];
+               }
+            }
+
+            // Extrai ID da rota (geralmente 4+ dígitos) da descrição
+            if (!fallbackIdRota || fallbackIdRota.startsWith('sem_rota_') || fallbackIdRota === '-') {
+               const matches = String(p.descricao).match(/\b\d{4,}\b/g);
+               if (matches) {
+                   const possibleRoutes = matches.filter(m => m !== fallbackIdPacote);
+                   if (possibleRoutes.length > 0) {
+                       fallbackIdRota = possibleRoutes[0];
+                   } else {
+                       fallbackIdRota = matches[0];
+                   }
+               }
+            }
+         }
+
+         return { 
+           ...p, 
+           motorista: p.motorista || mapRotaMotorista[p.id_rota] || 'N/A',
+           id_pacote: fallbackIdPacote || '-',
+           id_rota: fallbackIdRota || '-'
+         };
+      });
+
+      const penalidadesFiltradas = penalidadesComMotorista.filter(p => !rotasIgnoradas.has(String(p.id_rota).trim()));
+      setRawData(penalidadesFiltradas);
+      if (rawDataRef) rawDataRef.current = penalidadesFiltradas;
+
+      const faturamentoComMotorista = faturamento.map(f => {
+         const cleanFId = String(f.id_rota).trim().replace(/\.0$/, '');
+         const opRef = operacional.find(op => op.id_rota && String(op.id_rota).trim().replace(/\.0$/, '') === cleanFId);
+         if (opRef) {
+            return { 
+               ...f, 
+               filial: opRef.filial, 
+               regional: opRef.regional, 
+               supervisor: opRef.supervisor, 
+               motorista: opRef.motorista || f.motorista || 'N/A' 
+            };
+         }
+         return f;
+      });
+
+      const faturamentoFiltradoIgnoradas = faturamentoComMotorista.filter(f => !rotasIgnoradas.has(String(f.id_rota).trim()));
+      setRawFaturamentoData(faturamentoFiltradoIgnoradas);
+      if (rawFaturamentoDataRef) rawFaturamentoDataRef.current = faturamentoFiltradoIgnoradas;
 
       setRawOperacionalData(operacional);
       if (rawOperacionalDataRef) rawOperacionalDataRef.current = operacional;
@@ -2820,10 +2971,11 @@ export default function App() {
       setRawBscData(bsc);
       if (rawBscDataRef) rawBscDataRef.current = bsc;
 
-      setRawCustosData(custosFinanceiros);
-      if (rawCustosDataRef) rawCustosDataRef.current = custosFinanceiros;
+      setRawCustosData(mergedCustos);
+      if (rawCustosDataRef) rawCustosDataRef.current = mergedCustos;
 
       setMapeamentoFiliais(mapeamento);
+      setTarifasMap(tarifasAtuais);
 
     } catch(err) {
       console.error(err);
@@ -2863,22 +3015,18 @@ const fetchFromGoogleSheets = useCallback(async () => {
     try {
             const t1 = await fetchCSV(sheetUrl, 'Penalidades');
       const d1 = t1 ? processRawCSV(t1) : null;
-      if (d1) syncToFirebase('penalidades', d1).catch(console.error);
 
       const t2 = await fetchCSV(sheetUrlFaturamento, 'Faturamento');
       const d2 = t2 ? processFaturamentoData(t2) : null;
-      if (d2) syncToFirebase('faturamento', d2).catch(console.error);
 
 
       const t4 = await fetchCSV(sheetUrlBsc, 'BSC');
       const d4 = t4 ? processBscData(t4) : null;
-      if (d4) syncToFirebase('bsc', d4).catch(console.error);
 
       const t5 = await fetchCSV(sheetUrlCustos, 'Custos Financeiros');
       const d5 = t5 ? processCustosData(t5) : null;
-      if (d5) syncToFirebase('custosFinanceiros', d5).catch(console.error);
 
-      // await fetchFromFirebase();
+      console.log('[Sheets] Dados carregados das planilhas (sem enviar ao Firebase).');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -2887,10 +3035,14 @@ const fetchFromGoogleSheets = useCallback(async () => {
 
   useEffect(() => {
     if (isAuthenticated && !hasInitialSynced) {
-      // fetchFromFirebase();
+      if (dataSource === 'firebase') {
+        fetchFromFirebase();
+      } else {
+        fetchFromGoogleSheets();
+      }
       setHasInitialSynced(true);
     }
-  }, [isAuthenticated, hasInitialSynced, fetchFromFirebase]);
+  }, [isAuthenticated, hasInitialSynced, fetchFromFirebase, fetchFromGoogleSheets, dataSource]);
 
   const ssc4RatiosPerQuinzena = useMemo(() => {
     const ratios = {};
@@ -2998,7 +3150,11 @@ const fetchFromGoogleSheets = useCallback(async () => {
     const q3 = distributedFaturamento.map(d => d.quinzena);
     const q4 = distributedOperacional.map(d => d.quinzena);
     const q5 = distributedBsc.map(d => d.quinzena);
-    return [...new Set([...q1, ...q3, ...q4, ...q5])].sort().reverse();
+    return [...new Set([...q1, ...q3, ...q4, ...q5].filter(q => q && String(q).trim() !== ''))].sort((a, b) => {
+      if (a === 'N/A' || a === 'GERAL') return 1;
+      if (b === 'N/A' || b === 'GERAL') return -1;
+      return String(b).localeCompare(String(a));
+    });
   }, [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc]);
 
   const regionaisDisponiveis = useMemo(() => {
@@ -3522,7 +3678,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
       if (!map[key]) map[key] = { filial: d.filial, regional: d.regional || 'N/A', supervisor: d.supervisor || 'N/A', faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
       if (d.regional && d.regional !== 'N/A') map[key].regional = d.regional;
       if (d.supervisor && d.supervisor !== 'N/A') map[key].supervisor = d.supervisor;
-      map[key].faturamento += d.faturamento;
+      map[key].faturamento += (d.faturamento || 0) + (d.faturamento_paradas || 0);
     });
     dadosFiltrados.filter(d => d.quinzena === targetQuinzenaRunRate).forEach(d => {
       const key = normalizeText(d.filial);
@@ -3580,7 +3736,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
     faturamentoFiltradoEvolucao.forEach(d => {
       const key = d.quinzena || 'N/A';
       if (!map[key]) map[key] = { quinzena: key, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
-      map[key].faturamento += d.faturamento;
+      map[key].faturamento += (d.faturamento || 0) + (d.faturamento_paradas || 0);
     });
     dadosFiltradosEvolucao.forEach(d => {
       const key = d.quinzena || 'N/A';
@@ -3602,7 +3758,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
     faturamentoFiltradoEvolucao.filter(d => d.quinzena === selectedQuinzenaPareto).forEach(d => {
       const key = normalizeText(d.filial);
       if (!map[key]) map[key] = { filial: d.filial, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
-      map[key].faturamento += d.faturamento;
+      map[key].faturamento += (d.faturamento || 0) + (d.faturamento_paradas || 0);
     });
     dadosFiltradosEvolucao.filter(d => d.quinzena === selectedQuinzenaPareto).forEach(d => {
       const key = normalizeText(d.filial);
@@ -4205,6 +4361,30 @@ Diretrizes:
                     <span className={`truncate ${activeMenu === 'config_filiais' ? 'font-bold' : ''}`}>Config. de Filiais</span>
                   </div>
                 </button>
+                <button 
+                  onClick={() => {
+                    handleMenuChange('config_tarifas');
+                    setIsMobileMenuOpen(false);
+                  }} 
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_tarifas' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_tarifas' ? 'text-blue-400' : ''}`} />
+                    <span className={`truncate ${activeMenu === 'config_tarifas' ? 'font-bold' : ''}`}>Config. de Tarifas</span>
+                  </div>
+                </button>
+                <button 
+                  onClick={() => {
+                    handleMenuChange('painel_treinamentos');
+                    setIsMobileMenuOpen(false);
+                  }} 
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'painel_treinamentos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
+                >
+                  <div className="flex items-center gap-3">
+                    <GraduationCap className={`w-4 h-4 shrink-0 ${activeMenu === 'painel_treinamentos' ? 'text-blue-400' : ''}`} />
+                    <span className={`truncate ${activeMenu === 'painel_treinamentos' ? 'font-bold' : ''}`}>Compliance & Treinamentos</span>
+                  </div>
+                </button>
               </div>
             )}
           </div>
@@ -4266,10 +4446,46 @@ Diretrizes:
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 transition-colors shadow-sm" title={isDarkMode ? 'Modo Claro' : 'Modo Escuro'}>
               {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
-            <button onClick={fetchFromGoogleSheets} disabled={isLoading} className="flex items-center justify-center gap-2 bg-blue-50 text-blue-600 hover:bg-blue-100 px-4 py-2 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 shadow-sm w-full sm:w-auto">
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-              {isLoading ? 'Sincronizando...' : 'Sincronizar'}
-            </button>
+
+            {/* TOGGLE FONTE DE DADOS */}
+            <div className="flex items-center bg-slate-100 rounded-xl p-1 shadow-sm border border-slate-200">
+              <button
+                onClick={() => { setDataSource('planilhas'); fetchFromGoogleSheets(); }}
+                disabled={isLoading}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${
+                  dataSource === 'planilhas'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-white'
+                } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading && dataSource === 'planilhas' ? 'animate-spin' : ''}`} />
+                Planilhas
+              </button>
+              <button
+                onClick={() => { setDataSource('firebase'); fetchFromFirebase(); }}
+                disabled={isLoading}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${
+                  dataSource === 'firebase'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-white'
+                } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+              >
+                <Database className={`w-3.5 h-3.5 ${isLoading && dataSource === 'firebase' ? 'animate-spin' : ''}`} />
+                Firebase
+              </button>
+            </div>
+
+            {/* BADGE INDICADOR DA FONTE ATIVA */}
+            <div className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-sm ${
+              dataSource === 'planilhas'
+                ? 'bg-blue-50 text-blue-600 border-blue-200'
+                : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+            }`}>
+              <span className={`w-2 h-2 rounded-full animate-pulse ${
+                dataSource === 'planilhas' ? 'bg-blue-500' : 'bg-emerald-500'
+              }`}></span>
+              {dataSource === 'planilhas' ? 'Visão Planilhas' : 'Visão Firebase'}
+            </div>
           </div>
         </header>
 
@@ -4293,12 +4509,20 @@ Diretrizes:
                   rawFaturamentoData={rawFaturamentoData}
                   rawOperacionalData={rawOperacionalData}
                   mapeamentoFiliais={mapeamentoFiliais}
-                  onImportComplete={async (diarias, penalidades, novoOperacional) => {
+                  onImportOperacional={async (novoOperacional) => {
+                     if (!novoOperacional || novoOperacional.length === 0) return;
+                     const operacionalMap = new Map();
+                     rawOperacionalData.forEach(d => operacionalMap.set(`${d.id_rota}_${d.quinzena || 'GERAL'}`, d));
+                     novoOperacional.forEach(d => operacionalMap.set(`${d.id_rota}_${d.quinzena || 'GERAL'}`, d));
+                     const finalOperacional = Array.from(operacionalMap.values());
+                     setRawOperacionalData(finalOperacional);
+                     if (rawOperacionalDataRef) rawOperacionalDataRef.current = finalOperacional;
+                  }}
+                  onImportBilling={async (diarias, penalidades) => {
                      const importedQuinzena = diarias.length > 0 ? diarias[0].quinzena : (penalidades.length > 0 ? penalidades[0].quinzena : null);
                      
                      let finalFaturamento = diarias;
                      let finalPenalidades = penalidades;
-                     let finalOperacional = novoOperacional || [];
 
                      if (importedQuinzena && importedQuinzena !== 'N/A') {
                         const faturamentoMap = new Map();
@@ -4310,22 +4534,17 @@ Diretrizes:
                         rawData.forEach(d => penalidadesMap.set(`${d.id_rota}_${d.id_pacote}`, d));
                         penalidades.forEach(d => penalidadesMap.set(`${d.id_rota}_${d.id_pacote}`, d));
                         finalPenalidades = Array.from(penalidadesMap.values());
-                        
-                        const operacionalMap = new Map();
-                        rawOperacionalData.forEach(d => operacionalMap.set(`${d.id_rota}_${d.quinzena}`, d));
-                        if (novoOperacional) {
-                            novoOperacional.forEach(d => operacionalMap.set(`${d.id_rota}_${d.quinzena}`, d));
-                        }
-                        finalOperacional = Array.from(operacionalMap.values());
                      }
 
-                     syncToFirebase('faturamento', finalFaturamento).catch(console.error);
-                     syncToFirebase('penalidades', finalPenalidades).catch(console.error);
-                     if (finalOperacional && finalOperacional.length > 0) {
-                        syncToFirebase('operacional', finalOperacional).catch(console.error);
-                     }
-                     // fetchFromFirebase();
+                     setRawFaturamentoData(finalFaturamento);
+                     setRawData(finalPenalidades);
                      setActiveMenu('gestao_financeira');
+                  }}
+                  onImportCapCar={async (dadosCapCar) => {
+                     fetchFromFirebase();
+                  }}
+                  onImportOperacionalBSC={async (dadosBSC) => {
+                     fetchFromFirebase();
                   }}
                 />
               </div>
@@ -4336,6 +4555,9 @@ Diretrizes:
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
                 <ConfigFiliais 
                   mapeamentoFiliais={mapeamentoFiliais} 
+                  rawData={rawData}
+                  rawFaturamentoData={rawFaturamentoData}
+                  rawOperacionalData={rawOperacionalData}
                   onSave={(newMap) => {
                     syncToFirebase('mapeamento_filiais', newMap).catch(console.error);
                     setMapeamentoFiliais(newMap);
@@ -4344,10 +4566,30 @@ Diretrizes:
               </div>
             )}
 
+            {/* CONFIGURAÇÕES DE TARIFAS */}
+            {activeMenu === 'config_tarifas' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <ConfigTarifas 
+                  tarifasAtuais={tarifasMap} 
+                  onSave={(newMap) => {
+                    syncToFirebase('tarifas_testes', newMap).catch(console.error);
+                    setTarifasMap(newMap);
+                  }}
+                />
+              </div>
+            )}
+
+            {/* PAINEL DE TREINAMENTOS */}
+            {activeMenu === 'painel_treinamentos' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <PainelTreinamentos rawOperacionalData={rawOperacionalData} mapeamentoFiliais={mapeamentoFiliais} />
+              </div>
+            )}
+
             {/* PLANEJAMENTO SIMULADOR */}
             {activeMenu === 'planejamento' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <Simulador setAgentContext={setAgentContext} />
+                <Simulador setAgentContext={setAgentContext} capcarData={rawCustosData} />
               </div>
             )}
 
@@ -4362,6 +4604,13 @@ Diretrizes:
             {activeMenu === 'dre_viabilidade' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
                 <DreViabilidade setAgentContext={setAgentContext} />
+              </div>
+            )}
+
+            {/* DRE CUSTO LEVE SIMULADOR */}
+            {activeMenu === 'dre_custo_leve' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <DreCustoLeve setAgentContext={setAgentContext} dynamicTarifas={tarifasMap} />
               </div>
             )}
 

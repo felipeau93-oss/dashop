@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Save, Plus, Trash2, MapPin } from 'lucide-react';
 
-export default function ConfigFiliais({ mapeamentoFiliais, onSave }) {
+export default function ConfigFiliais({ mapeamentoFiliais, rawData = [], rawFaturamentoData = [], rawOperacionalData = [], onSave }) {
   const [localMap, setLocalMap] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [autoAddedCount, setAutoAddedCount] = useState(0);
 
   useEffect(() => {
+    let currentMap = [];
     if (mapeamentoFiliais && mapeamentoFiliais.length > 0) {
-      setLocalMap(mapeamentoFiliais);
+      currentMap = [...mapeamentoFiliais];
     } else {
       // Seed data if empty
-      setLocalMap([
+      currentMap = [
         { filial: 'SRS1', regional: '1', supervisor: 'Janusa' },
         { filial: 'SRS8', regional: '1', supervisor: 'Janusa' },
         { filial: 'SRS9', regional: '1', supervisor: 'Janusa' },
@@ -38,9 +40,38 @@ export default function ConfigFiliais({ mapeamentoFiliais, onSave }) {
         { filial: 'SSC2', regional: '5', supervisor: 'Neemias' },
         { filial: 'SSC8', regional: '5', supervisor: 'Neemias' },
         { filial: 'SSC9', regional: '5', supervisor: 'Neemias' }
-      ]);
+      ];
     }
-  }, [mapeamentoFiliais]);
+
+    // Varredura de filiais órfãs nos dados importados
+    const uniqueFiliais = new Set();
+    const normalize = (f) => String(f).trim().toUpperCase();
+
+    [...rawData, ...rawFaturamentoData, ...rawOperacionalData].forEach(d => {
+      if (d.filial && String(d.filial).trim() !== '' && normalize(d.filial) !== 'N/A') {
+        uniqueFiliais.add(normalize(d.filial));
+      }
+    });
+
+    const currentFiliais = new Set(currentMap.map(m => normalize(m.filial)));
+
+    let addedCount = 0;
+    const newEntries = [];
+
+    uniqueFiliais.forEach(f => {
+      if (!currentFiliais.has(f)) {
+        newEntries.push({ filial: f, regional: '', supervisor: '' });
+        addedCount++;
+      }
+    });
+
+    if (addedCount > 0) {
+      currentMap = [...newEntries, ...currentMap];
+      setAutoAddedCount(addedCount);
+    }
+
+    setLocalMap(currentMap);
+  }, [mapeamentoFiliais, rawData, rawFaturamentoData, rawOperacionalData]);
 
   const handleUpdate = (index, field, value) => {
     const newMap = [...localMap];
@@ -90,14 +121,27 @@ export default function ConfigFiliais({ mapeamentoFiliais, onSave }) {
 
       <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
-            <MapPin className="w-5 h-5 text-indigo-500" />
-            Tabela de Mapeamento
-          </h2>
+          <div className="flex flex-col">
+            <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
+              <MapPin className="w-5 h-5 text-indigo-500" />
+              Tabela de Mapeamento
+            </h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Para desconsiderar, adicione <strong className="text-slate-700">0</strong> e <strong className="text-slate-700">0</strong> nos campos Regional e Supervisor
+            </p>
+          </div>
           <button onClick={handleAdd} className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors">
             <Plus className="w-4 h-4" /> Nova Filial
           </button>
         </div>
+
+        {autoAddedCount > 0 && (
+          <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex items-start gap-3">
+            <div className="text-indigo-600 font-medium text-sm">
+              <span className="font-bold">Varredura Automática:</span> Detectamos <span className="font-bold">{autoAddedCount}</span> {autoAddedCount === 1 ? 'nova filial' : 'novas filiais'} nos dados importados que ainda não possuíam Regional/Supervisor mapeados. {autoAddedCount === 1 ? 'Ela foi adicionada' : 'Elas foram adicionadas'} automaticamente no topo da lista abaixo para que você preencha.
+            </div>
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">

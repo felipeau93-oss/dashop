@@ -14,6 +14,11 @@ const firebaseConfig = {
 // Inicializa o Firebase
 const app = initializeApp(firebaseConfig);
 
-// Exporta o Banco de Dados (Firestore) e Autenticação (Auth)
+// Exporta o Banco de Dados (Firestore), Autenticação (Auth)
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+
+export const getCollectionName = (name) => {
+  const prefix = import.meta.env.VITE_DB_PREFIX || '';
+  return `${prefix}${name}`;
+};

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { db } from './firebase';
+import { db, getCollectionName } from './firebase';
 import { collection, addDoc, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { 
   Calculator, Database, Plus, Trash2, MapPin, 
@@ -9,7 +9,7 @@ import {
   BadgeDollarSign, Truck, Target, RotateCcw, BarChart3, UserMinus, Globe
 } from 'lucide-react';
 
-export default function Simulador({ setAgentContext }) {
+export default function Simulador({ setAgentContext, capcarData = [] }) {
   // Estado para os inputs globais
   const [quinzena, setQuinzena] = useState('');
   const [filial, setFilial] = useState('SPR1');
@@ -40,7 +40,7 @@ export default function Simulador({ setAgentContext }) {
   const fetchHistory = async () => {
     try {
       setIsLoadingHistory(true);
-      const snapshot = await getDocs(collection(db, 'simulacoes_realizado'));
+      const snapshot = await getDocs(collection(db, getCollectionName('simulacoes_realizado_testes')));
       const list = [];
       snapshot.forEach(doc => {
         list.push({ id: doc.id, ...doc.data() });
@@ -72,7 +72,7 @@ export default function Simulador({ setAgentContext }) {
         visaoDiaria,
         diasOperacao
       };
-      await addDoc(collection(db, 'simulacoes_realizado'), payload);
+      await addDoc(collection(db, getCollectionName('simulacoes_realizado_testes')), payload);
       alert("Simulação salva com sucesso!");
     } catch(err) {
       console.error(err);
@@ -96,7 +96,7 @@ export default function Simulador({ setAgentContext }) {
   const handleDeleteSimulacao = async (id) => {
     if(!window.confirm("Deseja apagar esta simulação?")) return;
     try {
-      await deleteDoc(doc(db, 'simulacoes_realizado', id));
+      await deleteDoc(doc(db, getCollectionName('simulacoes_realizado'), id));
       setHistoryData(prev => prev.filter(i => i.id !== id));
     } catch(err) {
       console.error(err);
@@ -104,105 +104,15 @@ export default function Simulador({ setAgentContext }) {
     }
   };
 
-  // Busca os dados diretamente do Google Sheets
   useEffect(() => {
-    const fetchPlanilha = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        
-        const url = "https://docs.google.com/spreadsheets/d/1zabomWsXNX1xwZbj0xNRx683re1QAYFcPYackB2kXU0/export?format=csv&gid=1452775904";
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("Não foi possível acessar a planilha. Verifique se o link está público.");
-        
-        const text = await response.text();
-        const lines = text.trim().split('\n');
-        const delimiter = lines[0].includes(';') ? ';' : ',';
-
-        const parseCSVLine = (line, delimiter) => {
-          const result = [];
-          let current = '';
-          let inQuotes = false;
-          for (let i = 0; i < line.length; i++) {
-            const char = line[i];
-            if (char === '"') {
-              inQuotes = !inQuotes;
-            } else if (char === delimiter && !inQuotes) {
-              result.push(current.trim());
-              current = '';
-            } else {
-              current += char;
-            }
-          }
-          result.push(current.trim());
-          return result;
-        };
-
-        let headerIdx = lines.findIndex(l => {
-          const lower = l.toLowerCase();
-          return lower.includes('categoria') || lower.includes('veículo') || lower.includes('veiculo');
-        });
-        if (headerIdx === -1) headerIdx = 0;
-
-        const parsed = lines.slice(headerIdx + 1).map(line => {
-          const cols = parseCSVLine(line, delimiter);
-          
-          const parseValor = (valStr) => {
-            if(!valStr) return 0;
-            let str = valStr.toString().trim();
-            const isNegative = str.includes('-') || (str.includes('(') && str.includes(')'));
-            str = str.replace(/[^\d,.]/g, '');
-            const hasComma = str.includes(',');
-            const hasDot = str.includes('.');
-            if (hasComma && hasDot) {
-              const lastComma = str.lastIndexOf(',');
-              const lastDot = str.lastIndexOf('.');
-              if (lastComma > lastDot) {
-                str = str.replace(/\./g, '').replace(',', '.');
-              } else {
-                str = str.replace(/,/g, '');
-              }
-            } else if (hasComma) {
-              str = str.replace(',', '.');
-            }
-            let num = parseFloat(str);
-            if(isNaN(num)) return 0;
-            return isNegative ? -num : num;
-          };
-
-          const normalizeText = (text) => (text || '').replace(/"/g, '').trim().replace(/\s+/g, ' ');
-          const titleCase = (str) => str.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-          const receitaBaseRecebido = parseValor(cols[51]);
-          const receitaBaseAReceber = parseValor(cols[47]);
-          const receitaParadas = parseValor(cols[60]);
-
-          return {
-            quinzena: normalizeText(cols[4]).toUpperCase(),
-            filial: normalizeText(cols[7]).toUpperCase(),
-            dia: normalizeText(cols[8]),
-            agregado: normalizeText(cols[12]).toUpperCase(),
-            ciclo: normalizeText(cols[21]),
-            categoria: titleCase(normalizeText(cols[17])),
-            range: normalizeText(cols[36]) || 'SEM FAIXA',
-            tarifaBase: parseValor(cols[37]),
-            valorPago: parseValor(cols[46]),
-            receitaBaseRecebido,
-            receitaBaseAReceber,
-            receitaParadas
-          };
-        }).filter(c => c.quinzena && c.categoria);
-
-        setDadosPlanilhaRaw(parsed);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchPlanilha();
-  }, []);
+    if (capcarData && capcarData.length > 0) {
+      const validData = capcarData.filter(c => c.quinzena && c.categoria);
+      setDadosPlanilhaRaw(validData);
+    } else {
+      setDadosPlanilhaRaw([]);
+    }
+    setIsLoading(false);
+  }, [capcarData]);
 
   // Filtro Global de Exclusão de Agregado
   const agregadosUnicos = useMemo(() => {
@@ -217,8 +127,15 @@ export default function Simulador({ setAgentContext }) {
 
   const dadosPlanilhaComReceita = useMemo(() => {
     return dadosPlanilha.map(d => {
-        const base = modoFaturamento === 'recebido' ? d.receitaBaseRecebido : d.receitaBaseAReceber;
-        return { ...d, receitaTotal: base + d.receitaParadas };
+        const base = modoFaturamento === 'recebido' ? (d.receitaBaseRecebido || 0) : (d.receitaBaseAReceber || 0);
+        // Se a linha for antiga e só tiver receitaTotal, usamos ela
+        const totalFallback = d.receitaTotal || 0;
+        const calcTotal = base + (d.receitaParadas || 0);
+        return { 
+          ...d, 
+          range: d.range || 'SEM FAIXA',
+          receitaTotal: calcTotal > 0 ? calcTotal : totalFallback 
+        };
     });
   }, [dadosPlanilha, modoFaturamento]);
 
@@ -266,9 +183,9 @@ export default function Simulador({ setAgentContext }) {
         return numA - numB;
       });
 
-      const totalRecebido = rotasFiltradas.reduce((acc, curr) => acc + curr.receitaTotal, 0);
-      const totalAL = rotasFiltradas.reduce((acc, curr) => acc + curr.tarifaBase, 0);
-      const totalAU = rotasFiltradas.reduce((acc, curr) => acc + curr.valorPago, 0);
+      const totalRecebido = rotasFiltradas.reduce((acc, curr) => acc + (curr.receitaTotal || 0), 0);
+      const totalAL = rotasFiltradas.reduce((acc, curr) => acc + (curr.tarifaBase || 0), 0);
+      const totalAU = rotasFiltradas.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
       
       const diferencaHistorica = totalAU - totalAL;
 
