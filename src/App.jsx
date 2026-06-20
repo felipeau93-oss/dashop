@@ -3083,131 +3083,175 @@ const fetchFromGoogleSheets = useCallback(async () => {
     return mapped ? { regional: mapped.regional, supervisor: mapped.supervisor } : { regional: d.regional, supervisor: d.supervisor };
   };
 
-  const distributedDados = useMemo(() => {
-    const result = [];
-    rawData.forEach(d => {
-      const rs = getRegionalSupervisor(d.filial, d);
-      if (normalizeText(d.filial) === 'SSC4') {
-        const ratios = ssc4RatiosPerQuinzena[d.quinzena];
-        if (ratios) {
-          ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-            const rsTarget = getRegionalSupervisor(target, rs);
-            if (ratios[target] > 0) result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, valor: d.valor * ratios[target], _pesoQtd: ratios[target] });
-          });
+  
+  const [distributedDados, setDistributedDados] = useState([]);
+  const [distributedFaturamento, setDistributedFaturamento] = useState([]);
+  const [distributedOperacional, setDistributedOperacional] = useState([]);
+  const [distributedBsc, setDistributedBsc] = useState([]);
+  
+  const [quinzenasDisponiveis, setQuinzenasDisponiveis] = useState([]);
+  const [regionaisDisponiveis, setRegionaisDisponiveis] = useState([]);
+  const [supervisoresDisponiveis, setSupervisoresDisponiveis] = useState([]);
+  const [filiaisDisponiveis, setFiliaisDisponiveis] = useState([]);
+  const [diasSemanaDisponiveis, setDiasSemanaDisponiveis] = useState([]);
+  const [isCalculatingUI, setIsCalculatingUI] = useState(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+    const compute = async () => {
+      // Only run if we actually have data to process
+      if (rawData.length === 0 && rawFaturamentoData.length === 0 && rawOperacionalData.length === 0 && rawBscData.length === 0) return;
+      
+      setIsCalculatingUI(true);
+
+      const processArray = async (arr, mapFn) => {
+        const res = [];
+        for (let i = 0; i < arr.length; i += 800) {
+          if (isCancelled) return [];
+          const chunk = arr.slice(i, i + 800);
+          for (const item of chunk) {
+            const mapped = mapFn(item);
+            if (Array.isArray(mapped)) res.push(...mapped);
+            else if (mapped) res.push(mapped);
+          }
+          await new Promise(r => setTimeout(r, 0));
+        }
+        return res;
+      };
+
+      const distDados = await processArray(rawData, d => {
+        const result = [];
+        const rs = getRegionalSupervisor(d.filial, d);
+        if (normalizeText(d.filial) === 'SSC4') {
+          const ratios = ssc4RatiosPerQuinzena[d.quinzena];
+          if (ratios) {
+            ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
+              const rsTarget = getRegionalSupervisor(target, rs);
+              if (ratios[target] > 0) result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, valor: d.valor * ratios[target], _pesoQtd: ratios[target] });
+            });
+          } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor, _pesoQtd: 1 }); }
         } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor, _pesoQtd: 1 }); }
-      } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor, _pesoQtd: 1 }); }
-    });
-    return result;
-  }, [rawData, ssc4RatiosPerQuinzena, mapeamentoFiliais]);
+        return result;
+      });
+      if (isCancelled) return;
+      setDistributedDados(distDados);
 
-  const distributedFaturamento = useMemo(() => {
-    const result = [];
-    rawFaturamentoData.forEach(d => {
-      const rs = getRegionalSupervisor(d.filial, d);
-      if (normalizeText(d.filial) === 'SSC4') {
-        const ratios = ssc4RatiosPerQuinzena[d.quinzena];
-        if (ratios) {
-          ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-            const rsTarget = getRegionalSupervisor(target, rs);
-            if (ratios[target] > 0) result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, faturamento: d.faturamento * ratios[target], faturamento_paradas: (d.faturamento_paradas || 0) * ratios[target] });
-          });
+      const distFat = await processArray(rawFaturamentoData, d => {
+        const result = [];
+        const rs = getRegionalSupervisor(d.filial, d);
+        if (normalizeText(d.filial) === 'SSC4') {
+          const ratios = ssc4RatiosPerQuinzena[d.quinzena];
+          if (ratios) {
+            ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
+              const rsTarget = getRegionalSupervisor(target, rs);
+              if (ratios[target] > 0) result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, faturamento: d.faturamento * ratios[target], faturamento_paradas: (d.faturamento_paradas || 0) * ratios[target] });
+            });
+          } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
         } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
-      } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
-    });
-    return result;
-  }, [rawFaturamentoData, ssc4RatiosPerQuinzena, mapeamentoFiliais]);
+        return result;
+      });
+      if (isCancelled) return;
+      setDistributedFaturamento(distFat);
 
-  const distributedOperacional = useMemo(() => {
-    const result = [];
-    rawOperacionalData.forEach(d => {
-      const rs = getRegionalSupervisor(d.filial, d);
-      if (normalizeText(d.filial) === 'SSC4') {
-        const ratios = ssc4RatiosPerQuinzena[d.quinzena];
-        if (ratios) {
-          ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-            const rsTarget = getRegionalSupervisor(target, rs);
-            if (ratios[target] > 0) {
-              const newIns = {};
-              if (d.insucessosDetalhados) {
-                Object.entries(d.insucessosDetalhados).forEach(([k, v]) => newIns[k] = v * ratios[target]);
-              }
-              result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, saldo: d.saldo * ratios[target], entregues: d.entregues * ratios[target], insucessosDetalhados: newIns });
+      const processOperacionalBsc = async (arr) => {
+        return await processArray(arr, d => {
+          const result = [];
+          const rs = getRegionalSupervisor(d.filial, d);
+          if (normalizeText(d.filial) === 'SSC4') {
+            const ratios = ssc4RatiosPerQuinzena[d.quinzena];
+            if (ratios) {
+              ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
+                const rsTarget = getRegionalSupervisor(target, rs);
+                if (ratios[target] > 0) {
+                  const newIns = {};
+                  if (d.insucessosDetalhados) {
+                    Object.entries(d.insucessosDetalhados).forEach(([k, v]) => newIns[k] = v * ratios[target]);
+                  }
+                  result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, saldo: d.saldo * ratios[target], entregues: d.entregues * ratios[target], insucessosDetalhados: newIns });
+                }
+              });
+            } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
+          } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
+          return result;
+        });
+      };
+
+      const distOp = await processOperacionalBsc(rawOperacionalData);
+      if (isCancelled) return;
+      setDistributedOperacional(distOp);
+
+      const distBsc = await processOperacionalBsc(rawBscData);
+      if (isCancelled) return;
+      setDistributedBsc(distBsc);
+
+      // Now calculate the dropdowns asynchronously to not freeze
+      await new Promise(r => setTimeout(r, 0));
+      
+      const getAllUnique = async (arrs, key) => {
+        const set = new Set();
+        for (const arr of arrs) {
+          for (let i = 0; i < arr.length; i+=1000) {
+            const chunk = arr.slice(i, i+1000);
+            for (const item of chunk) {
+               if (item[key] && String(item[key]).trim() !== '') set.add(item[key]);
             }
-          });
-        } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
-      } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
-    });
-    return result;
-  }, [rawOperacionalData, ssc4RatiosPerQuinzena, mapeamentoFiliais]);
+            await new Promise(r => setTimeout(r, 0));
+          }
+        }
+        return [...set];
+      };
 
-  const distributedBsc = useMemo(() => {
-    const result = [];
-    rawBscData.forEach(d => {
-      const rs = getRegionalSupervisor(d.filial, d);
-      if (normalizeText(d.filial) === 'SSC4') {
-        const ratios = ssc4RatiosPerQuinzena[d.quinzena];
-        if (ratios) {
-          ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-            const rsTarget = getRegionalSupervisor(target, rs);
-            if (ratios[target] > 0) {
-              const newIns = {};
-              if (d.insucessosDetalhados) {
-                Object.entries(d.insucessosDetalhados).forEach(([k, v]) => newIns[k] = v * ratios[target]);
-              }
-              result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, saldo: d.saldo * ratios[target], entregues: d.entregues * ratios[target], insucessosDetalhados: newIns });
+      const qList = await getAllUnique([distDados, distFat, distOp, distBsc], 'quinzena');
+      setQuinzenasDisponiveis(qList.sort((a, b) => {
+        if (a === 'N/A' || a === 'GERAL') return 1;
+        if (b === 'N/A' || b === 'GERAL') return -1;
+        return String(b).localeCompare(String(a));
+      }));
+
+      const rList = await getAllUnique([distDados, distFat, distOp, distBsc], 'regional');
+      setRegionaisDisponiveis(rList.filter(r => r !== 'N/A').sort());
+
+      const dList = await getAllUnique([distOp, distBsc], 'dia_semana');
+      setDiasSemanaDisponiveis(dList.filter(d => d !== 'N/A').sort());
+
+      setIsCalculatingUI(false);
+    };
+
+    compute();
+    return () => { isCancelled = true; };
+  }, [rawData, rawFaturamentoData, rawOperacionalData, rawBscData, ssc4RatiosPerQuinzena, mapeamentoFiliais]);
+
+  // Dropdowns que dependem do filtro selecionado, calculados num useEffect separado e leve
+  useEffect(() => {
+    let isCancelled = false;
+    const computeFilters = async () => {
+      const matchReg = (r) => filtroRegionais.length === 0 || !filtroRegionais.includes(r);
+      const matchSup = (s) => filtroSupervisores.length === 0 || !filtroSupervisores.includes(s);
+
+      const sSet = new Set();
+      const fSet = new Set();
+      const arrays = [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc];
+
+      for (const arr of arrays) {
+        for (let i = 0; i < arr.length; i+= 2000) {
+          if (isCancelled) return;
+          const chunk = arr.slice(i, i+2000);
+          for (const d of chunk) {
+            if (matchReg(d.regional)) {
+               if (d.supervisor && d.supervisor !== 'N/A') sSet.add(d.supervisor);
+               if (matchSup(d.supervisor) && d.filial && d.filial !== 'N/A') fSet.add(d.filial);
             }
-          });
-        } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
-      } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
-    });
-    return result;
-  }, [rawBscData, ssc4RatiosPerQuinzena, mapeamentoFiliais]);
+          }
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
 
-  const quinzenasDisponiveis = useMemo(() => {
-    const q1 = distributedDados.map(d => d.quinzena);
-    const q3 = distributedFaturamento.map(d => d.quinzena);
-    const q4 = distributedOperacional.map(d => d.quinzena);
-    const q5 = distributedBsc.map(d => d.quinzena);
-    return [...new Set([...q1, ...q3, ...q4, ...q5].filter(q => q && String(q).trim() !== ''))].sort((a, b) => {
-      if (a === 'N/A' || a === 'GERAL') return 1;
-      if (b === 'N/A' || b === 'GERAL') return -1;
-      return String(b).localeCompare(String(a));
-    });
-  }, [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc]);
-
-  const regionaisDisponiveis = useMemo(() => {
-    const r1 = distributedDados.map(d => d.regional);
-    const r2 = distributedFaturamento.map(d => d.regional);
-    const r3 = distributedOperacional.map(d => d.regional);
-    const r4 = distributedBsc.map(d => d.regional);
-    return [...new Set([...r1, ...r2, ...r3, ...r4].filter(r => r && r !== 'N/A'))].sort();
-  }, [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc]);
-
-  const supervisoresDisponiveis = useMemo(() => {
-    const matchReg = (r) => filtroRegionais.length === 0 || !filtroRegionais.includes(r);
-    const s1 = distributedDados.filter(d => matchReg(d.regional)).map(d => d.supervisor);
-    const s2 = distributedFaturamento.filter(d => matchReg(d.regional)).map(d => d.supervisor);
-    const s3 = distributedOperacional.filter(d => matchReg(d.regional)).map(d => d.supervisor);
-    const s4 = distributedBsc.filter(d => matchReg(d.regional)).map(d => d.supervisor);
-    return [...new Set([...s1, ...s2, ...s3, ...s4].filter(s => s && s !== 'N/A'))].sort();
-  }, [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc, filtroRegionais]);
-
-  const filiaisDisponiveis = useMemo(() => {
-    const matchReg = (r) => filtroRegionais.length === 0 || !filtroRegionais.includes(r);
-    const matchSup = (s) => filtroSupervisores.length === 0 || !filtroSupervisores.includes(s);
-
-    const f1 = distributedDados.filter(d => matchReg(d.regional) && matchSup(d.supervisor)).map(d => d.filial);
-    const f2 = distributedFaturamento.filter(d => matchReg(d.regional) && matchSup(d.supervisor)).map(d => d.filial);
-    const f3 = distributedOperacional.filter(d => matchReg(d.regional) && matchSup(d.supervisor)).map(d => d.filial);
-    const f4 = distributedBsc.filter(d => matchReg(d.regional) && matchSup(d.supervisor)).map(d => d.filial);
-    return [...new Set([...f1, ...f2, ...f3, ...f4].filter(f => f && f !== 'N/A'))].sort();
+      setSupervisoresDisponiveis([...sSet].sort());
+      setFiliaisDisponiveis([...fSet].sort());
+    };
+    computeFilters();
+    return () => { isCancelled = true; };
   }, [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc, filtroRegionais, filtroSupervisores]);
-
-  const diasSemanaDisponiveis = useMemo(() => {
-    const d1 = distributedOperacional.map(d => d.dia_semana);
-    const d2 = distributedBsc.map(d => d.dia_semana);
-    return [...new Set([...d1, ...d2].filter(d => d && d !== 'N/A'))].sort();
-  }, [distributedOperacional, distributedBsc]);
 
   const matchFiltro = (val, arr) => !arr.includes(val);
 
