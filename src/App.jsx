@@ -1,14 +1,17 @@
-import React, { useState, useCallback, useMemo, useEffect, Fragment, useRef } from 'react';
-import Simulador from './Simulador';
-import DreAnaliseCusto from './DreAnaliseCusto';
-import DreCustoLeve from './DreCustoLeve';
-import DreViabilidade from './DreViabilidade';
-import DataImporter from './DataImporter';
-import ConfigFiliais from './ConfigFiliais';
-import ConfigTarifas from './ConfigTarifas';
-import PainelTreinamentos from './PainelTreinamentos';
+import React, { useState, useCallback, useMemo, useEffect, Fragment, useRef, Suspense, lazy } from 'react';
+
+const Simulador = lazy(() => import('./Simulador'));
+const DreAnaliseCusto = lazy(() => import('./DreAnaliseCusto'));
+const DreCustoLeve = lazy(() => import('./DreCustoLeve'));
+const DreViabilidade = lazy(() => import('./DreViabilidade'));
+const DataImporter = lazy(() => import('./DataImporter'));
+const ConfigFiliais = lazy(() => import('./ConfigFiliais'));
+const ConfigTarifas = lazy(() => import('./ConfigTarifas'));
+const PainelTreinamentos = lazy(() => import('./PainelTreinamentos'));
+const PainelDisponibilidade = lazy(() => import('./PainelDisponibilidade'));
 import { db, auth, getCollectionName } from './firebase';
-import { collection, writeBatch, doc, getDocs } from 'firebase/firestore';
+import { supabase } from './supabase';
+import { collection, writeBatch, doc, getDocs, query, where, documentId } from 'firebase/firestore';
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
 import {
   Calculator,
@@ -366,7 +369,7 @@ const NativeDSChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[
           {showLine && (<svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
             <polyline points={safeData.map((d, i) => `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max((((d.ds || 0) - 80) / 20) * 100, 0), 100)}`).join(' ')} fill="none" stroke="#0f766e" strokeWidth="4" vectorEffect="non-scaling-stroke" />
           </svg>)}
-            {hoveredIndex !== null && safeData[hoveredIndex] && (
+          {hoveredIndex !== null && safeData[hoveredIndex] && (
             <div className="absolute left-0 w-full border-t-2 border-dashed border-slate-600 opacity-80 z-10 pointer-events-none transition-all duration-200" style={{ bottom: `${Math.min(Math.max((((safeData[hoveredIndex].ds || 0) - 80) / 20) * 100, 0), 100)}%` }} />
           )}
           {safeData.map((d, i) => {
@@ -667,7 +670,7 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
             <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
               <div>
                 <h3 className="text-xl font-bold text-white flex items-center gap-3">
-                  <AlertCircle className="w-6 h-6 text-red-400" /> 
+                  <AlertCircle className="w-6 h-6 text-red-400" />
                   Ofensores no Detalhe: <span className="text-blue-400">{selectedOfensorFilial}</span>
                 </h3>
                 <p className="text-slate-400 text-sm mt-1">Detalhamento dos motoristas e pacotes que impactaram a margem da filial.</p>
@@ -676,7 +679,7 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
+
             <div className="p-0 overflow-auto flex-1">
               {ofensoresModal.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 font-medium">Nenhum ofensor encontrado para esta filial nesta quinzena.</div>
@@ -707,7 +710,7 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
                 </table>
               )}
             </div>
-            
+
             <div className="p-4 border-t border-slate-800 bg-slate-900 flex justify-end">
               <button onClick={() => setSelectedOfensorFilial(null)} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-sm font-bold rounded-xl transition-colors shadow-sm">
                 Fechar Detalhamento
@@ -2025,13 +2028,13 @@ const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
 const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturamentoPlanilha, onClose, onNavigateToDetalhes, onExportExcel, isOpMode }) => {
   const [selectedMotorista, setSelectedMotorista] = useState(null);
 
-    const { chartDataValor, chartDataQtd, tableData, casosFilial } = useMemo(() => {
+  const { chartDataValor, chartDataQtd, tableData, casosFilial } = useMemo(() => {
     const norm = (s) => (s || '').toLowerCase().trim();
     const fName = norm(filial);
     const mName = selectedMotorista ? norm(selectedMotorista) : null;
 
-    const casosFilial = dadosPlanilha.filter(d => 
-      norm(d.filial) === fName && 
+    const casosFilial = dadosPlanilha.filter(d =>
+      norm(d.filial) === fName &&
       (d.valor > 0 || typeof d.tipo === 'string')
     );
 
@@ -2053,7 +2056,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
       mapEvolucao[q].valor += (c.valor || 0);
       const peso = c._pesoQtd || 1;
       const baseQtd = (c.qtd || 1) * peso;
-      
+
       if (c.tipo === 'PNRs') {
         mapEvolucao[q].pnrQtd += baseQtd;
         mapEvolucao[q].pnr += (c.valor || 0);
@@ -2067,9 +2070,9 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
     });
 
     const evolutionArray = Object.values(mapEvolucao).sort((a, b) => a.quinzena.localeCompare(b.quinzena));
-    evolutionArray.forEach(e => { 
-      e.totalQtd = Math.round((e.pnrQtd + e.lostQtd + e.nvQtd) * 10) / 10; 
-      e.penalidades = e.valor; 
+    evolutionArray.forEach(e => {
+      e.totalQtd = Math.round((e.pnrQtd + e.lostQtd + e.nvQtd) * 10) / 10;
+      e.penalidades = e.valor;
       e.representatividade = e.faturamento > 0 ? (e.penalidades / e.faturamento) * 100 : 0;
       if (!e.faturamento) e.faturamento = e.penalidades * 10; // Evita falha visual caso no haja faturamento
     });
@@ -2085,7 +2088,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
       const peso = c._pesoQtd || 1;
       const baseQtd = (c.qtd || 1) * peso;
       mapTable[mot].qtd += baseQtd;
-      
+
       if (c.tipo === 'PNRs') mapTable[mot].pnr += (c.valor || 0);
       else if (c.tipo === 'Lost Packages') mapTable[mot].lost += (c.valor || 0);
       else if (c.tipo === 'Not Visited') mapTable[mot].nv += (c.valor || 0);
@@ -2104,12 +2107,12 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-200" onClick={onClose}>
       <div className="bg-slate-900 w-full max-w-6xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-700 zoom-in-95" onClick={e => e.stopPropagation()}>
-        
+
         {/* HEADER */}
         <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/80">
           <div>
             <h3 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
-              <AlertCircle className="w-6 h-6 text-red-500" /> 
+              <AlertCircle className="w-6 h-6 text-red-500" />
               Análise Evolutiva: <span className="text-blue-400">{filial}</span>
             </h3>
             <p className="text-slate-400 text-sm mt-1">
@@ -2117,11 +2120,11 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
             </p>
           </div>
           <div className="flex gap-3 items-center">
-            
-              <button onClick={() => onExportExcel && onExportExcel(selectedMotorista ? casosFilial.filter(c => c.motorista === selectedMotorista) : casosFilial)} className="px-3 py-2.5 bg-slate-800 hover:bg-emerald-900 border border-slate-700 hover:border-emerald-700 text-slate-300 hover:text-emerald-400 rounded-xl transition-colors shadow-lg flex items-center gap-2" title="Gerar Planilha desta Visão">
-                <FileSpreadsheet className="w-4 h-4" />
-                <span className="hidden sm:inline text-sm font-bold">Excel</span>
-              </button>
+
+            <button onClick={() => onExportExcel && onExportExcel(selectedMotorista ? casosFilial.filter(c => c.motorista === selectedMotorista) : casosFilial)} className="px-3 py-2.5 bg-slate-800 hover:bg-emerald-900 border border-slate-700 hover:border-emerald-700 text-slate-300 hover:text-emerald-400 rounded-xl transition-colors shadow-lg flex items-center gap-2" title="Gerar Planilha desta Visão">
+              <FileSpreadsheet className="w-4 h-4" />
+              <span className="hidden sm:inline text-sm font-bold">Excel</span>
+            </button>
             <button onClick={onClose} className="p-2.5 bg-slate-800 hover:bg-red-500/20 hover:text-red-400 rounded-full text-slate-400 transition-colors">
               <X className="w-5 h-5" />
             </button>
@@ -2130,7 +2133,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
 
         {/* BODY */}
         <div className="p-6 overflow-y-auto overflow-x-hidden flex-1 flex flex-col xl:flex-row gap-6 custom-scrollbar">
-          
+
           {/* CHARTS COLUMN */}
           <div className="flex-none xl:flex-1 flex flex-col gap-6">
             <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 shadow-sm flex flex-col relative shrink-0">
@@ -2139,11 +2142,11 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
                 <div className="h-[200px] flex items-center justify-center text-slate-500 text-xs">Sem dados.</div>
               ) : (
                 <div className="h-[260px] pt-10">
-                    <NativeComboChart data={chartDataValor} labelKey="quinzena" heightClass="h-[220px]" isMarginChart={!isOpMode} showFaturamento={!isOpMode} showLine={!isOpMode} tooltipSecondaryLabel="Penalidades" legendSecondaryLabel="Penalidades" showMargemErro={false} hideFaturamentoTooltip={true} dsKey="qtdNormalizada" showDSLine={isOpMode} dsLabel="Qtd Pacotes" tooltipRender={(d) => (`${d.totalQtd} pacotes`)} />
-                  </div>
+                  <NativeComboChart data={chartDataValor} labelKey="quinzena" heightClass="h-[220px]" isMarginChart={!isOpMode} showFaturamento={!isOpMode} showLine={!isOpMode} tooltipSecondaryLabel="Penalidades" legendSecondaryLabel="Penalidades" showMargemErro={false} hideFaturamentoTooltip={true} dsKey="qtdNormalizada" showDSLine={isOpMode} dsLabel="Qtd Pacotes" tooltipRender={(d) => (`${d.totalQtd} pacotes`)} />
+                </div>
               )}
             </div>
-            
+
             {selectedMotorista ? (
               <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 shadow-sm flex flex-col relative flex-none xl:flex-1 min-h-[400px] overflow-hidden">
                 <div className="flex justify-between items-center mb-4">
@@ -2182,38 +2185,38 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
                 </div>
               </div>
             ) : (
-            <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 shadow-sm flex flex-col relative">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Evolução Operacional (Qtd Pacotes)</h4>
-              {chartDataQtd.length === 0 ? (
-                <div className="h-[200px] flex items-center justify-center text-slate-500 text-xs">Sem dados.</div>
-              ) : (
-                <div className="h-[220px] relative flex flex-col justify-end pt-16 pb-8">
-                   <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-8">
-                     {[4,3,2,1,0].map((step, idx) => {
-                       const maxQtd = Math.max(1, ...chartDataQtd.map(d => d.totalQtd));
-                       return (
-                         <div key={idx} className="w-full border-t border-slate-700/50 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto' }}>
-                           <span className="text-[10px] text-slate-500 pr-2 -translate-y-1/2 bg-transparent">{Math.round(maxQtd * (step/4))} un</span>
-                         </div>
-                       )
-                     })}
-                   </div>
-                   <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 mx-8 border-b border-slate-700">
-                     {chartDataQtd.map((d, i) => {
-                       const maxQtd = Math.max(1, ...chartDataQtd.map(d => d.totalQtd));
-                       const pct = (d.totalQtd / maxQtd) * 100;
-                       return (
-                         <div key={i} className="flex-1 flex flex-col justify-end h-full group relative max-w-[40px]">
-                           <span className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 text-[10px] font-bold text-blue-300">{d.totalQtd}</span>
-                           <div className="w-full bg-blue-500/80 group-hover:bg-blue-400 transition-colors rounded-t-sm" style={{ height: `${pct}%` }}></div>
-                           <span className="absolute top-full mt-2 left-1/2 -translate-x-1/2 text-[9px] text-slate-400 font-bold">{d.quinzena}</span>
-                         </div>
-                       )
-                     })}
-                   </div>
-                </div>
-              )}
-            </div>
+              <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 shadow-sm flex flex-col relative">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Evolução Operacional (Qtd Pacotes)</h4>
+                {chartDataQtd.length === 0 ? (
+                  <div className="h-[200px] flex items-center justify-center text-slate-500 text-xs">Sem dados.</div>
+                ) : (
+                  <div className="h-[220px] relative flex flex-col justify-end pt-16 pb-8">
+                    <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-8">
+                      {[4, 3, 2, 1, 0].map((step, idx) => {
+                        const maxQtd = Math.max(1, ...chartDataQtd.map(d => d.totalQtd));
+                        return (
+                          <div key={idx} className="w-full border-t border-slate-700/50 flex items-center justify-between" style={{ height: step === 0 ? '0px' : 'auto' }}>
+                            <span className="text-[10px] text-slate-500 pr-2 -translate-y-1/2 bg-transparent">{Math.round(maxQtd * (step / 4))} un</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div className="z-10 flex w-full h-full items-end justify-around gap-1 sm:gap-2 mx-8 border-b border-slate-700">
+                      {chartDataQtd.map((d, i) => {
+                        const maxQtd = Math.max(1, ...chartDataQtd.map(d => d.totalQtd));
+                        const pct = (d.totalQtd / maxQtd) * 100;
+                        return (
+                          <div key={i} className="flex-1 flex flex-col justify-end h-full group relative max-w-[40px]">
+                            <span className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 text-[10px] font-bold text-blue-300">{d.totalQtd}</span>
+                            <div className="w-full bg-blue-500/80 group-hover:bg-blue-400 transition-colors rounded-t-sm" style={{ height: `${pct}%` }}></div>
+                            <span className="absolute top-full mt-2 left-1/2 -translate-x-1/2 text-[9px] text-slate-400 font-bold">{d.quinzena}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -2231,8 +2234,8 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
               ) : (
                 <div className="flex flex-col">
                   {tableData.map((m, idx) => (
-                    <div 
-                      key={idx} 
+                    <div
+                      key={idx}
                       onClick={() => setSelectedMotorista(m.motorista === selectedMotorista ? null : m.motorista)}
                       className={`p-4 border-b border-slate-700/50 cursor-pointer transition-colors ${selectedMotorista === m.motorista ? 'bg-blue-500/10 border-l-4 border-l-blue-500' : 'hover:bg-slate-700/30 border-l-4 border-l-transparent'}`}
                     >
@@ -2255,7 +2258,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
               Clique em um motorista para filtrar a evolução nos gráficos.
             </div>
           </div>
-          
+
         </div>
       </div>
     </div>
@@ -2264,7 +2267,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
 export default function App() {
   const urlIsOpMode = new URLSearchParams(window.location.search).get('view') === 'operacao';
   const [currentUser, setCurrentUser] = useState(null);
-  
+
   const ADMIN_EMAILS = [
     'felipe.augusto@espindolalog.com',
     'taylor.ferreira@espindolalog.com',
@@ -2413,7 +2416,7 @@ export default function App() {
   const [sheetUrlFaturamento, setSheetUrlFaturamento] = useState('https://docs.google.com/spreadsheets/d/1BeuQJXcR0o9vVb-Xq5vZ4PWSnKE-_Uxf2bkQYylIwS0/edit?gid=2143847273#gid=2143847273');
   const [sheetUrlBsc, setSheetUrlBsc] = useState('https://docs.google.com/spreadsheets/d/1TngDQ58wD8Zz43AHrrtJLGfB2Po_Wqc6LqUzrlTIytw/edit?gid=1433063454#gid=1433063454');
   const [sheetUrlCustos, setSheetUrlCustos] = useState('https://docs.google.com/spreadsheets/d/1zabomWsXNX1xwZbj0xNRx683re1QAYFcPYackB2kXU0/edit?gid=1452775904#gid=1452775904');
-  
+
   const [percentualImpostoFinanceiro, setPercentualImpostoFinanceiro] = useState(6.56);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -2440,7 +2443,7 @@ export default function App() {
   const [selectedQuinzenaDS, setSelectedQuinzenaDS] = useState(null);
 
   const [hasInitialSynced, setHasInitialSynced] = useState(false);
-  const [dataSource, setDataSource] = useState('firebase'); // 'planilhas' | 'firebase'
+  const [dataSource, setDataSource] = useState('supabase'); // 'planilhas' | 'firebase'
 
   useEffect(() => {
     setSelectedQuinzenaPareto(null);
@@ -2686,16 +2689,16 @@ export default function App() {
       const lines = text.split('\n').filter(line => line.trim() !== '');
       if (lines.length < 2) return;
       const delimiter = lines[0].includes(';') ? ';' : ',';
-      
+
       const parsedData = [];
       for (let i = 1; i < lines.length; i++) {
         const row = parseCSVLine(lines[i], delimiter);
         if (row.length < 47) continue;
-        
+
         const quinzena = row[4] ? row[4].trim() : '';
         const filial = row[7] ? row[7].trim() : '';
         const parseValor = (valStr) => {
-          if(!valStr) return 0;
+          if (!valStr) return 0;
           let str = valStr.toString().trim();
           const isNegative = str.includes('-') || (str.includes('(') && str.includes(')'));
           str = str.replace(/[^\d,.]/g, '');
@@ -2713,18 +2716,18 @@ export default function App() {
             str = str.replace(',', '.');
           }
           let num = parseFloat(str);
-          if(isNaN(num)) return 0;
+          if (isNaN(num)) return 0;
           return isNegative ? -num : num;
         };
 
         const valorPagoRaw = row[46] ? row[46].trim() : '0';
-        
+
         if (!quinzena || !filial || quinzena === '#N/D') continue;
-        
+
         const valorPago = parseValor(valorPagoRaw);
         const receitaBase = parseValor(row[51]);
         const receitaParadas = parseValor(row[60]);
-        
+
         parsedData.push({
           quinzena,
           filial: normalizeText(filial),
@@ -2740,7 +2743,7 @@ export default function App() {
     }
   }, []);
 
-  
+
   const syncToFirebase = async (collectionName, dataArray) => {
     if (!dataArray || dataArray.length === 0) return;
     try {
@@ -2756,105 +2759,206 @@ export default function App() {
       const CHUNK_SIZE = 800000;
 
       for (const [quinzena, items] of Object.entries(groupedData)) {
-         const prefix = `${collectionName}___${quinzena}___chunk_`;
-         
-         let deleteBatch = writeBatch(db);
-         let deleteCount = 0;
-         snapshot.forEach(docSnap => {
-            if (docSnap.id.startsWith(prefix)) {
-               deleteBatch.delete(docSnap.ref);
-               deleteCount++;
-            }
-         });
-         if (deleteCount > 0) await deleteBatch.commit();
+        const prefix = `${collectionName}___${quinzena}___chunk_`;
 
-         const fullString = JSON.stringify(items);
-         const numChunks = Math.ceil(fullString.length / CHUNK_SIZE);
-         let writeCount = 0;
-         let batch = writeBatch(db);
-         
-         for (let i = 0; i < numChunks; i++) {
-           const chunkStr = fullString.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-           const docRef = doc(colRef, `${prefix}${i}`);
-           batch.set(docRef, { payload: chunkStr, index: i, collection: collectionName, quinzena: quinzena });
-           writeCount++;
-           
-           if (writeCount === 10) {
-              await batch.commit();
-              batch = writeBatch(db);
-              writeCount = 0;
-           }
-         }
-         if (writeCount > 0) await batch.commit();
-         console.log(`[Chunk Sync] ${collectionName} (${quinzena}) salvo em ${numChunks} fatias!`);
+        let deleteBatch = writeBatch(db);
+        let deleteCount = 0;
+        snapshot.forEach(docSnap => {
+          if (docSnap.id.startsWith(prefix)) {
+            deleteBatch.delete(docSnap.ref);
+            deleteCount++;
+          }
+        });
+        if (deleteCount > 0) await deleteBatch.commit();
+
+        const fullString = JSON.stringify(items);
+        const numChunks = Math.ceil(fullString.length / CHUNK_SIZE);
+        let writeCount = 0;
+        let batch = writeBatch(db);
+
+        for (let i = 0; i < numChunks; i++) {
+          const chunkStr = fullString.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          const docRef = doc(colRef, `${prefix}${i}`);
+          batch.set(docRef, { payload: chunkStr, index: i, collection: collectionName, quinzena: quinzena });
+          writeCount++;
+
+          if (writeCount === 10) {
+            await batch.commit();
+            batch = writeBatch(db);
+            writeCount = 0;
+          }
+        }
+        if (writeCount > 0) await batch.commit();
+        console.log(`[Chunk Sync] ${collectionName} (${quinzena}) salvo em ${numChunks} fatias!`);
       }
     } catch (err) {
       console.error(`Erro ao sincronizar ${collectionName}:`, err);
     }
   };
+  // Helper para Cache no Navegador (IndexedDB)
+  const idbPromise = useMemo(() => {
+    return new Promise((resolve, reject) => {
+      const request = window.indexedDB.open('DashopDB', 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('cache');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }, []);
 
-  const fetchFromFirebase = useCallback(async () => {
-    setIsLoading(true); setError(null);
+  const getCache = async (key) => {
     try {
-      const extractItems = async (colName) => {
-         const items = [];
-         const snap = await getDocs(collection(db, getCollectionName(colName)));
-         snap.forEach(doc => {
-            const data = doc.data();
-            if (data.items && Array.isArray(data.items)) {
-               data.items.forEach(item => items.push({ ...item, quinzena: item.quinzena || data.quinzena }));
-            } else if (!data.items) {
-               items.push({ ...data, quinzena: data.quinzena || 'N/A' });
+      const db = await idbPromise;
+      return new Promise((resolve) => {
+        const tx = db.transaction('cache', 'readonly');
+        const req = tx.objectStore('cache').get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+    } catch { return null; }
+  };
+
+  const setCache = async (key, val) => {
+    try {
+      const db = await idbPromise;
+      return new Promise((resolve) => {
+        const tx = db.transaction('cache', 'readwrite');
+        tx.objectStore('cache').put(val, key);
+        tx.oncomplete = () => resolve();
+      });
+    } catch {}
+  };
+
+  const clearCache = async () => {
+    try {
+      const db = await idbPromise;
+      return new Promise((resolve) => {
+        const tx = db.transaction('cache', 'readwrite');
+        tx.objectStore('cache').clear();
+        tx.oncomplete = () => resolve();
+      });
+    } catch {}
+  };
+
+  const fetchFromFirebase = useCallback(async (forceRefresh = false) => {
+    setIsLoading(true); setError(null);
+    if (forceRefresh) {
+      await clearCache();
+      console.log('Cache limpo manualmente.');
+    }
+    
+    try {
+      const extractItems = async (tableName) => {
+        const cacheKey = `supabase_${tableName}`;
+        
+        // 1. Tentar ler do IndexedDB (Cache Instantâneo Local)
+        if (!forceRefresh) {
+            const cached = await getCache(cacheKey);
+            if (cached && (new Date().getTime() - cached.timestamp < 12 * 60 * 60 * 1000)) {
+               console.log(`[IndexedDB] Carregado: ${tableName}`);
+               return cached.data;
             }
-         });
-         return items;
+        }
+
+        // 2. Tentar baixar do Supabase Storage (Cache na Nuvem - Muito Rápido)
+        if (!forceRefresh) {
+            try {
+              console.log(`[Storage] Tentando baixar ${tableName}.json...`);
+              const { data: fileData, error: downloadError } = await supabase.storage.from('dados_json').download(`${tableName}.json`);
+              if (!downloadError && fileData) {
+                const text = await fileData.text();
+                const jsonData = JSON.parse(text);
+                console.log(`[Storage] Download concluído: ${tableName}`);
+                await setCache(cacheKey, { timestamp: new Date().getTime(), data: jsonData });
+                return jsonData;
+              }
+            } catch (e) {
+              console.warn(`[Storage] Arquivo ${tableName}.json não encontrado, buscando do banco...`);
+            }
+        }
+
+        // 3. Fallback: Baixar do Banco de Dados Linha por Linha (Lento - Primeira vez)
+        console.log(`[Database] Baixando ${tableName} do banco (Lento)...`);
+        const { count, error: countError } = await supabase.from(tableName).select('*', { count: 'exact', head: true });
+        if (countError || !count) return [];
+
+        const limit = 1000;
+        let allData = [];
+
+        for (let start = 0; start < count; start += (limit * 3)) {
+          const promises = [];
+          for (let i = 0; i < 3; i++) {
+            const currentStart = start + (i * limit);
+            if (currentStart >= count) break;
+            promises.push(supabase.from(tableName).select('*').range(currentStart, currentStart + limit - 1));
+          }
+          const results = await Promise.all(promises);
+          for (const res of results) {
+            if (res.data) allData = allData.concat(res.data);
+          }
+        }
+        
+        // 4. Salvar no Storage para os próximos usuários
+        try {
+           const jsonString = JSON.stringify(allData);
+           const blob = new Blob([jsonString], { type: 'application/json' });
+           const { error: uploadError } = await supabase.storage.from('dados_json').upload(`${tableName}.json`, blob, {
+             upsert: true,
+             contentType: 'application/json'
+           });
+           if (uploadError) console.error(`[Storage] Erro ao salvar ${tableName}.json:`, uploadError);
+           else console.log(`[Storage] Salvo com sucesso: ${tableName}.json`);
+        } catch (e) { console.error(e); }
+
+        // 5. Salvar no IndexedDB
+        await setCache(cacheKey, { timestamp: new Date().getTime(), data: allData });
+        return allData;
       };
 
-      await new Promise(r => setTimeout(r, 50));
-      const penalidadesRaw = await extractItems('penalidades_testes');
-      await new Promise(r => setTimeout(r, 50));
-      
+      const [
+        penalidadesRaw,
+        faturamento,
+        operacional_raw,
+        capcar,
+        bsc_new_raw,
+        custosFinanceirosRaw,
+        tarifasAtuais
+      ] = await Promise.all([
+        extractItems('penalidades'),
+        extractItems('faturamento'),
+        extractItems('operacional'),
+        extractItems('capcar'),
+        extractItems('bsc'),
+        extractItems('custos'),
+        extractItems('tarifas')
+      ]);
+
       const penalidades = penalidadesRaw.map(p => {
-         if (!p.tipo && p.descricao) {
-            let tipoFinal = 'Outros';
-            const rawTipo = String(p.descricao).toLowerCase();
-            if (rawTipo.includes('lost')) tipoFinal = 'Lost Packages';
-            else if (rawTipo.includes('pnr')) tipoFinal = 'PNRs';
-            else if (rawTipo.includes('not visited') || rawTipo.includes('nv')) tipoFinal = 'Not Visited';
-            return { ...p, tipo: tipoFinal };
-         }
-         return p;
+        if (!p.tipo && p.descricao) {
+          let tipoFinal = 'Outros';
+          const rawTipo = String(p.descricao).toLowerCase();
+          if (rawTipo.includes('lost')) tipoFinal = 'Lost Packages';
+          else if (rawTipo.includes('pnr')) tipoFinal = 'PNRs';
+          else if (rawTipo.includes('not visited') || rawTipo.includes('nv')) tipoFinal = 'Not Visited';
+          return { ...p, tipo: tipoFinal };
+        }
+        return p;
       });
-      
-      await new Promise(r => setTimeout(r, 50));
-      const faturamento = await extractItems('faturamento_testes');
-      await new Promise(r => setTimeout(r, 50));
-      const operacional_raw = await extractItems('operacional_testes');
-      await new Promise(r => setTimeout(r, 50));
-      const capcar = await extractItems('capcar_testes');
-      
-      await new Promise(r => setTimeout(r, 50));
-      const bsc_old = [];
-      const bsc_new_raw = await extractItems('operacional_bsc_testes');
-      const bsc = [...bsc_old, ...bsc_new_raw];
 
-      await new Promise(r => setTimeout(r, 50));
-      const custosFinanceiros = await extractItems('custosFinanceiros_testes');
+      const bsc = [...bsc_new_raw];
+      const custosFinanceiros = custosFinanceirosRaw.filter(d => d.tipo === 'Financeiro');
       const mergedCustos = [...custosFinanceiros, ...capcar];
-
-      await new Promise(r => setTimeout(r, 50));
-      const tarifasAtuais = await extractItems('tarifas_testes');
 
       const ignoradasSnap = await getDocs(collection(db, getCollectionName('rotas_ignoradas_testes')));
       const rotasIgnoradas = new Set();
       ignoradasSnap.forEach(doc => rotasIgnoradas.add(String(doc.id).trim()));
-      
+
       // Keep old getDocs for chunked map
       await new Promise(r => setTimeout(r, 50));
       const colRef = collection(db, getCollectionName('app_dados_comprimidos_testes'));
-      const oldSnap = await getDocs(colRef);
+      const q = query(colRef, where(documentId(), '>=', 'mapeamento_filiais'), where(documentId(), '<=', 'mapeamento_filiais\uf8ff'));
+      const oldSnap = await getDocs(q);
       const chunksData = {};
-      
+
       let chunkCount = 0;
       oldSnap.forEach(doc => {
         const id = doc.id;
@@ -2869,48 +2973,48 @@ export default function App() {
           chunkCount++;
         }
       });
-      
+
       const parseChunks = async (colName) => {
         if (!chunksData[colName]) return [];
         let combinedData = [];
         for (const [quinzena, chunkArr] of Object.entries(chunksData[colName])) {
-           await new Promise(r => setTimeout(r, 10)); // Yield while parsing huge JSONs
-           const fullString = chunkArr.join('');
-           if (fullString) {
-              try {
-                const parsed = JSON.parse(fullString);
-                if (Array.isArray(parsed)) {
-                   combinedData = combinedData.concat(parsed.map(item => ({ ...item, quinzena: item.quinzena || quinzena })));
-                } else if (parsed) {
-                   combinedData = combinedData.concat([{ ...parsed, quinzena: parsed.quinzena || quinzena }]);
-                }
-              } catch(e) {}
-           }
+          await new Promise(r => setTimeout(r, 10)); // Yield while parsing huge JSONs
+          const fullString = chunkArr.join('');
+          if (fullString) {
+            try {
+              const parsed = JSON.parse(fullString);
+              if (Array.isArray(parsed)) {
+                combinedData = combinedData.concat(parsed.map(item => ({ ...item, quinzena: item.quinzena || quinzena })));
+              } else if (parsed) {
+                combinedData = combinedData.concat([{ ...parsed, quinzena: parsed.quinzena || quinzena }]);
+              }
+            } catch (e) { }
+          }
         }
         return combinedData;
       };
-      
+
       await new Promise(r => setTimeout(r, 50));
       const mapeamento = await parseChunks('mapeamento_filiais');
-      
+
       // Corrigir Nomes Errados no Operacional (limpeza de chaves indesejadas)
       const validOpKeys = [
-        'bloqueado', 'palavra chave', 'cancelado', 'coleta', 'comercial', 
-        'recusa', 'avaria', 'mudou endereco', 'area inacessivel', 
-        'nao visitado', 'nao localizado', 'faltante', 'fora de rota', 
+        'bloqueado', 'palavra chave', 'cancelado', 'coleta', 'comercial',
+        'recusa', 'avaria', 'mudou endereco', 'area inacessivel',
+        'nao visitado', 'nao localizado', 'faltante', 'fora de rota',
         'cliente ausente', 'tentativa roubo', 'insucessos'
       ];
       await new Promise(r => setTimeout(r, 50));
       const operacional = operacional_raw.map(d => {
         if (d.insucessosDetalhados) {
-           const cleanedInsucessos = {};
-           Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
-             const kLower = String(k).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-             if (validOpKeys.includes(kLower)) {
-                cleanedInsucessos[k] = v;
-             }
-           });
-           return { ...d, insucessosDetalhados: cleanedInsucessos };
+          const cleanedInsucessos = {};
+          Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+            const kLower = String(k).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+            if (validOpKeys.includes(kLower)) {
+              cleanedInsucessos[k] = v;
+            }
+          });
+          return { ...d, insucessosDetalhados: cleanedInsucessos };
         }
         return d;
       });
@@ -2920,63 +3024,75 @@ export default function App() {
       // Vincula motorista nas penalidades retroativamente (caso já tenham sido importadas sem motorista)
       const mapRotaMotorista = {};
       operacional.forEach(d => {
-         if (d.id_rota && d.motorista) {
-            mapRotaMotorista[d.id_rota] = d.motorista;
-         }
+        if (d.id_rota && d.motorista) {
+          mapRotaMotorista[d.id_rota] = d.motorista;
+        }
       });
 
       const penalidadesComMotorista = penalidades.map(p => {
-         let fallbackIdPacote = p.id_pacote;
-         let fallbackIdRota = p.id_rota;
+        let fallbackIdPacote = p.id_pacote;
+        let fallbackIdRota = p.id_rota;
 
-         if (p.descricao) {
-            // Extrai ID do pacote (geralmente números com 8+ dígitos) da descrição
-            if (!fallbackIdPacote || fallbackIdPacote === '-') {
-               const matches = String(p.descricao).match(/\b\d{8,}\b/g);
-               if (matches) {
-                   fallbackIdPacote = matches[0];
-               }
+        if (p.descricao) {
+          // Extrai ID do pacote (geralmente números com 8+ dígitos) da descrição
+          if (!fallbackIdPacote || fallbackIdPacote === '-') {
+            const matches = String(p.descricao).match(/\b\d{8,}\b/g);
+            if (matches) {
+              fallbackIdPacote = matches[0];
             }
+          }
 
-            // Extrai ID da rota (geralmente 4+ dígitos) da descrição
-            if (!fallbackIdRota || fallbackIdRota.startsWith('sem_rota_') || fallbackIdRota === '-') {
-               const matches = String(p.descricao).match(/\b\d{4,}\b/g);
-               if (matches) {
-                   const possibleRoutes = matches.filter(m => m !== fallbackIdPacote);
-                   if (possibleRoutes.length > 0) {
-                       fallbackIdRota = possibleRoutes[0];
-                   } else {
-                       fallbackIdRota = matches[0];
-                   }
-               }
+          // Extrai ID da rota (geralmente 4+ dígitos) da descrição
+          if (!fallbackIdRota || fallbackIdRota.startsWith('sem_rota_') || fallbackIdRota === '-') {
+            const matches = String(p.descricao).match(/\b\d{4,}\b/g);
+            if (matches) {
+              const possibleRoutes = matches.filter(m => m !== fallbackIdPacote);
+              if (possibleRoutes.length > 0) {
+                fallbackIdRota = possibleRoutes[0];
+              } else {
+                fallbackIdRota = matches[0];
+              }
             }
-         }
+          }
+        }
 
-         return { 
-           ...p, 
-           motorista: p.motorista || mapRotaMotorista[p.id_rota] || 'N/A',
-           id_pacote: fallbackIdPacote || '-',
-           id_rota: fallbackIdRota || '-'
-         };
+        return {
+          ...p,
+          motorista: p.motorista || mapRotaMotorista[p.id_rota] || 'N/A',
+          id_pacote: fallbackIdPacote || '-',
+          id_rota: fallbackIdRota || '-'
+        };
       });
 
       const penalidadesFiltradas = penalidadesComMotorista.filter(p => !rotasIgnoradas.has(String(p.id_rota).trim()));
       setRawData(penalidadesFiltradas);
       if (rawDataRef) rawDataRef.current = penalidadesFiltradas;
 
+      // Criar mapa O(1) do operacional para não travar o navegador com loops O(N^2)
+      const opMapByRota = {};
+      operacional.forEach(op => {
+        if (op.id_rota) {
+          const cleanOpId = String(op.id_rota).trim().replace(/\.0$/, '');
+          // Mantemos o primeiro encontrado ou sobrescrevemos (se houver duplicatas a lógica original pegava o primeiro, podemos usar arrays se precisasse, mas o map 1:1 atende a mesma regra)
+          if (!opMapByRota[cleanOpId]) {
+             opMapByRota[cleanOpId] = op;
+          }
+        }
+      });
+
       const faturamentoComMotorista = faturamento.map(f => {
-         const cleanFId = String(f.id_rota).trim().replace(/\.0$/, '');
-         const opRef = operacional.find(op => op.id_rota && String(op.id_rota).trim().replace(/\.0$/, '') === cleanFId);
-         if (opRef) {
-            return { 
-               ...f, 
-               filial: opRef.filial, 
-               regional: opRef.regional, 
-               supervisor: opRef.supervisor, 
-               motorista: opRef.motorista || f.motorista || 'N/A' 
-            };
-         }
-         return f;
+        const cleanFId = String(f.id_rota).trim().replace(/\.0$/, '');
+        const opRef = opMapByRota[cleanFId];
+        if (opRef) {
+          return {
+            ...f,
+            filial: opRef.filial,
+            regional: opRef.regional,
+            supervisor: opRef.supervisor,
+            motorista: opRef.motorista || f.motorista || 'N/A'
+          };
+        }
+        return f;
       });
 
       const faturamentoFiltradoIgnoradas = faturamentoComMotorista.filter(f => !rotasIgnoradas.has(String(f.id_rota).trim()));
@@ -2995,7 +3111,7 @@ export default function App() {
       setMapeamentoFiliais(mapeamento);
       setTarifasMap(tarifasAtuais);
 
-    } catch(err) {
+    } catch (err) {
       console.error(err);
       setError("Erro ao ler do Firebase: " + String(err));
     } finally {
@@ -3003,7 +3119,7 @@ export default function App() {
     }
   }, []);
 
-const fetchFromGoogleSheets = useCallback(async () => {
+  const fetchFromGoogleSheets = useCallback(async () => {
     setIsLoading(true); setError(null);
 
     const fetchCSV = async (url, nomeBase) => {
@@ -3031,7 +3147,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
     };
 
     try {
-            const t1 = await fetchCSV(sheetUrl, 'Penalidades');
+      const t1 = await fetchCSV(sheetUrl, 'Penalidades');
       const d1 = t1 ? processRawCSV(t1) : null;
 
       const t2 = await fetchCSV(sheetUrlFaturamento, 'Faturamento');
@@ -3053,7 +3169,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
 
   useEffect(() => {
     if (isAuthenticated && !hasInitialSynced) {
-      if (dataSource === 'firebase') {
+      if (dataSource === 'supabase') {
         fetchFromFirebase();
       } else {
         fetchFromGoogleSheets();
@@ -3083,12 +3199,12 @@ const fetchFromGoogleSheets = useCallback(async () => {
     return mapped ? { regional: mapped.regional, supervisor: mapped.supervisor } : { regional: d.regional, supervisor: d.supervisor };
   };
 
-  
+
   const [distributedDados, setDistributedDados] = useState([]);
   const [distributedFaturamento, setDistributedFaturamento] = useState([]);
   const [distributedOperacional, setDistributedOperacional] = useState([]);
   const [distributedBsc, setDistributedBsc] = useState([]);
-  
+
   const [quinzenasDisponiveis, setQuinzenasDisponiveis] = useState([]);
   const [regionaisDisponiveis, setRegionaisDisponiveis] = useState([]);
   const [supervisoresDisponiveis, setSupervisoresDisponiveis] = useState([]);
@@ -3101,7 +3217,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
     const compute = async () => {
       // Only run if we actually have data to process
       if (rawData.length === 0 && rawFaturamentoData.length === 0 && rawOperacionalData.length === 0 && rawBscData.length === 0) return;
-      
+
       setIsCalculatingUI(true);
 
       const processArray = async (arr, mapFn) => {
@@ -3186,14 +3302,14 @@ const fetchFromGoogleSheets = useCallback(async () => {
 
       // Now calculate the dropdowns asynchronously to not freeze
       await new Promise(r => setTimeout(r, 0));
-      
+
       const getAllUnique = async (arrs, key) => {
         const set = new Set();
         for (const arr of arrs) {
-          for (let i = 0; i < arr.length; i+=1000) {
-            const chunk = arr.slice(i, i+1000);
+          for (let i = 0; i < arr.length; i += 1000) {
+            const chunk = arr.slice(i, i + 1000);
             for (const item of chunk) {
-               if (item[key] && String(item[key]).trim() !== '') set.add(item[key]);
+              if (item[key] && String(item[key]).trim() !== '') set.add(item[key]);
             }
             await new Promise(r => setTimeout(r, 0));
           }
@@ -3233,13 +3349,13 @@ const fetchFromGoogleSheets = useCallback(async () => {
       const arrays = [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc];
 
       for (const arr of arrays) {
-        for (let i = 0; i < arr.length; i+= 2000) {
+        for (let i = 0; i < arr.length; i += 2000) {
           if (isCancelled) return;
-          const chunk = arr.slice(i, i+2000);
+          const chunk = arr.slice(i, i + 2000);
           for (const d of chunk) {
             if (matchReg(d.regional)) {
-               if (d.supervisor && d.supervisor !== 'N/A') sSet.add(d.supervisor);
-               if (matchSup(d.supervisor) && d.filial && d.filial !== 'N/A') fSet.add(d.filial);
+              if (d.supervisor && d.supervisor !== 'N/A') sSet.add(d.supervisor);
+              if (matchSup(d.supervisor) && d.filial && d.filial !== 'N/A') fSet.add(d.filial);
             }
           }
           await new Promise(r => setTimeout(r, 0));
@@ -3463,11 +3579,11 @@ const fetchFromGoogleSheets = useCallback(async () => {
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
     const margemErroDescontada = totalFat * 0.025;
     const totalPenalidades = dadosFiltrados.reduce((acc, curr) => acc + (curr.valor || 0), 0);
-    
+
     const margemBase = totalFat - impostoDescontado - totalCustos - totalPenalidades;
     const margemR$ = margemBase;
     const margemPct = totalFat > 0 ? (margemR$ / totalFat) * 100 : 0;
-    
+
     return {
       faturamento: totalFat,
       custos: totalCustos,
@@ -3509,7 +3625,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
       map[key].faturamento += (c.receitaTotal || 0);
       map[key].custos += (c.valorPago || 0);
     });
-    
+
     return Object.values(map).map(item => {
       const imp = item.faturamento * (percentualImpostoFinanceiro / 100);
       const margemErro = item.faturamento * 0.025;
@@ -3528,67 +3644,94 @@ const fetchFromGoogleSheets = useCallback(async () => {
   }, [custosFiltrados, percentualImpostoFinanceiro, selectedFilialForMargin]);
 
   const margemFilialData = useMemo(() => {
-    if (selectedRegionalForMargin && !selectedFilialForMargin) {
-      // Filtrar apenas as filiais da regional selecionada
-    }
     const map = {};
-    custosFiltrados.forEach(c => {
-      const fKey = normalizeText(c.filial);
+
+    faturamentoFiltrado.forEach(f => {
+      const fKey = normalizeText(f.filial);
       const reg = filialToRegionalMap[fKey] || 'N/A';
-      
       if (selectedRegionalForMargin && normalizeText(reg) !== normalizeText(selectedRegionalForMargin)) return;
 
-      if (!map[fKey]) map[fKey] = { filial: c.filial, faturamento: 0, custos: 0 };
-      map[fKey].faturamento += (c.receitaTotal || 0);
-      map[fKey].custos += (c.valorPago || 0);
+      if (!map[fKey]) map[fKey] = { filial: f.filial, faturamento: 0, custos: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
+      map[fKey].faturamento += (f.faturamento || 0) + (f.faturamento_paradas || 0);
     });
-    
-    return Object.values(map).map(item => {
-      const imp = item.faturamento * (percentualImpostoFinanceiro / 100);
-      const margemErro = item.faturamento * 0.025;
-      const margemBase = item.faturamento - imp - item.custos;
-      const mR = margemBase;
-      return {
-        ...item,
-        margemErro,
-        penalidades: item.custos,
-        pnr: item.custos,
-        lost: 0,
-        notVisited: 0,
-        margemRS: mR,
-        representatividade: item.faturamento > 0 ? (mR / item.faturamento) * 100 : 0
-      };
-    }).sort((a, b) => b.margemRS - a.margemRS);
-  }, [custosFiltrados, percentualImpostoFinanceiro, selectedRegionalForMargin, filialToRegionalMap]);
 
-  const margemRegionalDataGlobal = useMemo(() => {
-    const map = {};
+    dadosFiltrados.forEach(p => {
+      const fKey = normalizeText(p.filial);
+      if (map[fKey]) {
+        map[fKey].penalidades += (p.valor || 0);
+        if (p.tipo === 'PNRs') map[fKey].pnr += (p.valor || 0);
+        if (p.tipo === 'Lost Packages') map[fKey].lost += (p.valor || 0);
+        if (p.tipo === 'Not Visited') map[fKey].notVisited += (p.valor || 0);
+      }
+    });
+
     custosFiltrados.forEach(c => {
       const fKey = normalizeText(c.filial);
       const reg = filialToRegionalMap[fKey] || 'N/A';
-      const key = normalizeText(reg);
-      
-      if (!map[key]) map[key] = { regional: reg === 'N/A' ? 'Sem Regional' : `Regional ${reg}`, rawRegional: reg, faturamento: 0, custos: 0 };
-      map[key].faturamento += (c.receitaTotal || 0);
-      map[key].custos += (c.valorPago || 0);
+      if (selectedRegionalForMargin && normalizeText(reg) !== normalizeText(selectedRegionalForMargin)) return;
+
+      if (!map[fKey]) map[fKey] = { filial: c.filial, faturamento: 0, custos: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
+      map[fKey].custos += (c.valorPago || c.valor || 0);
     });
-    
+
     return Object.values(map).map(item => {
       const imp = item.faturamento * (percentualImpostoFinanceiro / 100);
       const margemErro = item.faturamento * 0.025;
-      const margemBase = item.faturamento - imp - item.custos;
+      const margemBase = item.faturamento - imp - item.custos - item.penalidades;
       return {
         ...item,
         margemErro,
-        penalidades: item.custos,
-        pnr: item.custos,
-        lost: 0,
-        notVisited: 0,
         margemRS: margemBase,
         representatividade: item.faturamento > 0 ? (margemBase / item.faturamento) * 100 : 0
       };
     }).sort((a, b) => b.margemRS - a.margemRS);
-  }, [custosFiltrados, percentualImpostoFinanceiro, filialToRegionalMap]);
+  }, [faturamentoFiltrado, dadosFiltrados, custosFiltrados, percentualImpostoFinanceiro, selectedRegionalForMargin, filialToRegionalMap]);
+
+  const margemRegionalDataGlobal = useMemo(() => {
+    const map = {};
+
+    faturamentoFiltrado.forEach(f => {
+      const fKey = normalizeText(f.filial);
+      const reg = filialToRegionalMap[fKey] || 'N/A';
+      const key = normalizeText(reg);
+
+      if (!map[key]) map[key] = { regional: reg === 'N/A' ? 'Sem Regional' : `Regional ${reg}`, rawRegional: reg, faturamento: 0, custos: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
+      map[key].faturamento += (f.faturamento || 0) + (f.faturamento_paradas || 0);
+    });
+
+    dadosFiltrados.forEach(p => {
+      const fKey = normalizeText(p.filial);
+      const reg = filialToRegionalMap[fKey] || 'N/A';
+      const key = normalizeText(reg);
+      if (map[key]) {
+        map[key].penalidades += (p.valor || 0);
+        if (p.tipo === 'PNRs') map[key].pnr += (p.valor || 0);
+        if (p.tipo === 'Lost Packages') map[key].lost += (p.valor || 0);
+        if (p.tipo === 'Not Visited') map[key].notVisited += (p.valor || 0);
+      }
+    });
+
+    custosFiltrados.forEach(c => {
+      const fKey = normalizeText(c.filial);
+      const reg = filialToRegionalMap[fKey] || 'N/A';
+      const key = normalizeText(reg);
+
+      if (!map[key]) map[key] = { regional: reg === 'N/A' ? 'Sem Regional' : `Regional ${reg}`, rawRegional: reg, faturamento: 0, custos: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
+      map[key].custos += (c.valorPago || c.valor || 0);
+    });
+
+    return Object.values(map).map(item => {
+      const imp = item.faturamento * (percentualImpostoFinanceiro / 100);
+      const margemErro = item.faturamento * 0.025;
+      const margemBase = item.faturamento - imp - item.custos - item.penalidades;
+      return {
+        ...item,
+        margemErro,
+        margemRS: margemBase,
+        representatividade: item.faturamento > 0 ? (margemBase / item.faturamento) * 100 : 0
+      };
+    }).sort((a, b) => b.margemRS - a.margemRS);
+  }, [faturamentoFiltrado, dadosFiltrados, custosFiltrados, percentualImpostoFinanceiro, filialToRegionalMap]);
 
   const margemCategoriaDataGlobal = useMemo(() => {
     const map = {};
@@ -3598,7 +3741,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
       map[key].faturamento += (c.receitaTotal || 0);
       map[key].custos += (c.valorPago || 0);
     });
-    
+
     return Object.values(map).map(item => {
       const imp = item.faturamento * (percentualImpostoFinanceiro / 100);
       const margemBase = item.faturamento - imp - item.custos;
@@ -3692,13 +3835,13 @@ const fetchFromGoogleSheets = useCallback(async () => {
     const totalCustos = prevCustosFiltrados.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
     const margemErroDescontada = totalFat * 0.025;
-    
+
     // Penalidades the previous quinzena (we can use prevQuinzenaStats or calculate again)
     const totalPenalidades = dadosFiltradosEvolucao.filter(d => d.quinzena === prevQuinzenaName).reduce((acc, curr) => acc + (curr.valor || 0), 0);
-    
+
     const margemBase = totalFat - impostoDescontado - totalCustos - totalPenalidades;
     const margemPct = totalFat > 0 ? (margemBase / totalFat) * 100 : 0;
-    
+
     return {
       faturamento: totalFat,
       custos: totalCustos,
@@ -3717,12 +3860,12 @@ const fetchFromGoogleSheets = useCallback(async () => {
     const totalFat = prevPrevFaturamento.reduce((acc, curr) => acc + (curr.faturamento || 0) + (curr.faturamento_paradas || 0), 0);
     const totalCustos = custos.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
-    
+
     const totalPenalidades = dadosFiltradosEvolucao.filter(d => d.quinzena === prevPrevQuinzenaName).reduce((acc, curr) => acc + (curr.valor || 0), 0);
-    
+
     const margemBase = totalFat - impostoDescontado - totalCustos - totalPenalidades;
     const margemPct = totalFat > 0 ? (margemBase / totalFat) * 100 : 0;
-    
+
     return {
       faturamento: totalFat,
       custos: totalCustos,
@@ -3926,62 +4069,62 @@ const fetchFromGoogleSheets = useCallback(async () => {
       const wb = XLSX.utils.book_new();
 
       if (type === 'evolutivo') {
-          console.log('Exporting evolutivo', options);
-          
-          let exportData = options.data || [];
-          
-          const casosDetalhe = exportData.map(d => {
-            const res = {
-              "Filial": d.filial || options.filial,
-              "Regional": d.regional || 'N/A',
-              "Supervisor": d.supervisor || 'N/A',
-              "Quinzena": d.quinzena || 'N/A',
-              "Motorista": d.motorista || 'N/A',
-              "Tipo Penalidade": d.tipo || 'N/A',
-              "ID (Pacote/Rota)": d.tipo === 'Not Visited' ? (d.id_rota || '-') : (d.id_pacote || '-'),
-              "Quantidade": 1
-            };
-            res["Valor (R$)"] = d.valor || 0;
-            return res;
-          }).sort((a, b) => b["Valor (R$)"] - a["Valor (R$)"]);
+        console.log('Exporting evolutivo', options);
 
-          const motoristasMap = {};
-          exportData.forEach(d => {
-            const mKey = d.motorista || 'N/A';
-            if (!motoristasMap[mKey]) motoristasMap[mKey] = { "Motorista": mKey, "Pacotes Perdidos": 0, "Not Visited": 0 };
-            
-            if (motoristasMap[mKey]["Total (R$)"] === undefined) {
-              motoristasMap[mKey]["Total (R$)"] = 0;
-              motoristasMap[mKey]["Lost (R$)"] = 0;
-              motoristasMap[mKey]["NV (R$)"] = 0;
-            }
-            motoristasMap[mKey]["Total (R$)"] += (d.valor || 0);
+        let exportData = options.data || [];
 
-            if (d.tipo === 'Lost Packages') { 
-              motoristasMap[mKey]["Lost (R$)"] += (d.valor || 0); 
-              motoristasMap[mKey]["Pacotes Perdidos"] += 1; 
-            }
-            else if (d.tipo === 'Not Visited') { 
-              motoristasMap[mKey]["NV (R$)"] += (d.valor || 0); 
-              motoristasMap[mKey]["Not Visited"] += 1; 
-            }
-          });
-          const motoristasData = Object.values(motoristasMap).sort((a, b) => b["Total (R$)"] - a["Total (R$)"]);
+        const casosDetalhe = exportData.map(d => {
+          const res = {
+            "Filial": d.filial || options.filial,
+            "Regional": d.regional || 'N/A',
+            "Supervisor": d.supervisor || 'N/A',
+            "Quinzena": d.quinzena || 'N/A',
+            "Motorista": d.motorista || 'N/A',
+            "Tipo Penalidade": d.tipo || 'N/A',
+            "ID (Pacote/Rota)": d.tipo === 'Not Visited' ? (d.id_rota || '-') : (d.id_pacote || '-'),
+            "Quantidade": 1
+          };
+          res["Valor (R$)"] = d.valor || 0;
+          return res;
+        }).sort((a, b) => b["Valor (R$)"] - a["Valor (R$)"]);
 
-          if (motoristasData.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(motoristasData), "Por Motorista");
-          if (casosDetalhe.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(casosDetalhe), "Casos Detalhados");
+        const motoristasMap = {};
+        exportData.forEach(d => {
+          const mKey = d.motorista || 'N/A';
+          if (!motoristasMap[mKey]) motoristasMap[mKey] = { "Motorista": mKey, "Pacotes Perdidos": 0, "Not Visited": 0 };
 
-          if (casosDetalhe.length === 0 && motoristasData.length === 0) {
-            const ws = XLSX.utils.json_to_sheet([{ Mensagem: "Nenhum caso encontrado para exportação" }]);
-            XLSX.utils.book_append_sheet(wb, ws, "Vazio");
+          if (motoristasMap[mKey]["Total (R$)"] === undefined) {
+            motoristasMap[mKey]["Total (R$)"] = 0;
+            motoristasMap[mKey]["Lost (R$)"] = 0;
+            motoristasMap[mKey]["NV (R$)"] = 0;
           }
+          motoristasMap[mKey]["Total (R$)"] += (d.valor || 0);
 
-          XLSX.writeFile(wb, `Evolutivo_${options.filial}.xlsx`);
-          setExportingType(null);
-          return;
+          if (d.tipo === 'Lost Packages') {
+            motoristasMap[mKey]["Lost (R$)"] += (d.valor || 0);
+            motoristasMap[mKey]["Pacotes Perdidos"] += 1;
+          }
+          else if (d.tipo === 'Not Visited') {
+            motoristasMap[mKey]["NV (R$)"] += (d.valor || 0);
+            motoristasMap[mKey]["Not Visited"] += 1;
+          }
+        });
+        const motoristasData = Object.values(motoristasMap).sort((a, b) => b["Total (R$)"] - a["Total (R$)"]);
+
+        if (motoristasData.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(motoristasData), "Por Motorista");
+        if (casosDetalhe.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(casosDetalhe), "Casos Detalhados");
+
+        if (casosDetalhe.length === 0 && motoristasData.length === 0) {
+          const ws = XLSX.utils.json_to_sheet([{ Mensagem: "Nenhum caso encontrado para exportação" }]);
+          XLSX.utils.book_append_sheet(wb, ws, "Vazio");
         }
 
-        if (type === 'penalidades') {
+        XLSX.writeFile(wb, `Evolutivo_${options.filial}.xlsx`);
+        setExportingType(null);
+        return;
+      }
+
+      if (type === 'penalidades') {
         const isEvent = options && (options.nativeEvent || options._reactName);
         const { filial, motorista } = isEvent ? {} : (options || {});
 
@@ -4077,7 +4220,7 @@ const fetchFromGoogleSheets = useCallback(async () => {
   useEffect(() => {
     // Apenas admins em visões estratégicas
     if (!isUserAdmin || !targetQuinzenaRunRate || !['gestao_financeira', 'gestao_margem'].includes(activeMenu)) return;
-    
+
     // Evitar fetch se as métricas ainda não calcularam
     if (!margemBrutaMetrics) return;
 
@@ -4147,7 +4290,7 @@ Diretrizes:
               <Lock className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-black text-slate-800 tracking-tight">DashOp Login</h1>
-            <p className="text-slate-500 text-center text-sm font-medium">Acesso restrito. Faça login com sua conta Firebase.</p>
+            <p className="text-slate-500 text-center text-sm font-medium">Acesso restrito. Faça login com sua conta.</p>
           </div>
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
             <div>
@@ -4224,7 +4367,7 @@ Diretrizes:
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'x-goog-api-key': GEMINI_API_KEY
         },
@@ -4258,10 +4401,10 @@ Diretrizes:
   // TELA PRINCIPAL (DASHBOARD)
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
-      
+
       {/* OVERLAY MOBILE */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 md:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
@@ -4275,7 +4418,7 @@ Diretrizes:
             <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-950 shadow-lg border border-blue-400/20">
               <Activity className="w-5 h-5 text-emerald-400 absolute" strokeWidth={2.5} />
             </div>
-            
+
             {/* Tipografia Moderna */}
             <span className="text-2xl font-black tracking-tighter text-white">
               Dash<span className="text-blue-500">Op</span>
@@ -4283,7 +4426,7 @@ Diretrizes:
             </span>
           </div>
           {/* BOTÃO FECHAR MENU (MOBILE) */}
-          <button 
+          <button
             className="md:hidden p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white"
             onClick={() => setIsMobileMenuOpen(false)}
           >
@@ -4297,12 +4440,12 @@ Diretrizes:
             {/* Accordion Gestão Financeira */}
             {!isOpMode && (
               <div className="flex flex-col mb-2">
-                <button 
+                <button
                   onClick={() => {
                     handleMenuChange('gestao_financeira');
-                    if (!expandedMenus.financeiro) toggleExpandedMenu('financeiro', { stopPropagation: () => {} });
+                    if (!expandedMenus.financeiro) toggleExpandedMenu('financeiro', { stopPropagation: () => { } });
                     setIsMobileMenuOpen(false);
-                  }} 
+                  }}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_financeira', 'detalhe_financeiro', 'gestao_margem'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
                 >
                   <div className="flex items-center gap-3">
@@ -4328,12 +4471,12 @@ Diretrizes:
 
             {/* Accordion Gestão Operacional */}
             <div className="flex flex-col">
-              <button 
+              <button
                 onClick={() => {
                   handleMenuChange('gestao_operacional');
-                  if (!expandedMenus.operacional) toggleExpandedMenu('operacional', { stopPropagation: () => {} });
-                }} 
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_operacional', 'gestao_penalidades', 'gestao_bsc', 'comparativo_bsc', 'gaps_operacionais', 'painel_treinamentos'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
+                  if (!expandedMenus.operacional) toggleExpandedMenu('operacional', { stopPropagation: () => { } });
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_operacional', 'gestao_penalidades', 'gestao_bsc', 'comparativo_bsc', 'gaps_operacionais', 'painel_treinamentos', 'disponibilidade_frota'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
               >
                 <div className="flex items-center gap-3">
                   <Box className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_operacional' ? 'text-blue-400' : ''}`} />
@@ -4362,6 +4505,9 @@ Diretrizes:
                     <button onClick={() => handleMenuChange('painel_treinamentos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'painel_treinamentos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                       <span className="truncate">Treinamentos</span>
                     </button>
+                    <button onClick={() => handleMenuChange('disponibilidade_frota')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'disponibilidade_frota' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                      <span className="truncate">Disponibilidade de Frota</span>
+                    </button>
                   </>
                 )}
               </div>
@@ -4369,11 +4515,11 @@ Diretrizes:
             {/* Accordion Planejamento */}
             {!isOpMode && (
               <div className="flex flex-col">
-                <button 
+                <button
                   onClick={() => {
                     handleMenuChange('planejamento');
-                    if (!expandedMenus.planejamento) toggleExpandedMenu('planejamento', { stopPropagation: () => {} });
-                  }} 
+                    if (!expandedMenus.planejamento) toggleExpandedMenu('planejamento', { stopPropagation: () => { } });
+                  }}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['planejamento', 'dre_custos', 'dre_leves', 'dre_viabilidade'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
                 >
                   <div className="flex items-center gap-3">
@@ -4402,11 +4548,11 @@ Diretrizes:
             {/* Importador Inteligente */}
             {!isOpMode && isUserAdmin && (
               <div className="flex flex-col mt-4 pt-4 border-t border-slate-800">
-                <button 
+                <button
                   onClick={() => {
                     handleMenuChange('importador');
                     setIsMobileMenuOpen(false);
-                  }} 
+                  }}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'importador' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
                 >
                   <div className="flex items-center gap-3">
@@ -4414,11 +4560,11 @@ Diretrizes:
                     <span className={`truncate ${activeMenu === 'importador' ? 'font-bold' : ''}`}>Importador Inteligente</span>
                   </div>
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     handleMenuChange('config_filiais');
                     setIsMobileMenuOpen(false);
-                  }} 
+                  }}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_filiais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
                 >
                   <div className="flex items-center gap-3">
@@ -4426,11 +4572,11 @@ Diretrizes:
                     <span className={`truncate ${activeMenu === 'config_filiais' ? 'font-bold' : ''}`}>Config. de Filiais</span>
                   </div>
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     handleMenuChange('config_tarifas');
                     setIsMobileMenuOpen(false);
-                  }} 
+                  }}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_tarifas' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
                 >
                   <div className="flex items-center gap-3">
@@ -4450,7 +4596,7 @@ Diretrizes:
 
           <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 w-full xl:w-auto">
             <div className="flex items-center gap-3 w-full sm:w-auto pb-2 sm:pb-0 border-b border-slate-100 sm:border-none">
-              <button 
+              <button
                 className="md:hidden p-2 -ml-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 transition-colors"
                 onClick={() => setIsMobileMenuOpen(true)}
               >
@@ -4505,39 +4651,35 @@ Diretrizes:
               <button
                 onClick={() => { setDataSource('planilhas'); fetchFromGoogleSheets(); }}
                 disabled={isLoading}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${
-                  dataSource === 'planilhas'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${dataSource === 'planilhas'
                     ? 'bg-blue-600 text-white shadow-md'
                     : 'text-slate-500 hover:text-slate-700 hover:bg-white'
-                } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+                  } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isLoading && dataSource === 'planilhas' ? 'animate-spin' : ''}`} />
                 Planilhas
               </button>
               <button
-                onClick={() => { setDataSource('firebase'); fetchFromFirebase(); }}
+                onClick={() => { setDataSource('supabase'); fetchFromFirebase(true); }}
                 disabled={isLoading}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${
-                  dataSource === 'firebase'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${dataSource === 'supabase'
                     ? 'bg-emerald-600 text-white shadow-md'
                     : 'text-slate-500 hover:text-slate-700 hover:bg-white'
-                } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+                  } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
               >
-                <Database className={`w-3.5 h-3.5 ${isLoading && dataSource === 'firebase' ? 'animate-spin' : ''}`} />
-                Firebase
+                <Database className={`w-3.5 h-3.5 ${isLoading && dataSource === 'supabase' ? 'animate-spin' : ''}`} />
+                Supabase
               </button>
             </div>
 
             {/* BADGE INDICADOR DA FONTE ATIVA */}
-            <div className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-sm ${
-              dataSource === 'planilhas'
+            <div className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-sm ${dataSource === 'planilhas'
                 ? 'bg-blue-50 text-blue-600 border-blue-200'
                 : 'bg-emerald-50 text-emerald-600 border-emerald-200'
-            }`}>
-              <span className={`w-2 h-2 rounded-full animate-pulse ${
-                dataSource === 'planilhas' ? 'bg-blue-500' : 'bg-emerald-500'
-              }`}></span>
-              {dataSource === 'planilhas' ? 'Visão Planilhas' : 'Visão Firebase'}
+              }`}>
+              <span className={`w-2 h-2 rounded-full animate-pulse ${dataSource === 'planilhas' ? 'bg-blue-500' : 'bg-emerald-500'
+                }`}></span>
+              {dataSource === 'planilhas' ? 'Visão Planilhas' : 'Visão Supabase'}
             </div>
           </div>
         </header>
@@ -4558,46 +4700,48 @@ Diretrizes:
             {/* IMPORTADOR INTELIGENTE */}
             {activeMenu === 'importador' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
-                <DataImporter 
+                <DataImporter
                   rawFaturamentoData={rawFaturamentoData}
                   rawOperacionalData={rawOperacionalData}
                   mapeamentoFiliais={mapeamentoFiliais}
                   onImportOperacional={async (novoOperacional) => {
-                     if (!novoOperacional || novoOperacional.length === 0) return;
-                     const operacionalMap = new Map();
-                     rawOperacionalData.forEach(d => operacionalMap.set(`${d.id_rota}_${d.quinzena || 'GERAL'}`, d));
-                     novoOperacional.forEach(d => operacionalMap.set(`${d.id_rota}_${d.quinzena || 'GERAL'}`, d));
-                     const finalOperacional = Array.from(operacionalMap.values());
-                     setRawOperacionalData(finalOperacional);
-                     if (rawOperacionalDataRef) rawOperacionalDataRef.current = finalOperacional;
+                    if (!novoOperacional || novoOperacional.length === 0) return;
+                    const operacionalMap = new Map();
+                    rawOperacionalData.forEach(d => operacionalMap.set(`${d.id_rota}_${d.quinzena || 'GERAL'}`, d));
+                    novoOperacional.forEach(d => operacionalMap.set(`${d.id_rota}_${d.quinzena || 'GERAL'}`, d));
+                    const finalOperacional = Array.from(operacionalMap.values());
+                    setRawOperacionalData(finalOperacional);
+                    if (rawOperacionalDataRef) rawOperacionalDataRef.current = finalOperacional;
                   }}
                   onImportBilling={async (diarias, penalidades) => {
-                     const importedQuinzena = diarias.length > 0 ? diarias[0].quinzena : (penalidades.length > 0 ? penalidades[0].quinzena : null);
-                     
-                     let finalFaturamento = diarias;
-                     let finalPenalidades = penalidades;
+                    const importedQuinzena = diarias.length > 0 ? diarias[0].quinzena : (penalidades.length > 0 ? penalidades[0].quinzena : null);
 
-                     if (importedQuinzena && importedQuinzena !== 'N/A') {
-                        const faturamentoMap = new Map();
-                        rawFaturamentoData.forEach(d => faturamentoMap.set(d.id_rota || Math.random().toString(), d));
-                        diarias.forEach(d => faturamentoMap.set(d.id_rota, d));
-                        finalFaturamento = Array.from(faturamentoMap.values());
+                    let finalFaturamento = diarias;
+                    let finalPenalidades = penalidades;
 
-                        const penalidadesMap = new Map();
-                        rawData.forEach(d => penalidadesMap.set(`${d.id_rota}_${d.id_pacote}`, d));
-                        penalidades.forEach(d => penalidadesMap.set(`${d.id_rota}_${d.id_pacote}`, d));
-                        finalPenalidades = Array.from(penalidadesMap.values());
-                     }
+                    if (importedQuinzena && importedQuinzena !== 'N/A') {
+                      const faturamentoMap = new Map();
+                      rawFaturamentoData.forEach(d => faturamentoMap.set(d.id_rota || Math.random().toString(), d));
+                      diarias.forEach(d => faturamentoMap.set(d.id_rota, d));
+                      finalFaturamento = Array.from(faturamentoMap.values());
 
-                     setRawFaturamentoData(finalFaturamento);
-                     setRawData(finalPenalidades);
-                     setActiveMenu('gestao_financeira');
+                      const penalidadesMap = new Map();
+                      rawData.forEach(d => penalidadesMap.set(`${d.id_rota}_${d.id_pacote}`, d));
+                      penalidades.forEach(d => penalidadesMap.set(`${d.id_rota}_${d.id_pacote}`, d));
+                      finalPenalidades = Array.from(penalidadesMap.values());
+                    }
+
+                    setRawFaturamentoData(finalFaturamento);
+                    setRawData(finalPenalidades);
+                    await clearCache(); // Limpa o cache para carregar os novos dados na próxima
                   }}
                   onImportCapCar={async (dadosCapCar) => {
-                     fetchFromFirebase();
+                    await clearCache();
+                    fetchFromFirebase(true);
                   }}
                   onImportOperacionalBSC={async (dadosBSC) => {
-                     fetchFromFirebase();
+                    await clearCache();
+                    fetchFromFirebase(true);
                   }}
                 />
               </div>
@@ -4606,8 +4750,8 @@ Diretrizes:
             {/* CONFIGURAÇÕES DE FILIAIS */}
             {activeMenu === 'config_filiais' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
-                <ConfigFiliais 
-                  mapeamentoFiliais={mapeamentoFiliais} 
+                <ConfigFiliais
+                  mapeamentoFiliais={mapeamentoFiliais}
                   rawData={rawData}
                   rawFaturamentoData={rawFaturamentoData}
                   rawOperacionalData={rawOperacionalData}
@@ -4622,8 +4766,8 @@ Diretrizes:
             {/* CONFIGURAÇÕES DE TARIFAS */}
             {activeMenu === 'config_tarifas' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
-                <ConfigTarifas 
-                  tarifasAtuais={tarifasMap} 
+                <ConfigTarifas
+                  tarifasAtuais={tarifasMap}
                   onSave={(newMap) => {
                     syncToFirebase('tarifas_testes', newMap).catch(console.error);
                     setTarifasMap(newMap);
@@ -4636,6 +4780,13 @@ Diretrizes:
             {activeMenu === 'painel_treinamentos' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
                 <PainelTreinamentos rawOperacionalData={rawOperacionalData} mapeamentoFiliais={mapeamentoFiliais} />
+              </div>
+            )}
+
+            {/* DISPONIBILIDADE DE FROTA */}
+            {activeMenu === 'disponibilidade_frota' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <PainelDisponibilidade rawOperacionalData={rawOperacionalData} mapeamentoFiliais={mapeamentoFiliais} />
               </div>
             )}
 
@@ -4677,7 +4828,7 @@ Diretrizes:
             {/* GESTÃO FINANCEIRA (COM FATURAMENTO) */}
             {activeMenu === 'gestao_financeira' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                
+
                 {/* AI SUMMARY TEMPORARILY DISABLED 
                 {isUserAdmin && (executiveSummary || isSummaryLoading) && (
                   <div className="mb-8 bg-gradient-to-r from-blue-900 to-indigo-900 p-6 md:p-8 rounded-3xl shadow-xl text-white relative overflow-hidden">
@@ -4722,7 +4873,7 @@ Diretrizes:
                       <div className="flex justify-between items-center"><span className="text-orange-400 font-bold">Lost Packages</span> <span>{formatCurrency(lostTot.valor)}</span></div>
                       <div className="flex justify-between items-center"><span className="text-slate-400 font-bold">Not Visited</span> <span>{formatCurrency(nvTot.valor)}</span></div>
                       <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-700">
-                        <span className="text-emerald-400 font-bold">Faturamento Total</span> 
+                        <span className="text-emerald-400 font-bold">Faturamento Total</span>
                         <div className="flex flex-col items-end">
                           <span className="text-emerald-400 font-bold text-base">{formatCurrency(faturamentoTotalMetrics)}</span>
                           {prevMargemBrutaMetrics && prevMargemBrutaMetrics.faturamento > 0 && (
@@ -4827,7 +4978,7 @@ Diretrizes:
             {/* GESTÃO DE MARGEM DE CONTRIBUIÇÃO */}
             {activeMenu === 'gestao_margem' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                
+
                 {/* AI SUMMARY TEMPORARILY DISABLED 
                 {isUserAdmin && (executiveSummary || isSummaryLoading) && (
                   <div className="mb-8 bg-gradient-to-r from-blue-900 to-indigo-900 p-6 md:p-8 rounded-3xl shadow-xl text-white relative overflow-hidden">
@@ -4857,9 +5008,9 @@ Diretrizes:
                       <p className="text-xs text-slate-500">Defina o percentual a ser descontado no cálculo da Margem de Contribuição.</p>
                     </div>
                     <div className="relative">
-                      <input 
-                        type="number" 
-                        value={percentualImpostoFinanceiro} 
+                      <input
+                        type="number"
+                        value={percentualImpostoFinanceiro}
                         onChange={e => setPercentualImpostoFinanceiro(parseFloat(e.target.value) || 0)}
                         className="w-24 px-3 py-2 text-right border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold text-slate-700"
                       />
@@ -4892,13 +5043,13 @@ Diretrizes:
                         <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Margem global de {margemBrutaMetrics.margemPct.toFixed(1)}%</span>
                       </div>
                     </div>
-                      <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
+                    <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
                       <div className="flex justify-between items-center"><span className="text-emerald-300 font-bold">Faturamento Bruto</span> <span>{formatCurrency(margemBrutaMetrics.faturamento)}</span></div>
                       <div className="flex justify-between items-center"><span className="text-rose-400 font-bold">Impostos ({percentualImpostoFinanceiro}%)</span> <span>- {formatCurrency(margemBrutaMetrics.imposto)}</span></div>
                       <div className="flex justify-between items-center"><span className="text-orange-400 font-bold">Agregados + Frota</span> <span>- {formatCurrency(margemBrutaMetrics.custos)}</span></div>
                       <div className="flex justify-between items-center"><span className="text-orange-500 font-bold">Margem de erro (±2,5%)</span> <span>± {formatCurrency(margemBrutaMetrics.margemErro)}</span></div>
                       <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-700">
-                        <span className="text-white font-bold">Margem Líquida</span> 
+                        <span className="text-white font-bold">Margem Líquida</span>
                         <div className="flex flex-col items-end">
                           <span className={`font-bold text-base ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemBrutaMetrics.margemRS)}</span>
                           <span className="text-[10px] text-slate-400 font-medium opacity-80 mt-0.5">({formatCurrency(margemBrutaMetrics.margemRS - margemBrutaMetrics.margemErro)} a {formatCurrency(margemBrutaMetrics.margemRS + margemBrutaMetrics.margemErro)})</span>
@@ -4911,10 +5062,10 @@ Diretrizes:
                 <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col mb-8">
                   <div className="flex justify-between items-center mb-2 pt-2 px-2">
                     <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">
-                      {selectedFilialForMargin 
-                        ? `Margem por Categoria (${selectedFilialForMargin})` 
-                        : selectedRegionalForMargin 
-                          ? `Margem por Filial (${selectedRegionalForMargin})` 
+                      {selectedFilialForMargin
+                        ? `Margem por Categoria (${selectedFilialForMargin})`
+                        : selectedRegionalForMargin
+                          ? `Margem por Filial (${selectedRegionalForMargin})`
                           : 'Margem de Contribuição por Regional'}
                     </h3>
                     <div className="flex gap-2">
@@ -4981,7 +5132,7 @@ Diretrizes:
                           ))}
                         </div>
                       </div>
-                      
+
                       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                         <h3 className="text-sm font-black text-red-500 mb-4 uppercase tracking-wider flex items-center gap-2"><TrendingDown className="w-5 h-5" /> Top 4 Piores {titleEntity} (Ofensoras)</h3>
                         <div className="flex flex-col gap-3">
@@ -5170,7 +5321,7 @@ Diretrizes:
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              
+
               <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-slate-900/50">
                 {chatMessages.filter(m => m.role !== 'system').map((msg, idx) => (
                   <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -5222,14 +5373,14 @@ Diretrizes:
       </main>
 
       {modalEvolutivoFilial && (
-        <FilialPenalidadesModal 
-            isOpMode={isOpMode}
-            filial={modalEvolutivoFilial} 
-          targetQuinzena={targetQuinzenaRunRate} 
+        <FilialPenalidadesModal
+          isOpMode={isOpMode}
+          filial={modalEvolutivoFilial}
+          targetQuinzena={targetQuinzenaRunRate}
           dadosPlanilha={distributedDados}
-          faturamentoPlanilha={distributedFaturamento} 
+          faturamentoPlanilha={distributedFaturamento}
           onClose={() => setModalEvolutivoFilial(null)}
-          onExportExcel={(casos) => handleDownloadExcel('evolutivo', { data: casos, filial: modalEvolutivoFilial, isOpMode })} 
+          onExportExcel={(casos) => handleDownloadExcel('evolutivo', { data: casos, filial: modalEvolutivoFilial, isOpMode })}
           onNavigateToDetalhes={(motorista) => {
             setActiveMenu('detalhe_financeiro');
             setReturnToModalState({ menu: activeMenu, filial: modalEvolutivoFilial });
