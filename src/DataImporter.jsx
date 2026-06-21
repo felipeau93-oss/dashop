@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Database, Box, DollarSign, History, Calendar, LayoutList, Trash2, EyeOff } from 'lucide-react';
-import { db, getCollectionName } from './firebase';
-import { collection, writeBatch, doc, setDoc, getDocs, query, where, deleteDoc } from 'firebase/firestore';
+import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Database, Box, DollarSign, History, Calendar, LayoutList, Trash2, EyeOff, Copy, RefreshCw } from 'lucide-react';
+import { supabase } from './supabase';
 
-export default function DataImporter({ onImportOperacional, onImportBilling, onImportCapCar, onImportOperacionalBSC, rawFaturamentoData = [], rawOperacionalData = [], mapeamentoFiliais = [] }) {
+export default function DataImporter({ onImportOperacional, onImportBilling, onImportCapCar, onImportOperacionalBSC, rawFaturamentoData = [], rawOperacionalData = [], mapeamentoFiliais = [], isImporter = false }) {
   const [logs, setLogs] = useState([]);
   const [activeStep, setActiveStep] = useState(1);
 
   const [baseFile, setBaseFile] = useState(null);
   const [quinzenaOp, setQuinzenaOp] = useState('');
   const [isOpMulti, setIsOpMulti] = useState(false);
+  const [isOpPartial, setIsOpPartial] = useState(false);
   const [isProcessingOp, setIsProcessingOp] = useState(false);
   const [progressOp, setProgressOp] = useState('');
 
@@ -27,27 +27,51 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
   const [progressCapCar, setProgressCapCar] = useState('');
 
   const [bscFile, setBscFile] = useState(null);
+  const [quinzenaBsc, setQuinzenaBsc] = useState('');
   const [isProcessingBsc, setIsProcessingBsc] = useState(false);
   const [progressBsc, setProgressBsc] = useState('');
 
   const [historico, setHistorico] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [currentPageHistorico, setCurrentPageHistorico] = useState(1);
 
   const [rotasPendentes, setRotasPendentes] = useState([]);
   const [isLoadingPendentes, setIsLoadingPendentes] = useState(false);
 
   const [selectedPendentes, setSelectedPendentes] = useState(new Set());
+  const [currentPagePendentes, setCurrentPagePendentes] = useState(1);
+  const itemsPerPage = 100;
 
-  const fetchPendentes = async () => {
+  const fetchAllFromSupabase = async (tableName, orderBy) => {
+    const { count, error: countError } = await supabase.from(tableName).select('*', { count: 'exact', head: true });
+    if (countError || !count) return [];
+    const limit = 1000;
+    let allData = [];
+    
+    for (let start = 0; start < count; start += (limit * 3)) {
+        const promises = [];
+        for (let i = 0; i < 3; i++) {
+            const currentStart = start + (i * limit);
+            if (currentStart >= count) break;
+            let query = supabase.from(tableName).select('*').range(currentStart, currentStart + limit - 1);
+            if (orderBy) query = query.order(orderBy, { ascending: false });
+            promises.push(query);
+        }
+        const results = await Promise.all(promises);
+        for (const res of results) {
+            if (res.data) allData = allData.concat(res.data);
+        }
+    }
+    return allData;
+  };
+
+  const loadPendentes = async () => {
     setIsLoadingPendentes(true);
     setSelectedPendentes(new Set());
     try {
-      const q = query(collection(db, getCollectionName('rotas_pendentes_testes')));
-      const snapshot = await getDocs(q);
-      const data = [];
-      snapshot.forEach(d => data.push({ id: d.id, ...d.data() }));
-      data.sort((a, b) => new Date(b.data_identificacao).getTime() - new Date(a.data_identificacao).getTime());
-      setRotasPendentes(data);
+      const data = await fetchAllFromSupabase('rotas_pendentes', 'data_identificacao');
+      setRotasPendentes(data || []);
+      setCurrentPagePendentes(1);
     } catch(err) {
       console.error(err);
     } finally {
@@ -57,7 +81,8 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
   const deletePendente = async (idRota) => {
     try {
-      await deleteDoc(doc(db, getCollectionName('rotas_pendentes_testes'), String(idRota)));
+      const { error } = await supabase.from('rotas_pendentes').delete().eq('id_rota', String(idRota));
+      if (error) throw error;
       setRotasPendentes(prev => prev.filter(r => r.id_rota !== idRota));
       addLog(`Rota pendente ${idRota} excluída com sucesso.`, 'success');
     } catch (e) {
@@ -69,11 +94,11 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
   const ignorarRota = async (idRota) => {
     if(!window.confirm(`Tem certeza que deseja ocultar a rota ${idRota} do financeiro para sempre?`)) return;
     try {
-      await setDoc(doc(db, getCollectionName('rotas_ignoradas_testes'), String(idRota)), {
-        id_rota: idRota,
-        data_ignorada: new Date().toISOString()
-      });
-      await deleteDoc(doc(db, getCollectionName('rotas_pendentes_testes'), String(idRota)));
+      const { error: insertErr } = await supabase.from('rotas_ignoradas').insert([{ id_rota: idRota, data_ignorada: new Date().toISOString() }]);
+      if (insertErr) throw insertErr;
+      const { error: delErr } = await supabase.from('rotas_pendentes').delete().eq('id_rota', String(idRota));
+      if (delErr) throw delErr;
+      
       setRotasPendentes(prev => prev.filter(r => r.id_rota !== idRota));
       setSelectedPendentes(prev => { const next = new Set(prev); next.delete(idRota); return next; });
       addLog(`Rota ${idRota} ocultada do financeiro com sucesso. Atualize a base para aplicar.`, 'success');
@@ -87,18 +112,22 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     if(selectedPendentes.size === 0) return;
     if(!window.confirm(`Tem certeza que deseja ocultar ${selectedPendentes.size} rotas do financeiro para sempre?`)) return;
     try {
-      const batch = writeBatch(db);
-      for (const id of selectedPendentes) {
-        batch.set(doc(db, getCollectionName('rotas_ignoradas_testes'), String(id)), { id_rota: id, data_ignorada: new Date().toISOString() });
-        batch.delete(doc(db, getCollectionName('rotas_pendentes_testes'), String(id)));
+      const ignoradas = Array.from(selectedPendentes).map(id => ({ id_rota: id, data_ignorada: new Date().toISOString() }));
+      const { error: insErr } = await supabase.from('rotas_ignoradas').insert(ignoradas);
+      if (insErr) throw insErr;
+      
+      const idsArray = Array.from(selectedPendentes).map(id => String(id));
+      for (let i = 0; i < idsArray.length; i += 100) {
+          const chunk = idsArray.slice(i, i + 100);
+          await supabase.from('rotas_pendentes').delete().in('id_rota', chunk);
       }
-      await batch.commit();
+      
       setRotasPendentes(prev => prev.filter(r => !selectedPendentes.has(r.id_rota)));
       setSelectedPendentes(new Set());
       addLog(`${selectedPendentes.size} rotas ocultadas com sucesso.`, 'success');
     } catch (e) {
       console.error("Erro ao ignorar rotas em massa", e);
-      addLog(`Erro ao ignorar rotas em massa: ${e.message}`, 'error');
+      addLog(`Erro ao ignorar rotas: ${e.message}`, 'error');
     }
   };
 
@@ -106,17 +135,70 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     if(selectedPendentes.size === 0) return;
     if(!window.confirm(`Tem certeza que deseja excluir ${selectedPendentes.size} alertas (elas não serão ocultadas)?`)) return;
     try {
-      const batch = writeBatch(db);
-      for (const id of selectedPendentes) {
-        batch.delete(doc(db, getCollectionName('rotas_pendentes_testes'), String(id)));
+      const idsArray = Array.from(selectedPendentes).map(id => String(id));
+      for (let i = 0; i < idsArray.length; i += 100) {
+          const chunk = idsArray.slice(i, i + 100);
+          await supabase.from('rotas_pendentes').delete().in('id_rota', chunk);
       }
-      await batch.commit();
       setRotasPendentes(prev => prev.filter(r => !selectedPendentes.has(r.id_rota)));
       setSelectedPendentes(new Set());
       addLog(`${selectedPendentes.size} alertas excluídos com sucesso.`, 'success');
     } catch (e) {
       console.error("Erro ao excluir alertas em massa", e);
       addLog(`Erro ao excluir alertas em massa: ${e.message}`, 'error');
+    }
+  };
+
+
+  const handleBulkRetrySearch = async () => {
+    if(selectedPendentes.size === 0) return;
+    setIsLoadingPendentes(true);
+    addLog(`Iniciando busca no operacional para ${selectedPendentes.size} rotas...`, 'info');
+    try {
+      const idsArray = Array.from(selectedPendentes).map(id => String(id));
+      let rotasEncontradas = [];
+      
+      for (let i = 0; i < idsArray.length; i += 100) {
+          const chunk = idsArray.slice(i, i + 100);
+          const { data: opData } = await supabase.from('operacional').select('id_rota, filial, regional, supervisor, motorista').in('id_rota', chunk);
+          if (opData && opData.length > 0) {
+             rotasEncontradas = rotasEncontradas.concat(opData);
+          }
+      }
+      
+      if (rotasEncontradas.length > 0) {
+         const map = new Map();
+         rotasEncontradas.forEach(r => map.set(r.id_rota, r));
+         const rotasUnicas = Array.from(map.values());
+         
+         addLog(`Sincronizando ${rotasUnicas.length} rotas encontradas no faturamento...`, 'info');
+         
+         for (const r of rotasUnicas) {
+             await supabase.from('faturamento').update({
+                filial: r.filial, regional: r.regional, supervisor: r.supervisor
+             }).eq('id_rota', r.id_rota).eq('filial', 'N/A');
+             
+             await supabase.from('penalidades').update({
+                filial: r.filial, regional: r.regional, supervisor: r.supervisor
+             }).eq('id_rota', r.id_rota).eq('filial', 'N/A');
+             
+             await supabase.from('rotas_pendentes').delete().eq('id_rota', r.id_rota);
+         }
+         
+         addLog(`Sucesso! ${rotasUnicas.length} rotas foram sincronizadas. Atualizando dashboard...`, 'success');
+         await supabase.rpc('rpc_refresh_materialized_views');
+      } else {
+         addLog(`Nenhuma das ${selectedPendentes.size} rotas foi encontrada no operacional ainda.`, 'info');
+      }
+      
+      setSelectedPendentes(new Set());
+      await loadPendentes();
+      
+    } catch (e) {
+      console.error("Erro ao refazer busca:", e);
+      addLog(`Erro ao refazer busca: ${e.message}`, 'error');
+    } finally {
+      setIsLoadingPendentes(false);
     }
   };
 
@@ -140,12 +222,9 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
   const fetchHistorico = async () => {
     setIsLoadingHistory(true);
     try {
-      const q = query(collection(db, getCollectionName('controle_importacoes_testes')));
-      const snapshot = await getDocs(q);
-      const data = [];
-      snapshot.forEach(d => data.push({ id: d.id, ...d.data() }));
-      data.sort((a, b) => new Date(b.data_atualizacao).getTime() - new Date(a.data_atualizacao).getTime());
-      setHistorico(data);
+      const data = await fetchAllFromSupabase('importacoes_history', 'data_importacao');
+      setHistorico(data || []);
+      setCurrentPageHistorico(1);
     } catch(err) {
       console.error(err);
     } finally {
@@ -157,7 +236,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     if (activeStep === 5) {
       fetchHistorico();
     } else if (activeStep === 6) {
-      fetchPendentes();
+      loadPendentes();
     }
   }, [activeStep]);
 
@@ -167,15 +246,15 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
   const registrarImportacao = async (tipo, quinzena, totalLinhas) => {
     try {
-      const q = quinzena || 'GERAL';
-      const ref = doc(db, getCollectionName('controle_importacoes_testes'), `${tipo}_${q}`);
-      await setDoc(ref, {
-        quinzena: q,
-        tipo_importacao: tipo,
-        data_atualizacao: new Date().toISOString(),
-        status: 'Sucesso',
-        total_linhas: totalLinhas
-      });
+      const historyEntry = {
+        tipo,
+        quinzena: quinzena || 'GERAL',
+        qtd_registros: totalLinhas,
+        data_importacao: new Date().toISOString()
+      };
+      const { error: insErr } = await supabase.from('importacoes_history').insert([historyEntry]);
+      if (insErr) throw insErr;
+      await fetchHistorico();
     } catch(err) {
       console.error('Erro ao registrar importação', err);
     }
@@ -198,48 +277,43 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     return obj;
   };
 
-  const saveInBuckets = async (collectionName, quinzena, dataArray, setProgress) => {
+  const saveToSupabase = async (tableName, quinzena, dataArray, setProgress, isPartial = false) => {
     try {
       const q = quinzena || 'GERAL';
-      setProgress(`Apagando dados antigos da quinzena ${q}...`);
       
-      // Apagar dados antigos
-      const colRef = collection(db, getCollectionName(collectionName));
-      const qOld = query(colRef, where("quinzena", "==", q));
-      const snapshot = await getDocs(qOld);
-      
-      const docs = snapshot.docs;
-      for (let i = 0; i < docs.length; i += 400) {
-        const chunk = docs.slice(i, i + 400);
-        const deleteBatch = writeBatch(db);
-        chunk.forEach(d => deleteBatch.delete(d.ref));
-        await deleteBatch.commit();
+      if (!isPartial) {
+          setProgress(`Apagando dados antigos da quinzena ${q}...`);
+          const { error: deleteError } = await supabase
+            .from(tableName)
+            .delete()
+            .eq('quinzena', q);
+            
+          if (deleteError) throw deleteError;
+      } else {
+          setProgress(`Modo Parcial: Adicionando dados à quinzena ${q}...`);
       }
 
-      // Salvar novos dados em buckets
       let savedCount = 0;
+      const CHUNK_SIZE = 1000;
+      
       for (let i = 0; i < dataArray.length; i += CHUNK_SIZE) {
         const chunk = dataArray.slice(i, i + CHUNK_SIZE);
-        const batch = writeBatch(db);
-        const docRef = doc(colRef);
+        const cleanedChunk = chunk.map(cleanUndefined);
         
-        const cleanedChunk = cleanUndefined(chunk);
-        batch.set(docRef, {
-          quinzena: q,
-          part: (i / CHUNK_SIZE) + 1,
-          items: cleanedChunk
-        });
+        const { error: insertError } = await supabase
+          .from(tableName)
+          .insert(cleanedChunk);
+          
+        if (insertError) throw insertError;
         
-        await batch.commit();
         savedCount += chunk.length;
         setProgress(`Processando linhas ${savedCount} de ${dataArray.length}...`);
       }
     } catch (err) {
-      console.error(`Erro em saveInBuckets (${collectionName}):`, err);
+      console.error(`Erro em saveToSupabase (${tableName}):`, err);
       throw err;
     }
   };
-
   // ============================================================================
   // ETAPA 1: OPERACIONAL
   // ============================================================================
@@ -377,14 +451,13 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         });
 
         for (const [q, items] of Object.entries(grouped)) {
-          await saveInBuckets('operacional_testes', q, items, setProgressOp);
+          await saveToSupabase('operacional', q, items, setProgressOp, isOpPartial);
         }
         
         setProgressOp('Verificando pendências de rotas antigas...');
         try {
-          const pendentesSnapshot = await getDocs(collection(db, getCollectionName('rotas_pendentes_testes')));
-          const pendentesAtuais = [];
-          pendentesSnapshot.forEach(d => pendentesAtuais.push(d.data()));
+          const pendentesData = await fetchAllFromSupabase('rotas_pendentes');
+          const pendentesAtuais = pendentesData || [];
 
           const rotasOperacionalMap = {};
           newOperacionalData.forEach(d => {
@@ -401,38 +474,30 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
           if (resolvedRoutes.length > 0) {
              setProgressOp(`Resolvendo ${resolvedRoutes.length} rotas pendentes automaticamente...`);
              addLog(`Resolvendo ${resolvedRoutes.length} rotas que antes estavam N/A...`, 'info');
-             const collectionsToFix = ['faturamento_testes', 'penalidades_testes'];
+             const collectionsToFix = ['faturamento', 'penalidades'];
              for (const colName of collectionsToFix) {
-                const qs = await getDocs(collection(db, getCollectionName(colName)));
-                const chunks = qs.docs;
+                const chunkDocs = await fetchAllFromSupabase(colName);
+                if (!chunkDocs || chunkDocs.length === 0) continue;
                 
-                for (const chunkDoc of chunks) {
-                   const data = chunkDoc.data();
-                   if (!data.items) continue;
+                for (const chunkDoc of chunkDocs) {
                    let changed = false;
+                   const resolved = resolvedRoutes.find(r => r.id_rota === chunkDoc.id_rota);
                    
-                   const newItems = data.items.map(item => {
-                      const resolved = resolvedRoutes.find(r => r.id_rota === item.id_rota);
-                      if (resolved && item.filial === 'N/A') {
-                         changed = true;
-                         return { ...item, filial: resolved.filial, regional: resolved.regional, supervisor: resolved.supervisor };
-                      }
-                      return item;
-                   });
-
-                   if (changed) {
-                      await setDoc(chunkDoc.ref, { items: newItems }, { merge: true });
+                   if (resolved && chunkDoc.filial === 'N/A') {
+                      changed = true;
+                      await supabase.from(colName).update({
+                        filial: resolved.filial,
+                        regional: resolved.regional,
+                        supervisor: resolved.supervisor
+                      }).eq('id', chunkDoc.id);
                    }
                 }
              }
 
-             for (let i = 0; i < resolvedRoutes.length; i += 400) {
-                const deleteBatch = writeBatch(db);
-                const chunk = resolvedRoutes.slice(i, i + 400);
-                chunk.forEach(r => {
-                   deleteBatch.delete(doc(db, getCollectionName('rotas_pendentes_testes'), r.id_rota));
-                });
-                await deleteBatch.commit();
+             const idsToDelete = resolvedRoutes.map(r => r.id_rota);
+             for (let i = 0; i < idsToDelete.length; i += 100) {
+                 const chunk = idsToDelete.slice(i, i + 100);
+                 await supabase.from('rotas_pendentes').delete().in('id_rota', chunk);
              }
              addLog(`Pendências consolidadas nos faturamentos anteriores com sucesso!`, 'success');
           }
@@ -446,7 +511,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         const qTotal = Object.keys(grouped).length > 0 ? Object.keys(grouped)[0] : 'GERAL';
         await registrarImportacao('Operacional', isOpMulti ? 'Multi-Quinzena' : quinzenaOp.trim(), newOperacionalData.length);
 
-        addLog('Salvo em buckets no Firebase com sucesso!', 'success');
+        addLog('Salvo no Supabase com sucesso!', 'success');
         setBaseFile(null);
         setQuinzenaOp('');
         setIsOpMulti(false);
@@ -653,19 +718,16 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         try {
           setProgressBilling('Registrando rotas pendentes...');
           const rotasArray = Array.from(rotasNaoEncontradas.entries());
-          for (let i = 0; i < rotasArray.length; i += 400) {
-            const batchPendentes = writeBatch(db);
-            const chunk = rotasArray.slice(i, i + 400);
-            chunk.forEach(([rota, dataInicial]) => {
-              const docRef = doc(collection(db, getCollectionName('rotas_pendentes_testes')), rota);
-              batchPendentes.set(docRef, {
-                id_rota: rota,
-                quinzena_origem: quinzenaStr,
-                data_identificacao: new Date().toISOString(),
-                data_inicial: dataInicial
-              });
-            });
-            await batchPendentes.commit();
+          for (let i = 0; i < rotasArray.length; i += 1000) {
+            const chunk = rotasArray.slice(i, i + 1000);
+            const upsertData = chunk.map(([rota, dataInicial]) => ({
+              id_rota: rota,
+              quinzena_origem: quinzenaStr,
+              data_identificacao: new Date().toISOString(),
+              data_inicial: dataInicial
+            }));
+            const { error: upsertErr } = await supabase.from('rotas_pendentes').upsert(upsertData, { onConflict: 'id_rota' });
+            if (upsertErr) throw upsertErr;
           }
         } catch (e) {
           console.error("Erro ao registrar pendencias", e);
@@ -673,14 +735,14 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
       }
 
       try {
-        await saveInBuckets('faturamento_testes', quinzenaStr, arrDiarias, setProgressBilling);
-        await saveInBuckets('penalidades_testes', quinzenaStr, arrayPenalidades, setProgressBilling);
+        await saveToSupabase('faturamento', quinzenaStr, arrDiarias, setProgressBilling);
+        await saveToSupabase('penalidades', quinzenaStr, arrayPenalidades, setProgressBilling);
         
         if (onImportBilling) await onImportBilling(arrDiarias, arrayPenalidades);
 
         await registrarImportacao('Billing', quinzenaStr, arrDiarias.length + arrayPenalidades.length);
 
-        addLog('Salvo em buckets no Firebase com sucesso!', 'success');
+        addLog('Salvo no Supabase com sucesso!', 'success');
         setBillingFile(null);
         setProgressBilling('Concluído!');
         setTimeout(() => setIsProcessingBilling(false), 2000);
@@ -799,7 +861,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
       try {
         for (const [q, items] of Object.entries(grouped)) {
-          await saveInBuckets('capcar_testes', q, items, setProgressCapCar);
+          await saveToSupabase('capcar', q, items, setProgressCapCar);
         }
         
         if (onImportCapCar) await onImportCapCar(enrichedData);
@@ -838,9 +900,197 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     setProgressBsc('Lendo arquivo...');
 
     const processData = async (dataArray) => {
-      // Implementação similar ao operacional, omitido para brevidade
-      setProgressBsc('Desativado temporariamente.');
-      setTimeout(() => setIsProcessingBsc(false), 2000);
+      let headerRowIdx = -1;
+      let idxQuinzena = -1, idxRegional = -1, idxSupervisor = -1, idxFilial = -1, idxCluster = -1;
+      let idxMotorista = -1, idxIdRota = -1, idxSaldo = -1, idxEntregues = -1, idxDiaSemana = -1, idxData = -1;
+
+      for (let i = 0; i < Math.min(15, dataArray.length); i++) {
+        const row = dataArray[i];
+        if (!row) continue;
+        const normalize = (c) => String(c || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        
+        const q = row.findIndex(c => ['quinzena', 'periodo', 'mes', 'ciclo'].some(w => normalize(c).includes(w)) && !normalize(c).includes('data'));
+        const f = row.findIndex(c => ['filial', 'operacao', 'base', 'unidade', 'xpt'].some(w => normalize(c).includes(w)) || normalize(c) === 'xpt');
+        const s = row.findIndex(c => (normalize(c) === 'saldo' || normalize(c).includes('saldo') || normalize(c).includes('pacote') || normalize(c).includes('volume') || normalize(c).includes('envio')) && !normalize(c).includes('insucesso') && !normalize(c).includes('falha'));
+        const e = row.findIndex(c => (normalize(c) === 'entregues' || normalize(c).includes('entreg') || normalize(c).includes('sucesso') || normalize(c).includes('realizado')) && !normalize(c).includes('%') && !normalize(c).includes('taxa') && !normalize(c).includes('insucesso'));
+        
+        if (f !== -1 && s !== -1) {
+          headerRowIdx = i;
+          idxQuinzena = q !== -1 ? q : 0;
+          idxFilial = f;
+          idxSaldo = s;
+          idxEntregues = e;
+          
+          idxRegional = row.findIndex(c => normalize(c).includes('regional') || normalize(c) === 'regiao');
+          if(idxRegional === -1) idxRegional = 38;
+          
+          idxSupervisor = row.findIndex(c => normalize(c).includes('superv') || normalize(c).includes('gestor') || normalize(c).includes('coord'));
+          if(idxSupervisor === -1) idxSupervisor = 39;
+          
+          idxCluster = row.findIndex(c => normalize(c).includes('cluster'));
+          if(idxCluster === -1) idxCluster = 10;
+          
+          idxMotorista = row.findIndex(c => normalize(c).includes('motorista') || normalize(c).includes('nome') || normalize(c).includes('entregador'));
+          if(idxMotorista === -1) idxMotorista = 12;
+          
+          idxIdRota = row.findIndex(c => normalize(c).includes('rota') || normalize(c).includes('route'));
+          if(idxIdRota === -1) idxIdRota = 7;
+          
+          idxDiaSemana = 40;
+          
+          const dCol = row.findIndex(c => normalize(c) === 'data' || normalize(c).includes('data criacao'));
+          idxData = dCol !== -1 ? dCol : -1;
+          
+          break;
+        }
+      }
+
+      if (headerRowIdx === -1) {
+        addLog('Erro: Cabeçalhos obrigatórios não encontrados no BSC.', 'error');
+        setIsProcessingBsc(false);
+        return;
+      }
+
+      const row = dataArray[headerRowIdx];
+      const insucessosHeaders = [];
+      for (let j = 29; j <= 37; j++) {
+        if (row[j] && String(row[j]).trim() !== '') {
+          insucessosHeaders.push({ index: j, name: String(row[j]).trim() });
+        }
+      }
+
+      const parsedData = [];
+      setProgressBsc('Processando linhas do BSC...');
+
+      const configMap = {};
+      mapeamentoFiliais.forEach(m => configMap[String(m.filial).toUpperCase()] = m);
+
+      const parseDateInfo = (dateStr) => {
+        if (!dateStr) return { quinzena: null, dataPadrao: 'N/A' };
+        let d;
+        const txtMatch = String(dateStr).match(/^(\d{1,2})[\s\-de]+([a-zA-Z]{3,})/i);
+        if (txtMatch) {
+            const day = parseInt(txtMatch[1]);
+            const monthStr = txtMatch[2].toLowerCase().substring(0, 3);
+            const months = { jan:0, fev:1, mar:2, abr:3, mai:4, may:4, jun:5, jul:6, ago:7, aug:7, set:8, sep:8, out:9, oct:9, nov:10, dez:11, dec:11 };
+            const m = months[monthStr];
+            if (m !== undefined) {
+               d = new Date(new Date().getFullYear(), m, day);
+            }
+        } else {
+            const brMatch = String(dateStr).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+            if (brMatch) {
+              d = new Date(parseInt(brMatch[3]), parseInt(brMatch[2]) - 1, parseInt(brMatch[1]));
+            } else {
+              d = new Date(dateStr);
+            }
+        }
+        
+        if (!d || isNaN(d.getTime())) {
+           const serial = Number(dateStr);
+           if (!isNaN(serial) && serial > 10000) {
+              d = new Date((serial - 25569) * 86400 * 1000);
+              d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+           }
+        }
+
+        if (!d || isNaN(d.getTime())) return { quinzena: null, dataPadrao: String(dateStr).trim() };
+
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const q = d.getDate() <= 15 ? 'Q1' : 'Q2';
+        
+        const dd = String(d.getDate()).padStart(2, '0');
+        const dataPadrao = `${dd}/${m}/${y}`;
+        
+        return { quinzena: `${y}${m}${q}`, dataPadrao };
+      };
+
+      for (let i = headerRowIdx + 1; i < dataArray.length; i++) {
+        const r = dataArray[i];
+        if (!r) continue;
+        
+        const filialRaw = idxFilial !== -1 ? String(r[idxFilial] || '') : 'N/A';
+        if (!filialRaw || filialRaw.trim().toUpperCase() === '#N/A' || filialRaw.trim() === '') continue;
+        const filial = filialRaw.trim();
+
+        let quinzena = 'GERAL';
+        let dataPadrao = 'N/A';
+        
+        if (idxData !== -1 && r[idxData]) {
+           const info = parseDateInfo(String(r[idxData]).trim());
+           if (info.quinzena) quinzena = info.quinzena;
+           if (info.dataPadrao) dataPadrao = info.dataPadrao;
+        }
+        
+        if (quinzenaBsc.trim()) quinzena = quinzenaBsc.trim();
+        else if (quinzena === 'GERAL' && idxQuinzena !== -1 && r[idxQuinzena]) {
+           quinzena = String(r[idxQuinzena]).trim();
+        }
+        
+        const fKey = filial.toUpperCase();
+        const config = configMap[fKey] || {};
+        
+        const regional = config.regional || (idxRegional !== -1 && r[idxRegional] ? String(r[idxRegional]).trim() : 'N/A');
+        const supervisor = config.supervisor || (idxSupervisor !== -1 && r[idxSupervisor] ? String(r[idxSupervisor]).trim() : 'N/A');
+        
+        const clusterRaw = idxCluster !== -1 && r[idxCluster] ? String(r[idxCluster]).trim() : '';
+        const cluster = clusterRaw && clusterRaw !== '-' && clusterRaw.toUpperCase() !== 'N/A' ? clusterRaw : 'Ambulâncias';
+        
+        const motorista = idxMotorista !== -1 && r[idxMotorista] && String(r[idxMotorista]).trim() !== '' ? String(r[idxMotorista]).trim() : 'N/A';
+        const id_rota = idxIdRota !== -1 && r[idxIdRota] && String(r[idxIdRota]).trim() !== '' ? String(r[idxIdRota]).trim() : '-';
+
+        const parseNum = (val) => {
+          if (!val) return 0;
+          let s = String(val).replace(/[^\d,.-]/g, '');
+          if (s.includes(',') && s.includes('.')) {
+            s = s.lastIndexOf(',') > s.lastIndexOf('.') ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+          } else if (s.includes(',')) s = s.replace(',', '.');
+          return parseFloat(s) || 0;
+        };
+
+        const saldoOriginal = idxSaldo !== -1 ? parseNum(r[idxSaldo]) : 0;
+        const entregues = idxEntregues !== -1 ? parseNum(r[idxEntregues]) : 0;
+
+        const insucessosDetalhados = {};
+        insucessosHeaders.forEach(h => {
+          const v = parseNum(r[h.index]);
+          if (v > 0) insucessosDetalhados[h.name] = v;
+        });
+
+        let saldo = Math.max(0, saldoOriginal);
+        const dia_semana = idxDiaSemana !== -1 && r[idxDiaSemana] ? String(r[idxDiaSemana]).trim() : 'N/A';
+
+        const somaIns = Object.values(insucessosDetalhados).reduce((a, b) => a + b, 0);
+        if (saldo > 0 || entregues > 0 || somaIns > 0) {
+          parsedData.push({ quinzena, dia_semana: dataPadrao, regional, supervisor, filial, motorista, id_rota, saldo, entregues, insucessosDetalhados });
+        }
+      }
+
+      try {
+        const grouped = {};
+        parsedData.forEach(d => {
+          if (!grouped[d.quinzena]) grouped[d.quinzena] = [];
+          grouped[d.quinzena].push(d);
+        });
+
+        for (const [q, items] of Object.entries(grouped)) {
+          await saveToSupabase('bsc', q, items, setProgressBsc);
+        }
+
+        if (onImportOperacionalBSC) await onImportOperacionalBSC(parsedData);
+
+        const qTotal = Object.keys(grouped).length > 0 ? Object.keys(grouped)[0] : 'GERAL';
+        await registrarImportacao('BSC', qTotal, parsedData.length);
+
+        setBscFile(null);
+        setProgressBsc('Concluído!');
+        setTimeout(() => setIsProcessingBsc(false), 2000);
+      } catch (err) {
+        console.error("Erro ao processar BSC:", err);
+        setProgressBsc(`Erro: ${err.message}`);
+        setIsProcessingBsc(false);
+      }
     };
 
     if (bscFile.name.toLowerCase().endsWith('.csv')) {
@@ -861,15 +1111,19 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         <header className="mb-8">
           <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
             <Database className="w-8 h-8 text-blue-500" />
-            Importação em Memória (Buckets)
+            Importação PostgreSQL (Supabase)
           </h1>
-          <p className="text-slate-400 mt-2 text-sm">O processamento usará o navegador fragmentando grandes arquivos em blocos de 250 para não estourar a cota de 1MB por documento do Firebase.</p>
+          <p className="text-slate-400 mt-2 text-sm">O processamento usará o Bulk Insert para carregar dados massivos diretamente no banco relacional Supabase.</p>
         </header>
 
         <div className="flex gap-2 mb-6 flex-wrap">
           <button onClick={() => setActiveStep(1)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 1 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>1. Operacional</button>
-          <button onClick={() => setActiveStep(2)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 2 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2. Billing</button>
-          <button onClick={() => setActiveStep(3)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 3 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>3. CAP</button>
+          {!isImporter && (
+            <>
+              <button onClick={() => setActiveStep(2)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 2 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2. Billing</button>
+              <button onClick={() => setActiveStep(3)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 3 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>3. CAP</button>
+            </>
+          )}
           <button onClick={() => setActiveStep(4)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 4 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>4. BSC</button>
           <button
             onClick={() => setActiveStep(5)}
@@ -887,70 +1141,145 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
         <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700">
           {activeStep === 1 && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-white"><Box className="inline mr-2" />Operacional</h2>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-white text-sm cursor-pointer hover:text-blue-400">
-                    <input type="radio" checked={!isOpMulti} onChange={() => setIsOpMulti(false)} className="accent-blue-500" /> 
-                    <span>Padrão (1 Quinzena)</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-white text-sm cursor-pointer hover:text-blue-400" title="A planilha deve ter uma coluna com a palavra QUINZENA no cabeçalho">
-                    <input type="radio" checked={isOpMulti} onChange={() => setIsOpMulti(true)} className="accent-blue-500" /> 
-                    <span>Multi-Quinzena (Automático)</span>
-                  </label>
-                </div>
+                <h2 className="text-2xl font-black text-white flex items-center gap-3"><Box className="w-6 h-6 text-blue-400" /> Operacional</h2>
               </div>
               
-              {!isOpMulti && (
-                <input type="text" placeholder="Quinzena (Ex: 202603Q1)" value={quinzenaOp} onChange={e => setQuinzenaOp(e.target.value)} className="bg-slate-900 border border-slate-700 text-white rounded-xl px-4 py-2 w-full md:w-1/2" />
+              <div className="bg-slate-900/50 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex gap-4 p-1 bg-slate-800 rounded-xl w-fit">
+                    <button onClick={() => setIsOpMulti(false)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${!isOpMulti ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}>Padrão (1 Quinzena)</button>
+                    <button onClick={() => setIsOpMulti(true)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${isOpMulti ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`} title="A planilha deve ter uma coluna com a palavra QUINZENA">Multi-Quinzena</button>
+                  </div>
+                  
+                  <label className="flex items-center gap-3 text-emerald-400 text-sm cursor-pointer hover:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl w-fit">
+                    <input type="checkbox" checked={isOpPartial} onChange={(e) => setIsOpPartial(e.target.checked)} className="w-4 h-4 accent-emerald-500 rounded" /> 
+                    <span className="font-medium">Modo Arquivo Parcial (Apenas adicionar, sem apagar os existentes)</span>
+                  </label>
+                </div>
+                
+                {!isOpMulti && (
+                  <div className="w-full md:w-1/2">
+                    <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Quinzena</label>
+                    <input type="text" placeholder="Ex: 202603Q1" value={quinzenaOp} onChange={e => setQuinzenaOp(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" />
+                  </div>
+                )}
+              </div>
+
+              {!baseFile ? (
+                <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-slate-700 border-dashed rounded-3xl cursor-pointer bg-slate-900/30 hover:bg-slate-800/50 hover:border-blue-500 transition-all group">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <div className="bg-blue-500/10 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform">
+                      <UploadCloud className="w-8 h-8 text-blue-400" />
+                    </div>
+                    <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
+                    <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
+                  </div>
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setBaseFile(e.target.files[0])} className="hidden" />
+                </label>
+              ) : (
+                <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-blue-500/20 p-3 rounded-xl">
+                        <FileSpreadsheet className="w-6 h-6 text-blue-400" />
+                      </div>
+                      <div>
+                        <p className="text-white font-bold">{baseFile.name}</p>
+                        <p className="text-slate-400 text-xs mt-1">Pronto para processar</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setBaseFile(null)} className="p-2 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors">
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <button onClick={handleProcessOperacional} disabled={isProcessingOp} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20">
+                    {isProcessingOp ? <><Loader2 className="w-5 h-5 animate-spin" /> Processando...</> : 'Iniciar Processamento'}
+                  </button>
+                  {progressOp && (
+                    <div className="mt-4 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20 flex items-center gap-3">
+                       {isProcessingOp && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
+                       <span className="text-blue-400 text-sm font-medium">{progressOp}</span>
+                    </div>
+                  )}
+                </div>
               )}
-              <label className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl cursor-pointer w-fit transition-colors">
-                <UploadCloud className="w-5 h-5" />
-                <span className="font-medium">{baseFile ? baseFile.name : "Selecionar Planilha Operacional"}</span>
-                <input type="file" accept=".csv, .xlsx" onChange={e => setBaseFile(e.target.files[0])} className="hidden" />
-              </label>
-              {progressOp && <p className="text-blue-400 font-bold">{progressOp}</p>}
-              <button onClick={handleProcessOperacional} disabled={isProcessingOp} className="bg-blue-600 text-white px-6 py-2 rounded-xl">Iniciar Processamento</button>
             </div>
           )}
           {activeStep === 2 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-bold text-white"><DollarSign className="inline mr-2" />Billing</h2>
-              <div className="flex flex-col sm:flex-row gap-4 w-full md:w-1/2">
-                <input type="text" placeholder="Quinzena (Ex: 202603Q1)" value={quinzenaBilling} onChange={e => setQuinzenaBilling(e.target.value)} className="bg-slate-900 border border-slate-700 text-white rounded-xl px-4 py-2 flex-1" />
-                <input type="text" placeholder="Número da Fatura" value={numeroFaturaBilling} onChange={e => setNumeroFaturaBilling(e.target.value)} className="bg-slate-900 border border-slate-700 text-white rounded-xl px-4 py-2 flex-1" />
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-black text-white flex items-center gap-3"><DollarSign className="w-6 h-6 text-emerald-400" /> Billing</h2>
               </div>
-              <label className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl cursor-pointer w-fit transition-colors">
-                <UploadCloud className="w-5 h-5" />
-                <span className="font-medium">{billingFile ? billingFile.name : "Selecionar Planilha Billing"}</span>
-                <input type="file" accept=".csv, .xlsx" onChange={e => setBillingFile(e.target.files[0])} className="hidden" />
-              </label>
-              {billingFile && (
-                <div className="flex flex-col gap-4">
-                  <button onClick={handleProcessBilling} disabled={isProcessingBilling} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl disabled:opacity-50">
-                    {isProcessingBilling ? 'Processando...' : 'Processar Billing'}
+              
+              <div className="bg-slate-900/50 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+                <div className="flex flex-col sm:flex-row gap-4 w-full">
+                  <div className="flex-1">
+                    <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Quinzena</label>
+                    <input type="text" placeholder="Ex: 202603Q1" value={quinzenaBilling} onChange={e => setQuinzenaBilling(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Número da Fatura</label>
+                    <input type="text" placeholder="Ex: INV-001" value={numeroFaturaBilling} onChange={e => setNumeroFaturaBilling(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" />
+                  </div>
+                </div>
+              </div>
+
+              {!billingFile ? (
+                <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-slate-700 border-dashed rounded-3xl cursor-pointer bg-slate-900/30 hover:bg-slate-800/50 hover:border-emerald-500 transition-all group">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <div className="bg-emerald-500/10 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform">
+                      <UploadCloud className="w-8 h-8 text-emerald-400" />
+                    </div>
+                    <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
+                    <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
+                  </div>
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setBillingFile(e.target.files[0])} className="hidden" />
+                </label>
+              ) : (
+                <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-emerald-500/20 p-3 rounded-xl">
+                        <FileSpreadsheet className="w-6 h-6 text-emerald-400" />
+                      </div>
+                      <div>
+                        <p className="text-white font-bold">{billingFile.name}</p>
+                        <p className="text-slate-400 text-xs mt-1">Pronto para processar</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setBillingFile(null)} className="p-2 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors">
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                  
+                  <button onClick={handleProcessBilling} disabled={isProcessingBilling} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20">
+                    {isProcessingBilling ? <><Loader2 className="w-5 h-5 animate-spin" /> Processando...</> : 'Processar Billing'}
                   </button>
+                  
                   {progressBilling && (
-                    <div className="p-4 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200">
-                      <p className="font-bold flex items-center gap-2 text-sm">{isProcessingBilling && <Loader2 className="w-4 h-4 animate-spin" />} {progressBilling}</p>
+                    <div className="p-4 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 flex items-center gap-3">
+                      {isProcessingBilling && <Loader2 className="w-4 h-4 animate-spin" />}
+                      <span className="text-sm font-medium">{progressBilling}</span>
                     </div>
                   )}
+                  
                   {missingRoutesBilling && (
-                    <div className="bg-red-50 p-6 rounded-2xl border border-red-200 mt-2 animate-in fade-in slide-in-from-bottom-2">
-                      <h3 className="text-red-800 font-bold mb-3 flex items-center gap-2">
+                    <div className="bg-red-500/10 p-6 rounded-2xl border border-red-500/20 mt-2 animate-in fade-in slide-in-from-bottom-2">
+                      <h3 className="text-red-400 font-bold mb-3 flex items-center gap-2">
                         <AlertTriangle className="w-5 h-5" />
                         Rotas não identificadas no Operacional ({missingRoutesBilling.length} IDs únicos)
                       </h3>
-                      <p className="text-red-600 text-sm mb-4">
+                      <p className="text-slate-300 text-sm mb-4">
                         Estas rotas precisam ser cadastradas na planilha de Base Operacional. Você pode copiar a lista abaixo, corrigir e realizar a importação novamente:
                       </p>
-                      <div className="bg-white rounded-xl p-4 border border-red-100 max-h-40 overflow-y-auto font-mono text-xs text-slate-700">
+                      <div className="bg-slate-900 rounded-xl p-4 border border-slate-700 max-h-40 overflow-y-auto font-mono text-xs text-slate-400">
                         {missingRoutesBilling.join(', ')}
                       </div>
                       <button 
                         onClick={() => navigator.clipboard.writeText(missingRoutesBilling.join('\n'))}
-                        className="mt-4 bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm"
+                        className="mt-4 bg-red-500/20 hover:bg-red-500/30 text-red-400 px-4 py-2 rounded-lg text-sm font-bold transition-colors border border-red-500/30"
                       >
                         Copiar Lista de Rotas
                       </button>
@@ -961,27 +1290,107 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
             </div>
           )}
           {activeStep === 3 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-bold text-white">CAP</h2>
-              <label className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl cursor-pointer w-fit transition-colors">
-                <UploadCloud className="w-5 h-5" />
-                <span className="font-medium">{capcarFile ? capcarFile.name : "Selecionar Planilha CAP"}</span>
-                <input type="file" accept=".csv, .xlsx" onChange={e => setCapcarFile(e.target.files[0])} className="hidden" />
-              </label>
-              {progressCapCar && <p className="text-blue-400 font-bold">{progressCapCar}</p>}
-              <button onClick={handleProcessCapCar} disabled={isProcessingCapCar} className="bg-blue-600 text-white px-6 py-2 rounded-xl">Iniciar Processamento</button>
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-black text-white flex items-center gap-3"><LayoutList className="w-6 h-6 text-purple-400" /> CAP</h2>
+              </div>
+              
+              {!capcarFile ? (
+                <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-slate-700 border-dashed rounded-3xl cursor-pointer bg-slate-900/30 hover:bg-slate-800/50 hover:border-purple-500 transition-all group">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <div className="bg-purple-500/10 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform">
+                      <UploadCloud className="w-8 h-8 text-purple-400" />
+                    </div>
+                    <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
+                    <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
+                  </div>
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setCapcarFile(e.target.files[0])} className="hidden" />
+                </label>
+              ) : (
+                <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-purple-500/20 p-3 rounded-xl">
+                        <FileSpreadsheet className="w-6 h-6 text-purple-400" />
+                      </div>
+                      <div>
+                        <p className="text-white font-bold">{capcarFile.name}</p>
+                        <p className="text-slate-400 text-xs mt-1">Pronto para processar</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setCapcarFile(null)} className="p-2 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors">
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                  
+                  <button onClick={handleProcessCapCar} disabled={isProcessingCapCar} className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3.5 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20">
+                    {isProcessingCapCar ? <><Loader2 className="w-5 h-5 animate-spin" /> Processando...</> : 'Iniciar Processamento'}
+                  </button>
+                  
+                  {progressCapCar && (
+                    <div className="p-4 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20 flex items-center gap-3">
+                      {isProcessingCapCar && <Loader2 className="w-4 h-4 animate-spin" />}
+                      <span className="text-sm font-medium">{progressCapCar}</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {activeStep === 4 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-bold text-white">BSC</h2>
-              <label className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl cursor-pointer w-fit transition-colors">
-                <UploadCloud className="w-5 h-5" />
-                <span className="font-medium">{bscFile ? bscFile.name : "Selecionar Planilha BSC"}</span>
-                <input type="file" accept=".csv, .xlsx" onChange={e => setBscFile(e.target.files[0])} className="hidden" />
-              </label>
-              {progressBsc && <p className="text-blue-400 font-bold">{progressBsc}</p>}
-              <button onClick={handleProcessBsc} disabled={isProcessingBsc} className="bg-blue-600 text-white px-6 py-2 rounded-xl">Iniciar Processamento</button>
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-black text-white flex items-center gap-3"><Box className="w-6 h-6 text-orange-400" /> BSC</h2>
+              </div>
+              
+              <div className="bg-slate-900/50 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+                <div className="w-full md:w-1/2">
+                  <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Quinzena (Opcional)</label>
+                  <input type="text" placeholder="Deixe em branco para extrair da coluna Data" value={quinzenaBsc} onChange={e => setQuinzenaBsc(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none transition-all placeholder:text-slate-500" />
+                  <p className="text-[10px] text-slate-500 mt-2 font-medium">Se houver uma coluna "Data", o sistema dividirá automaticamente o arquivo em YYYYMMQ1 e YYYYMMQ2. Preencha apenas se quiser forçar uma quinzena específica para todas as rotas do arquivo.</p>
+                </div>
+              </div>
+
+              {!bscFile ? (
+                <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-slate-700 border-dashed rounded-3xl cursor-pointer bg-slate-900/30 hover:bg-slate-800/50 hover:border-orange-500 transition-all group">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <div className="bg-orange-500/10 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform">
+                      <UploadCloud className="w-8 h-8 text-orange-400" />
+                    </div>
+                    <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
+                    <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
+                  </div>
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setBscFile(e.target.files[0])} className="hidden" />
+                </label>
+              ) : (
+                <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-orange-500/20 p-3 rounded-xl">
+                        <FileSpreadsheet className="w-6 h-6 text-orange-400" />
+                      </div>
+                      <div>
+                        <p className="text-white font-bold">{bscFile.name}</p>
+                        <p className="text-slate-400 text-xs mt-1">Pronto para processar</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setBscFile(null)} className="p-2 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors">
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                  
+                  <button onClick={handleProcessBsc} disabled={isProcessingBsc} className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3.5 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20">
+                    {isProcessingBsc ? <><Loader2 className="w-5 h-5 animate-spin" /> Processando...</> : 'Iniciar Processamento'}
+                  </button>
+                  
+                  {progressBsc && (
+                    <div className="p-4 bg-orange-500/10 text-orange-400 rounded-xl border border-orange-500/20 flex items-center gap-3">
+                      {isProcessingBsc && <Loader2 className="w-4 h-4 animate-spin" />}
+                      <span className="text-sm font-medium">{progressBsc}</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {activeStep === 5 && (
@@ -1008,22 +1417,16 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     ) : historico.length === 0 ? (
                       <tr><td colSpan="5" className="py-12 text-center text-slate-500">Nenhuma importação registrada no momento.</td></tr>
                     ) : (
-                      historico.map(h => (
+                      historico.slice((currentPageHistorico - 1) * itemsPerPage, currentPageHistorico * itemsPerPage).map(h => (
                         <tr key={h.id} className="hover:bg-slate-800/40 transition-colors">
                           <td className="py-3 px-4 text-white font-bold">{h.quinzena}</td>
-                          <td className="py-3 px-4 text-slate-300 font-medium">{h.tipo_importacao}</td>
-                          <td className="py-3 px-4 text-slate-400">{new Date(h.data_atualizacao).toLocaleString('pt-BR')}</td>
-                          <td className="py-3 px-4 text-slate-300 text-right font-mono font-bold">{new Intl.NumberFormat('pt-BR').format(h.total_linhas || 0)}</td>
+                          <td className="py-3 px-4 text-slate-300 font-medium">{h.tipo}</td>
+                          <td className="py-3 px-4 text-slate-400">{new Date(h.data_importacao).toLocaleString('pt-BR')}</td>
+                          <td className="py-3 px-4 text-slate-300 text-right font-mono font-bold">{new Intl.NumberFormat('pt-BR').format(h.qtd_registros || 0)}</td>
                           <td className="py-3 px-4 text-center">
-                            {h.status === 'Sucesso' ? (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                <CheckCircle2 className="w-3.5 h-3.5" /> Sucesso
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-500/10 text-slate-400 border border-slate-500/20">
-                                {h.status}
-                              </span>
-                            )}
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Sucesso
+                            </span>
                           </td>
                         </tr>
                       ))
@@ -1031,6 +1434,29 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                   </tbody>
                 </table>
               </div>
+              {historico.length > itemsPerPage && (
+                <div className="bg-slate-800/50 border border-slate-700/50 p-3 flex items-center justify-between text-sm mt-4 rounded-xl">
+                  <span className="text-slate-400">
+                    Mostrando {((currentPageHistorico - 1) * itemsPerPage) + 1} a {Math.min(currentPageHistorico * itemsPerPage, historico.length)} de <span className="font-bold text-white">{historico.length}</span> registros
+                  </span>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setCurrentPageHistorico(p => Math.max(1, p - 1))}
+                      disabled={currentPageHistorico === 1}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white font-medium rounded-lg border border-slate-700 transition-colors"
+                    >
+                      Anterior
+                    </button>
+                    <button 
+                      onClick={() => setCurrentPageHistorico(p => p + 1)}
+                      disabled={currentPageHistorico * itemsPerPage >= historico.length}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white font-medium rounded-lg border border-slate-700 transition-colors"
+                    >
+                      Próxima
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {activeStep === 6 && (
@@ -1046,75 +1472,118 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                       <button onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2">
                         <Trash2 className="w-4 h-4" /> Excluir Alertas ({selectedPendentes.size})
                       </button>
+                      <button onClick={handleBulkRetrySearch} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2">
+                        <RefreshCw className="w-4 h-4" /> Refazer Busca ({selectedPendentes.size})
+                      </button>
                     </>
                   )}
                   <button 
                     onClick={() => navigator.clipboard.writeText(rotasPendentes.map(r => r.id_rota).join('\n'))}
-                    className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors"
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-sm transition-colors border border-slate-700 flex items-center gap-2"
                   >
-                    Copiar Todos
+                    <Copy className="w-4 h-4" /> Copiar IDs
                   </button>
-                  <button onClick={fetchPendentes} className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors">
+                  <button onClick={loadPendentes} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors">
                     Atualizar
                   </button>
                 </div>
               </div>
-              
-              <div className="overflow-x-auto bg-slate-900/50 rounded-xl border border-red-900/30 mt-4">
-                <table className="w-full text-left border-collapse min-w-[600px] text-sm">
-                  <thead className="bg-slate-800/80 border-b border-slate-700">
-                    <tr>
-                      <th className="py-3 px-4 w-10 text-center">
-                        <input 
-                          type="checkbox" 
-                          checked={rotasPendentes.length > 0 && selectedPendentes.size === rotasPendentes.length}
-                          onChange={toggleSelectAllPendentes}
-                          className="w-4 h-4 rounded border-slate-600 text-red-500 focus:ring-red-500 bg-slate-700"
-                        />
-                      </th>
-                      <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-wider text-[10px]">ID Rota</th>
-                      <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-wider text-[10px]">Quinzena (Erro)</th>
-                      <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-wider text-[10px]">Data Identificação</th>
-                      <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-wider text-[10px]">Data Inicial</th>
-                      <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-wider text-[10px] text-center">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/50">
-                    {isLoadingPendentes ? (
-                      <tr><td colSpan="6" className="py-12 text-center text-slate-500"><Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-red-500" /> Carregando pendências...</td></tr>
-                    ) : rotasPendentes.length === 0 ? (
-                      <tr><td colSpan="6" className="py-12 text-center text-emerald-500 font-bold flex flex-col items-center gap-2"><CheckCircle2 className="w-8 h-8 text-emerald-500" /> Nenhuma rota pendente. Tudo certo!</td></tr>
-                    ) : (
-                      rotasPendentes.map(r => (
-                        <tr key={r.id_rota} className="hover:bg-slate-800/40 transition-colors">
-                          <td className="py-3 px-4 text-center">
-                            <input 
-                              type="checkbox" 
-                              checked={selectedPendentes.has(r.id_rota)}
-                              onChange={() => toggleSelectPendente(r.id_rota)}
-                              className="w-4 h-4 rounded border-slate-600 text-red-500 focus:ring-red-500 bg-slate-700"
-                            />
-                          </td>
-                          <td className="py-3 px-4 text-white font-mono font-bold">{r.id_rota}</td>
-                          <td className="py-3 px-4 text-slate-300 font-medium">{r.quinzena_origem}</td>
-                          <td className="py-3 px-4 text-slate-400">{new Date(r.data_identificacao).toLocaleString('pt-BR')}</td>
-                          <td className="py-3 px-4 text-slate-300 font-medium">{r.data_inicial || 'N/A'}</td>
-                          <td className="py-3 px-4 text-center flex items-center justify-center gap-2">
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-500/10 text-red-400 border border-red-500/20">
-                              Adicionar no Op.
-                            </span>
-                            <button onClick={() => ignorarRota(r.id_rota)} className="p-1.5 bg-slate-700/50 hover:bg-orange-500/20 text-slate-400 hover:text-orange-400 rounded-md transition-colors" title="Ocultar Rota do Financeiro (Ignorar)">
-                               <EyeOff className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => deletePendente(r.id_rota)} className="p-1.5 bg-slate-700/50 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-md transition-colors" title="Excluir Alerta (Não oculta a rota)">
-                               <Trash2 className="w-4 h-4" />
-                            </button>
+
+              <div className="bg-slate-900/50 rounded-xl border border-slate-800/60 overflow-hidden shadow-2xl relative">
+                {isLoadingPendentes && (
+                  <div className="absolute inset-0 z-10 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center">
+                    <div className="text-center">
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-indigo-500" />
+                      <p className="text-slate-400 font-medium">Buscando pendências reais...</p>
+                    </div>
+                  </div>
+                )}
+                <div className="overflow-x-auto max-h-[600px]">
+                  <table className="w-full min-w-[800px] text-left text-sm whitespace-nowrap">
+                    <thead className="bg-slate-800/80 border-b border-slate-700 sticky top-0 z-20">
+                      <tr>
+                        <th className="py-3 px-4 w-12 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedPendentes.size === rotasPendentes.length && rotasPendentes.length > 0}
+                            onChange={toggleSelectAllPendentes}
+                            className="w-4 h-4 rounded border-slate-600 text-indigo-500 bg-slate-900 focus:ring-indigo-500 focus:ring-offset-slate-900"
+                          />
+                        </th>
+                        <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-wider text-[10px]">ID Rota</th>
+                        <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-wider text-[10px]">Quinzena Origem</th>
+                        <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-wider text-[10px]">Data Identificação</th>
+                        <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-wider text-[10px]">Data Inicial Rota</th>
+                        <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-wider text-[10px] text-center">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {rotasPendentes.length === 0 && !isLoadingPendentes ? (
+                        <tr>
+                          <td colSpan="6" className="py-16">
+                            <div className="flex flex-col items-center justify-center gap-3 text-emerald-500 w-full">
+                              <div className="bg-emerald-500/10 p-4 rounded-full">
+                                <CheckCircle2 className="w-8 h-8" />
+                              </div>
+                              <span className="font-bold text-lg">Nenhuma rota pendente!</span>
+                            </div>
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        rotasPendentes.slice((currentPagePendentes - 1) * itemsPerPage, currentPagePendentes * itemsPerPage).map(r => (
+                          <tr key={r.id_rota} className={`transition-colors ${selectedPendentes.has(r.id_rota) ? 'bg-indigo-500/10' : 'hover:bg-slate-800/40'}`}>
+                            <td className="py-3 px-4 text-center">
+                              <input 
+                                type="checkbox" 
+                                checked={selectedPendentes.has(r.id_rota)}
+                                onChange={() => toggleSelectPendente(r.id_rota)}
+                                className="w-4 h-4 rounded border-slate-600 text-indigo-500 bg-slate-900 focus:ring-indigo-500 focus:ring-offset-slate-900"
+                              />
+                            </td>
+                            <td className="py-3 px-4 text-white font-mono font-bold tracking-wide">{r.id_rota}</td>
+                            <td className="py-3 px-4 text-slate-300"><span className="bg-slate-800 px-2 py-0.5 rounded text-xs border border-slate-700">{r.quinzena_origem}</span></td>
+                            <td className="py-3 px-4 text-slate-400">{new Date(r.data_identificacao).toLocaleString('pt-BR')}</td>
+                            <td className="py-3 px-4 text-slate-400">{r.data_inicial || 'N/A'}</td>
+                            <td className="py-3 px-4 text-center flex items-center justify-center gap-2">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+                                Adicionar no Op.
+                              </span>
+                              <button onClick={() => ignorarRota(r.id_rota)} className="p-1.5 bg-slate-700/50 hover:bg-orange-500/20 text-slate-400 hover:text-orange-400 rounded-md transition-colors" title="Ocultar Rota do Financeiro (Ignorar)">
+                                 <EyeOff className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => deletePendente(r.id_rota)} className="p-1.5 bg-slate-700/50 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-md transition-colors" title="Excluir Alerta (Não oculta a rota)">
+                                 <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {rotasPendentes.length > itemsPerPage && (
+                  <div className="bg-slate-800/50 border-t border-slate-800 p-3 flex items-center justify-between text-sm">
+                    <span className="text-slate-400">
+                      Mostrando {((currentPagePendentes - 1) * itemsPerPage) + 1} a {Math.min(currentPagePendentes * itemsPerPage, rotasPendentes.length)} de <span className="font-bold text-white">{rotasPendentes.length}</span> rotas
+                    </span>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setCurrentPagePendentes(p => Math.max(1, p - 1))}
+                        disabled={currentPagePendentes === 1}
+                        className="px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white rounded border border-slate-700 transition-colors"
+                      >
+                        Anterior
+                      </button>
+                      <button 
+                        onClick={() => setCurrentPagePendentes(p => p + 1)}
+                        disabled={currentPagePendentes * itemsPerPage >= rotasPendentes.length}
+                        className="px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white rounded border border-slate-700 transition-colors"
+                      >
+                        Próxima
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
