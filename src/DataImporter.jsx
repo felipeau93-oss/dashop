@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Database, Box, DollarSign, History, Calendar, LayoutList, Trash2, EyeOff, Copy } from 'lucide-react';
+import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Database, Box, DollarSign, History, Calendar, LayoutList, Trash2, EyeOff, Copy, RefreshCw } from 'lucide-react';
 import { supabase } from './supabase';
 
-
-export default function DataImporter({ onImportOperacional, onImportBilling, onImportCapCar, onImportOperacionalBSC, rawFaturamentoData = [], rawOperacionalData = [], mapeamentoFiliais = [] }) {
+export default function DataImporter({ onImportOperacional, onImportBilling, onImportCapCar, onImportOperacionalBSC, rawFaturamentoData = [], rawOperacionalData = [], mapeamentoFiliais = [], isImporter = false }) {
   const [logs, setLogs] = useState([]);
   const [activeStep, setActiveStep] = useState(1);
 
@@ -147,6 +146,59 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     } catch (e) {
       console.error("Erro ao excluir alertas em massa", e);
       addLog(`Erro ao excluir alertas em massa: ${e.message}`, 'error');
+    }
+  };
+
+
+  const handleBulkRetrySearch = async () => {
+    if(selectedPendentes.size === 0) return;
+    setIsLoadingPendentes(true);
+    addLog(`Iniciando busca no operacional para ${selectedPendentes.size} rotas...`, 'info');
+    try {
+      const idsArray = Array.from(selectedPendentes).map(id => String(id));
+      let rotasEncontradas = [];
+      
+      for (let i = 0; i < idsArray.length; i += 100) {
+          const chunk = idsArray.slice(i, i + 100);
+          const { data: opData } = await supabase.from('operacional').select('id_rota, filial, regional, supervisor, motorista').in('id_rota', chunk);
+          if (opData && opData.length > 0) {
+             rotasEncontradas = rotasEncontradas.concat(opData);
+          }
+      }
+      
+      if (rotasEncontradas.length > 0) {
+         const map = new Map();
+         rotasEncontradas.forEach(r => map.set(r.id_rota, r));
+         const rotasUnicas = Array.from(map.values());
+         
+         addLog(`Sincronizando ${rotasUnicas.length} rotas encontradas no faturamento...`, 'info');
+         
+         for (const r of rotasUnicas) {
+             await supabase.from('faturamento').update({
+                filial: r.filial, regional: r.regional, supervisor: r.supervisor
+             }).eq('id_rota', r.id_rota).eq('filial', 'N/A');
+             
+             await supabase.from('penalidades').update({
+                filial: r.filial, regional: r.regional, supervisor: r.supervisor
+             }).eq('id_rota', r.id_rota).eq('filial', 'N/A');
+             
+             await supabase.from('rotas_pendentes').delete().eq('id_rota', r.id_rota);
+         }
+         
+         addLog(`Sucesso! ${rotasUnicas.length} rotas foram sincronizadas. Atualizando dashboard...`, 'success');
+         await supabase.rpc('rpc_refresh_materialized_views');
+      } else {
+         addLog(`Nenhuma das ${selectedPendentes.size} rotas foi encontrada no operacional ainda.`, 'info');
+      }
+      
+      setSelectedPendentes(new Set());
+      await loadPendentes();
+      
+    } catch (e) {
+      console.error("Erro ao refazer busca:", e);
+      addLog(`Erro ao refazer busca: ${e.message}`, 'error');
+    } finally {
+      setIsLoadingPendentes(false);
     }
   };
 
@@ -1066,8 +1118,12 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
         <div className="flex gap-2 mb-6 flex-wrap">
           <button onClick={() => setActiveStep(1)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 1 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>1. Operacional</button>
-          <button onClick={() => setActiveStep(2)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 2 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2. Billing</button>
-          <button onClick={() => setActiveStep(3)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 3 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>3. CAP</button>
+          {!isImporter && (
+            <>
+              <button onClick={() => setActiveStep(2)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 2 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2. Billing</button>
+              <button onClick={() => setActiveStep(3)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 3 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>3. CAP</button>
+            </>
+          )}
           <button onClick={() => setActiveStep(4)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 4 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>4. BSC</button>
           <button
             onClick={() => setActiveStep(5)}
@@ -1415,6 +1471,9 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                       </button>
                       <button onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2">
                         <Trash2 className="w-4 h-4" /> Excluir Alertas ({selectedPendentes.size})
+                      </button>
+                      <button onClick={handleBulkRetrySearch} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2">
+                        <RefreshCw className="w-4 h-4" /> Refazer Busca ({selectedPendentes.size})
                       </button>
                     </>
                   )}

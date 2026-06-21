@@ -9,10 +9,11 @@ const ConfigFiliais = lazy(() => import('./ConfigFiliais'));
 const ConfigTarifas = lazy(() => import('./ConfigTarifas'));
 const PainelTreinamentos = lazy(() => import('./PainelTreinamentos'));
 const PainelDisponibilidade = lazy(() => import('./PainelDisponibilidade'));
-import { db, auth, getCollectionName } from './firebase';
+const GestaoUsuarios = lazy(() => import('./GestaoUsuarios'));
+const Configuracoes = lazy(() => import('./Configuracoes'));
+import { db, getCollectionName } from './firebase';
 import { supabase } from './supabase';
 import { collection, writeBatch, doc, getDocs, query, where, documentId } from 'firebase/firestore';
-import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
 import {
   Calculator,
   Lock,
@@ -50,7 +51,8 @@ import {
   Database,
   UploadCloud,
   Settings,
-  GraduationCap
+  GraduationCap,
+  Users
 } from 'lucide-react';
 
 // ============================================================================
@@ -2267,15 +2269,12 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
 export default function App() {
   const urlIsOpMode = new URLSearchParams(window.location.search).get('view') === 'operacao';
   const [currentUser, setCurrentUser] = useState(null);
+  const [userRole, setUserRole] = useState(null); // 'admin', 'importer', 'operacao'
 
-  const ADMIN_EMAILS = [
-    'felipe.augusto@espindolalog.com',
-    'taylor.ferreira@espindolalog.com',
-    'paulo.cenci@espindolalog.com',
-    'josiel.espindola@espindolalog.com'
-  ];
-  const isUserAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
-  const isOpMode = urlIsOpMode || (currentUser && !isUserAdmin);
+  const isUserAdmin = userRole === 'admin';
+  const isImporter = userRole === 'importer';
+  const isOpMode = urlIsOpMode || userRole === 'operacao';
+  
   const [drilldownFilial, setDrilldownFilial] = useState(null);
   const [returnToModalState, setReturnToModalState] = useState(null);
   const [drilldownMotorista, setDrilldownMotorista] = useState(null);
@@ -2284,6 +2283,12 @@ export default function App() {
   const [emailLogin, setEmailLogin] = useState('');
   const [senhaDigitada, setSenhaDigitada] = useState('');
   const [erroLogin, setErroLogin] = useState(false);
+  const [erroLoginMsg, setErroLoginMsg] = useState('');
+  const [loginView, setLoginView] = useState('login'); // 'login', 'register', 'forgot'
+  const [nomeRegister, setNomeRegister] = useState('');
+  const [telefoneRegister, setTelefoneRegister] = useState('');
+  const [loginSuccessMsg, setLoginSuccessMsg] = useState('');
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
 
   // ============================================================================
   // CHATBOT E INTEGRAÇÃO DE IA (GEMINI)
@@ -2379,21 +2384,150 @@ export default function App() {
   }, [isDarkMode]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setIsAuthenticated(!!user);
-      setCurrentUser(user);
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        const user = session?.user || null;
+        setCurrentUser(user);
+        
+        if (user) {
+          const { data, error } = await supabase
+            .from('user_roles')
+            .select('role')
+            .eq('email', user.email)
+            .single();
+            
+          if (data && data.role && data.role !== 'pending') {
+            setUserRole(data.role);
+            setIsAuthenticated(true);
+          } else {
+            setUserRole(null);
+            setIsAuthenticated(false);
+            if (data && data.role === 'pending') {
+              setErroLoginMsg('Sua conta está em análise pelo Administrador.');
+            } else {
+              setErroLoginMsg('Necessário Permissão.');
+            }
+            setErroLogin(true);
+            setLoginView('login');
+            await supabase.auth.signOut();
+          }
+        } else {
+          setIsAuthenticated(false);
+          setUserRole(null);
+        }
+      }
+    );
+    
+    // Initial session check
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) {
+        setIsAuthenticated(false);
+      } else {
+        const user = session.user;
+        setCurrentUser(user);
+        const { data } = await supabase.from('user_roles').select('role').eq('email', user.email).single();
+        if (data && data.role && data.role !== 'pending') {
+          setUserRole(data.role);
+          setIsAuthenticated(true);
+        } else {
+          setUserRole(null);
+          setIsAuthenticated(false);
+          if (data && data.role === 'pending') {
+            setErroLoginMsg('Sua conta está em análise pelo Administrador.');
+          } else {
+            setErroLoginMsg('Necessário Permissão.');
+          }
+          setErroLogin(true);
+          setLoginView('login');
+          await supabase.auth.signOut();
+        }
+      }
     });
-    return () => unsubscribe();
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setIsAuthLoading(true);
+    setErroLogin(false);
+    setErroLoginMsg('');
+    setLoginSuccessMsg('');
     try {
-      await signInWithEmailAndPassword(auth, emailLogin, senhaDigitada);
-      setErroLogin(false);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: emailLogin,
+        password: senhaDigitada,
+      });
+      if (error) throw error;
       setSenhaDigitada('');
     } catch (err) {
       setErroLogin(true);
+      setErroLoginMsg('E-mail ou senha incorretos. Tente novamente.');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const formatName = (str) => {
+    return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setIsAuthLoading(true);
+    setErroLogin(false);
+    setErroLoginMsg('');
+    setLoginSuccessMsg('');
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: emailLogin,
+        password: senhaDigitada,
+      });
+      if (error) throw error;
+      
+      const { error: dbError } = await supabase.from('user_roles').insert([{
+        email: emailLogin.trim().toLowerCase(),
+        role: 'pending',
+        nome: formatName(nomeRegister),
+        telefone: telefoneRegister
+      }]);
+      if (dbError) throw dbError;
+
+      setLoginSuccessMsg('Solicitação enviada com sucesso! Aguarde a aprovação do administrador.');
+      setNomeRegister('');
+      setTelefoneRegister('');
+      setSenhaDigitada('');
+      setLoginView('login');
+      await supabase.auth.signOut();
+    } catch (err) {
+      setErroLogin(true);
+      if (err.code === '23505') setErroLoginMsg('E-mail já está aguardando aprovação ou já está cadastrado.');
+      else setErroLoginMsg(`Erro no cadastro: ${err.message}`);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setIsAuthLoading(true);
+    setErroLogin(false);
+    setErroLoginMsg('');
+    setLoginSuccessMsg('');
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(emailLogin, {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      setLoginSuccessMsg('Link de recuperação enviado! Verifique seu e-mail (e caixa de spam).');
+      setLoginView('login');
+    } catch (err) {
+      setErroLogin(true);
+      setErroLoginMsg(`Erro: ${err.message}`);
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
@@ -2407,6 +2541,11 @@ export default function App() {
   const [rawOperacionalData, setRawOperacionalData] = useState(initialOperacionalData);
   const [rawBscData, setRawBscData] = useState(initialBscData);
   const [rawCustosData, setRawCustosData] = useState(initialCustosData);
+  
+  // Thin Client Views (Fase D)
+  const [dreData, setDreData] = useState([]);
+  const [gapsData, setGapsData] = useState([]);
+  
   const [mapeamentoFiliais, setMapeamentoFiliais] = useState([]);
   const [tarifasMap, setTarifasMap] = useState([]);
 
@@ -2428,6 +2567,14 @@ export default function App() {
   const [insucessosExcluidos, setInsucessosExcluidos] = useState([]);
 
   const [activeMenu, setActiveMenu] = useState(isOpMode ? 'gestao_penalidades' : 'gestao_financeira');
+
+  useEffect(() => {
+    if (isImporter && activeMenu !== 'importador') {
+      setActiveMenu('importador');
+    } else if (isOpMode && (activeMenu === 'gestao_financeira' || activeMenu === 'detalhe_financeiro' || activeMenu === 'gestao_margem' || activeMenu === 'planejamento' || activeMenu === 'dre_custos' || activeMenu === 'dre_leves' || activeMenu === 'dre_viabilidade')) {
+      setActiveMenu('gestao_penalidades');
+    }
+  }, [isImporter, isOpMode]);
   const mainScrollRef = useRef(null);
   useEffect(() => { if (mainScrollRef.current) mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' }); }, [activeMenu]);
   const [expandedMenus, setExpandedMenus] = useState({ financeiro: true, operacional: true, planejamento: false });
@@ -2915,51 +3062,29 @@ export default function App() {
       };
 
       const [
-        penalidadesRaw,
-        faturamento,
-        operacional_raw,
         capcar,
-        bsc_new_raw,
         custosFinanceirosRaw,
-        tarifasAtuais
+        tarifasAtuais,
+        viewDreDataRaw,
+        viewGapsDataRaw
       ] = await Promise.all([
-        extractItems('penalidades'),
-        extractItems('faturamento'),
-        extractItems('operacional'),
         extractItems('capcar'),
-        extractItems('bsc'),
         extractItems('custos'),
-        extractItems('tarifas')
+        extractItems('tarifas'),
+        extractItems('view_dre_custo_leve'),
+        extractItems('view_gaps_operacionais_bsc')
       ]);
 
-      const penalidades = penalidadesRaw.map(p => {
-        if (!p.tipo && p.descricao) {
-          let tipoFinal = 'Outros';
-          const rawTipo = String(p.descricao).toLowerCase();
-          if (rawTipo.includes('lost')) tipoFinal = 'Lost Packages';
-          else if (rawTipo.includes('pnr')) tipoFinal = 'PNRs';
-          else if (rawTipo.includes('not visited') || rawTipo.includes('nv')) tipoFinal = 'Not Visited';
-          return { ...p, tipo: tipoFinal };
-        }
-        return p;
-      });
-
-      const bsc = [...bsc_new_raw];
       const custosFinanceiros = custosFinanceirosRaw.filter(d => d.tipo === 'Financeiro');
       const mergedCustos = [...custosFinanceiros, ...capcar];
 
-      const ignoradasSnap = await getDocs(collection(db, getCollectionName('rotas_ignoradas_testes')));
-      const rotasIgnoradas = new Set();
-      ignoradasSnap.forEach(doc => rotasIgnoradas.add(String(doc.id).trim()));
-
-      // Keep old getDocs for chunked map
+      // Mapeamento is loaded from chunks for compatibility
       await new Promise(r => setTimeout(r, 50));
       const colRef = collection(db, getCollectionName('app_dados_comprimidos_testes'));
       const q = query(colRef, where(documentId(), '>=', 'mapeamento_filiais'), where(documentId(), '<=', 'mapeamento_filiais\uf8ff'));
       const oldSnap = await getDocs(q);
       const chunksData = {};
 
-      let chunkCount = 0;
       oldSnap.forEach(doc => {
         const id = doc.id;
         if (id.includes('___chunk_')) {
@@ -2970,7 +3095,6 @@ export default function App() {
           if (!chunksData[colName]) chunksData[colName] = {};
           if (!chunksData[colName][quinzena]) chunksData[colName][quinzena] = [];
           chunksData[colName][quinzena][index] = doc.data().payload;
-          chunkCount++;
         }
       });
 
@@ -2994,119 +3118,35 @@ export default function App() {
         return combinedData;
       };
 
-      await new Promise(r => setTimeout(r, 50));
       const mapeamento = await parseChunks('mapeamento_filiais');
 
-      // Corrigir Nomes Errados no Operacional (limpeza de chaves indesejadas)
-      const validOpKeys = [
-        'bloqueado', 'palavra chave', 'cancelado', 'coleta', 'comercial',
-        'recusa', 'avaria', 'mudou endereco', 'area inacessivel',
-        'nao visitado', 'nao localizado', 'faltante', 'fora de rota',
-        'cliente ausente', 'tentativa roubo', 'insucessos'
-      ];
-      await new Promise(r => setTimeout(r, 50));
-      const operacional = operacional_raw.map(d => {
-        if (d.insucessosDetalhados) {
-          const cleanedInsucessos = {};
-          Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
-            const kLower = String(k).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-            if (validOpKeys.includes(kLower)) {
-              cleanedInsucessos[k] = v;
-            }
-          });
-          return { ...d, insucessosDetalhados: cleanedInsucessos };
-        }
-        return d;
-      });
-
-      // Mapeamento is loaded from chunks for compatibility
-
-      // Vincula motorista nas penalidades retroativamente (caso já tenham sido importadas sem motorista)
-      const mapRotaMotorista = {};
-      operacional.forEach(d => {
-        if (d.id_rota && d.motorista) {
-          mapRotaMotorista[d.id_rota] = d.motorista;
-        }
-      });
-
-      const penalidadesComMotorista = penalidades.map(p => {
-        let fallbackIdPacote = p.id_pacote;
-        let fallbackIdRota = p.id_rota;
-
-        if (p.descricao) {
-          // Extrai ID do pacote (geralmente números com 8+ dígitos) da descrição
-          if (!fallbackIdPacote || fallbackIdPacote === '-') {
-            const matches = String(p.descricao).match(/\b\d{8,}\b/g);
-            if (matches) {
-              fallbackIdPacote = matches[0];
-            }
-          }
-
-          // Extrai ID da rota (geralmente 4+ dígitos) da descrição
-          if (!fallbackIdRota || fallbackIdRota.startsWith('sem_rota_') || fallbackIdRota === '-') {
-            const matches = String(p.descricao).match(/\b\d{4,}\b/g);
-            if (matches) {
-              const possibleRoutes = matches.filter(m => m !== fallbackIdPacote);
-              if (possibleRoutes.length > 0) {
-                fallbackIdRota = possibleRoutes[0];
-              } else {
-                fallbackIdRota = matches[0];
-              }
-            }
-          }
-        }
-
-        return {
-          ...p,
-          motorista: p.motorista || mapRotaMotorista[p.id_rota] || 'N/A',
-          id_pacote: fallbackIdPacote || '-',
-          id_rota: fallbackIdRota || '-'
-        };
-      });
-
-      const penalidadesFiltradas = penalidadesComMotorista.filter(p => !rotasIgnoradas.has(String(p.id_rota).trim()));
-      setRawData(penalidadesFiltradas);
-      if (rawDataRef) rawDataRef.current = penalidadesFiltradas;
-
-      // Criar mapa O(1) do operacional para não travar o navegador com loops O(N^2)
-      const opMapByRota = {};
-      operacional.forEach(op => {
-        if (op.id_rota) {
-          const cleanOpId = String(op.id_rota).trim().replace(/\.0$/, '');
-          // Mantemos o primeiro encontrado ou sobrescrevemos (se houver duplicatas a lógica original pegava o primeiro, podemos usar arrays se precisasse, mas o map 1:1 atende a mesma regra)
-          if (!opMapByRota[cleanOpId]) {
-             opMapByRota[cleanOpId] = op;
-          }
-        }
-      });
-
-      const faturamentoComMotorista = faturamento.map(f => {
-        const cleanFId = String(f.id_rota).trim().replace(/\.0$/, '');
-        const opRef = opMapByRota[cleanFId];
-        if (opRef) {
-          return {
-            ...f,
-            filial: opRef.filial,
-            regional: opRef.regional,
-            supervisor: opRef.supervisor,
-            motorista: opRef.motorista || f.motorista || 'N/A'
-          };
-        }
-        return f;
-      });
-
-      const faturamentoFiltradoIgnoradas = faturamentoComMotorista.filter(f => !rotasIgnoradas.has(String(f.id_rota).trim()));
-      setRawFaturamentoData(faturamentoFiltradoIgnoradas);
-      if (rawFaturamentoDataRef) rawFaturamentoDataRef.current = faturamentoFiltradoIgnoradas;
-
-      setRawOperacionalData(operacional);
-      if (rawOperacionalDataRef) rawOperacionalDataRef.current = operacional;
-
-      setRawBscData(bsc);
-      if (rawBscDataRef) rawBscDataRef.current = bsc;
+      // Arrays Legados: Removidos Definitivamente (D4). Instanciamos como arrays vazios
+      // para não quebrar componentes que ainda aguardam as props originais.
+      setRawData([]);
+      if (rawDataRef) rawDataRef.current = [];
+      setRawFaturamentoData([]);
+      if (rawFaturamentoDataRef) rawFaturamentoDataRef.current = [];
+      setRawOperacionalData([]);
+      if (rawOperacionalDataRef) rawOperacionalDataRef.current = [];
+      setRawBscData([]);
+      if (rawBscDataRef) rawBscDataRef.current = [];
 
       setRawCustosData(mergedCustos);
       if (rawCustosDataRef) rawCustosDataRef.current = mergedCustos;
+
+      // Seta os dados novos do Thin Client cruzando com o Mapeamento de Filiais
+      const getRegSup = (filial, d) => {
+        const fKey = normalizeText(filial || '');
+        const mapped = mapeamento.find(m => normalizeText(m.filial || '') === fKey);
+        return mapped ? { regional: mapped.regional, supervisor: mapped.supervisor } : { regional: d.regional || 'Sem Regional', supervisor: d.supervisor || 'Sem Supervisor' };
+      };
+
+      setDreData((viewDreDataRaw || []).map(d => ({ 
+        ...d, 
+        faturamento: d.faturamento_total || 0, // Compatibilidade com código legado!
+        ...getRegSup(d.filial, d) 
+      })));
+      setGapsData((viewGapsDataRaw || []).map(d => ({ ...d, ...getRegSup(d.filial, d) })));
 
       setMapeamentoFiliais(mapeamento);
       setTarifasMap(tarifasAtuais);
@@ -3215,93 +3255,9 @@ export default function App() {
   useEffect(() => {
     let isCancelled = false;
     const compute = async () => {
-      // Only run if we actually have data to process
-      if (rawData.length === 0 && rawFaturamentoData.length === 0 && rawOperacionalData.length === 0 && rawBscData.length === 0) return;
-
+      // Thin Client: dropdowns are loaded directly from the ultra-fast aggregated views!
+      if (dreData.length === 0 && gapsData.length === 0) return;
       setIsCalculatingUI(true);
-
-      const processArray = async (arr, mapFn) => {
-        const res = [];
-        for (let i = 0; i < arr.length; i += 800) {
-          if (isCancelled) return [];
-          const chunk = arr.slice(i, i + 800);
-          for (const item of chunk) {
-            const mapped = mapFn(item);
-            if (Array.isArray(mapped)) res.push(...mapped);
-            else if (mapped) res.push(mapped);
-          }
-          await new Promise(r => setTimeout(r, 0));
-        }
-        return res;
-      };
-
-      const distDados = await processArray(rawData, d => {
-        const result = [];
-        const rs = getRegionalSupervisor(d.filial, d);
-        if (normalizeText(d.filial) === 'SSC4') {
-          const ratios = ssc4RatiosPerQuinzena[d.quinzena];
-          if (ratios) {
-            ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-              const rsTarget = getRegionalSupervisor(target, rs);
-              if (ratios[target] > 0) result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, valor: d.valor * ratios[target], _pesoQtd: ratios[target] });
-            });
-          } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor, _pesoQtd: 1 }); }
-        } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor, _pesoQtd: 1 }); }
-        return result;
-      });
-      if (isCancelled) return;
-      setDistributedDados(distDados);
-
-      const distFat = await processArray(rawFaturamentoData, d => {
-        const result = [];
-        const rs = getRegionalSupervisor(d.filial, d);
-        if (normalizeText(d.filial) === 'SSC4') {
-          const ratios = ssc4RatiosPerQuinzena[d.quinzena];
-          if (ratios) {
-            ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-              const rsTarget = getRegionalSupervisor(target, rs);
-              if (ratios[target] > 0) result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, faturamento: d.faturamento * ratios[target], faturamento_paradas: (d.faturamento_paradas || 0) * ratios[target] });
-            });
-          } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
-        } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
-        return result;
-      });
-      if (isCancelled) return;
-      setDistributedFaturamento(distFat);
-
-      const processOperacionalBsc = async (arr) => {
-        return await processArray(arr, d => {
-          const result = [];
-          const rs = getRegionalSupervisor(d.filial, d);
-          if (normalizeText(d.filial) === 'SSC4') {
-            const ratios = ssc4RatiosPerQuinzena[d.quinzena];
-            if (ratios) {
-              ['ESC4', 'ESC5', 'ESC9'].forEach(target => {
-                const rsTarget = getRegionalSupervisor(target, rs);
-                if (ratios[target] > 0) {
-                  const newIns = {};
-                  if (d.insucessosDetalhados) {
-                    Object.entries(d.insucessosDetalhados).forEach(([k, v]) => newIns[k] = v * ratios[target]);
-                  }
-                  result.push({ ...d, filial: target, regional: rsTarget.regional, supervisor: rsTarget.supervisor, saldo: d.saldo * ratios[target], entregues: d.entregues * ratios[target], insucessosDetalhados: newIns });
-                }
-              });
-            } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
-          } else { result.push({ ...d, regional: rs.regional, supervisor: rs.supervisor }); }
-          return result;
-        });
-      };
-
-      const distOp = await processOperacionalBsc(rawOperacionalData);
-      if (isCancelled) return;
-      setDistributedOperacional(distOp);
-
-      const distBsc = await processOperacionalBsc(rawBscData);
-      if (isCancelled) return;
-      setDistributedBsc(distBsc);
-
-      // Now calculate the dropdowns asynchronously to not freeze
-      await new Promise(r => setTimeout(r, 0));
 
       const getAllUnique = async (arrs, key) => {
         const set = new Set();
@@ -3317,25 +3273,32 @@ export default function App() {
         return [...set];
       };
 
-      const qList = await getAllUnique([distDados, distFat, distOp, distBsc], 'quinzena');
+      const qList = await getAllUnique([dreData, gapsData], 'quinzena');
+      if (isCancelled) return;
       setQuinzenasDisponiveis(qList.sort((a, b) => {
         if (a === 'N/A' || a === 'GERAL') return 1;
         if (b === 'N/A' || b === 'GERAL') return -1;
         return String(b).localeCompare(String(a));
       }));
 
-      const rList = await getAllUnique([distDados, distFat, distOp, distBsc], 'regional');
+      const rList = await getAllUnique([dreData, gapsData], 'regional');
+      if (isCancelled) return;
       setRegionaisDisponiveis(rList.filter(r => r !== 'N/A').sort());
 
-      const dList = await getAllUnique([distOp, distBsc], 'dia_semana');
-      setDiasSemanaDisponiveis(dList.filter(d => d !== 'N/A').sort());
+      setDiasSemanaDisponiveis([]); // O Thin Client consolida dias da semana no backend
+
+      // Mock legacy distributed arrays so we don't break isolated components like DreAnaliseCusto
+      setDistributedDados(gapsData.map(d => ({ ...d, motorista: d.motorista, valor: d.total_desconto_penalidades })));
+      setDistributedFaturamento(dreData);
+      setDistributedOperacional([]);
+      setDistributedBsc([]);
 
       setIsCalculatingUI(false);
     };
 
     compute();
     return () => { isCancelled = true; };
-  }, [rawData, rawFaturamentoData, rawOperacionalData, rawBscData, ssc4RatiosPerQuinzena, mapeamentoFiliais]);
+  }, [dreData, gapsData]);
 
   // Dropdowns que dependem do filtro selecionado, calculados num useEffect separado e leve
   useEffect(() => {
@@ -3346,7 +3309,7 @@ export default function App() {
 
       const sSet = new Set();
       const fSet = new Set();
-      const arrays = [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc];
+      const arrays = [dreData, gapsData];
 
       for (const arr of arrays) {
         for (let i = 0; i < arr.length; i += 2000) {
@@ -3367,27 +3330,59 @@ export default function App() {
     };
     computeFilters();
     return () => { isCancelled = true; };
-  }, [distributedDados, distributedFaturamento, distributedOperacional, distributedBsc, filtroRegionais, filtroSupervisores]);
+  }, [dreData, gapsData, filtroRegionais, filtroSupervisores]);
 
   const matchFiltro = (val, arr) => !arr.includes(val);
 
-  const dadosFiltrados = useMemo(() => {
-    return distributedDados.filter(d =>
+  // Thin Client Views Filtradas
+  const dreDataFiltrado = useMemo(() => {
+    return dreData.filter(d =>
       matchFiltro(d.quinzena, filtroQuinzenas) &&
       matchFiltro(d.filial, filtroFiliais) &&
       matchFiltro(d.regional, filtroRegionais) &&
       matchFiltro(d.supervisor, filtroSupervisores)
     );
-  }, [distributedDados, filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores]);
+  }, [dreData, filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores]);
 
-  const faturamentoFiltrado = useMemo(() => {
-    return distributedFaturamento.filter(d =>
+  const gapsDataFiltrado = useMemo(() => {
+    return gapsData.filter(d =>
       matchFiltro(d.quinzena, filtroQuinzenas) &&
       matchFiltro(d.filial, filtroFiliais) &&
       matchFiltro(d.regional, filtroRegionais) &&
       matchFiltro(d.supervisor, filtroSupervisores)
     );
-  }, [distributedFaturamento, filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores]);
+  }, [gapsData, filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores]);
+
+  const gapsDataEvolucao = useMemo(() => {
+    return gapsData.filter(d =>
+      matchFiltro(d.filial, filtroFiliais) &&
+      matchFiltro(d.regional, filtroRegionais) &&
+      matchFiltro(d.supervisor, filtroSupervisores)
+    );
+  }, [gapsData, filtroFiliais, filtroRegionais, filtroSupervisores]);
+
+  const dreDataEvolucao = useMemo(() => {
+    return dreData.filter(d =>
+      matchFiltro(d.filial, filtroFiliais) &&
+      matchFiltro(d.regional, filtroRegionais) &&
+      matchFiltro(d.supervisor, filtroSupervisores)
+    );
+  }, [dreData, filtroFiliais, filtroRegionais, filtroSupervisores]);
+
+  // Mapeamentos para as variáveis legadas continuarem alimentando a UI (Thin Client)
+  const dadosFiltrados = useMemo(() => {
+    const result = [];
+    gapsDataFiltrado.forEach(d => {
+      const base = { quinzena: d.quinzena, filial: d.filial, regional: d.regional, supervisor: d.supervisor, motorista: d.motorista };
+      if ((d.valor_not_visited || 0) > 0 || (d.qtd_not_visited || 0) > 0) result.push({ ...base, tipo: 'Not Visited', valor: d.valor_not_visited || 0, _pesoQtd: d.qtd_not_visited || 0 });
+      if ((d.valor_pnr || 0) > 0 || (d.qtd_pnr || 0) > 0) result.push({ ...base, tipo: 'PNRs', valor: d.valor_pnr || 0, _pesoQtd: d.qtd_pnr || 0 });
+      if ((d.valor_lost || 0) > 0 || (d.qtd_lost || 0) > 0) result.push({ ...base, tipo: 'Lost Packages', valor: d.valor_lost || 0, _pesoQtd: d.qtd_lost || 0 });
+      if ((d.valor_outros || 0) > 0) result.push({ ...base, tipo: 'Outros', valor: d.valor_outros || 0, _pesoQtd: 0 });
+    });
+    return result;
+  }, [gapsDataFiltrado]);
+
+  const faturamentoFiltrado = dreDataFiltrado;
 
   const custosFiltrados = useMemo(() => {
     const validKeys = new Set(faturamentoFiltrado.map(f => `${f.filial}|${f.quinzena}`));
@@ -3395,59 +3390,49 @@ export default function App() {
   }, [rawCustosData, faturamentoFiltrado]);
 
   const operacionalFiltrado = useMemo(() => {
-    return distributedOperacional.filter(d =>
-      matchFiltro(d.quinzena, filtroQuinzenas) &&
-      matchFiltro(d.filial, filtroFiliais) &&
-      matchFiltro(d.regional, filtroRegionais) &&
-      matchFiltro(d.supervisor, filtroSupervisores) &&
-      matchFiltro(d.dia_semana, filtroDiasSemana)
-    );
-  }, [distributedOperacional, filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores, filtroDiasSemana]);
+    return dreDataFiltrado.map(d => ({
+      quinzena: d.quinzena, filial: d.filial, regional: d.regional, supervisor: d.supervisor,
+      entregues: d.pacotes_entregues, saldo: d.pacotes_saldo, insucessosDetalhados: {}
+    }));
+  }, [dreDataFiltrado]);
 
   const bscFiltrado = useMemo(() => {
-    return distributedBsc.filter(d =>
-      matchFiltro(d.quinzena, filtroQuinzenas) &&
-      matchFiltro(d.filial, filtroFiliais) &&
-      matchFiltro(d.regional, filtroRegionais) &&
-      matchFiltro(d.supervisor, filtroSupervisores) &&
-      matchFiltro(d.dia_semana, filtroDiasSemana)
-    );
-  }, [distributedBsc, filtroQuinzenas, filtroFiliais, filtroRegionais, filtroSupervisores, filtroDiasSemana]);
+    return gapsDataFiltrado.map(d => ({
+      quinzena: d.quinzena, filial: d.filial, regional: d.regional, supervisor: d.supervisor, motorista: d.motorista,
+      entregues: d.pacotes_entregues, saldo: d.pacotes_saldo,
+      insucessosDetalhados: { 'Not Visited': d.qtd_not_visited, 'PNRs': d.qtd_pnr, 'Lost Packages': d.qtd_lost }
+    }));
+  }, [gapsDataFiltrado]);
 
   // NOVOS DATASETS DE EVOLUÇÃO (IGNORAM O FILTRO DE QUINZENA PARA PRESERVAR HISTÓRICO)
-  const faturamentoFiltradoEvolucao = useMemo(() => {
-    return distributedFaturamento.filter(d =>
-      matchFiltro(d.filial, filtroFiliais) &&
-      matchFiltro(d.regional, filtroRegionais) &&
-      matchFiltro(d.supervisor, filtroSupervisores)
-    );
-  }, [distributedFaturamento, filtroFiliais, filtroRegionais, filtroSupervisores]);
+  const faturamentoFiltradoEvolucao = dreDataEvolucao;
 
   const dadosFiltradosEvolucao = useMemo(() => {
-    return distributedDados.filter(d =>
-      matchFiltro(d.filial, filtroFiliais) &&
-      matchFiltro(d.regional, filtroRegionais) &&
-      matchFiltro(d.supervisor, filtroSupervisores)
-    );
-  }, [distributedDados, filtroFiliais, filtroRegionais, filtroSupervisores]);
+    const result = [];
+    gapsDataEvolucao.forEach(d => {
+      const base = { quinzena: d.quinzena, filial: d.filial, regional: d.regional, supervisor: d.supervisor, motorista: d.motorista };
+      if ((d.valor_not_visited || 0) > 0 || (d.qtd_not_visited || 0) > 0) result.push({ ...base, tipo: 'Not Visited', valor: d.valor_not_visited || 0, _pesoQtd: d.qtd_not_visited || 0 });
+      if ((d.valor_pnr || 0) > 0 || (d.qtd_pnr || 0) > 0) result.push({ ...base, tipo: 'PNRs', valor: d.valor_pnr || 0, _pesoQtd: d.qtd_pnr || 0 });
+      if ((d.valor_lost || 0) > 0 || (d.qtd_lost || 0) > 0) result.push({ ...base, tipo: 'Lost Packages', valor: d.valor_lost || 0, _pesoQtd: d.qtd_lost || 0 });
+      if ((d.valor_outros || 0) > 0) result.push({ ...base, tipo: 'Outros', valor: d.valor_outros || 0, _pesoQtd: 0 });
+    });
+    return result;
+  }, [gapsDataEvolucao]);
 
   const operacionalFiltradoEvolucao = useMemo(() => {
-    return distributedOperacional.filter(d =>
-      matchFiltro(d.filial, filtroFiliais) &&
-      matchFiltro(d.regional, filtroRegionais) &&
-      matchFiltro(d.supervisor, filtroSupervisores) &&
-      matchFiltro(d.dia_semana, filtroDiasSemana)
-    );
-  }, [distributedOperacional, filtroFiliais, filtroRegionais, filtroSupervisores, filtroDiasSemana]);
+    return dreDataEvolucao.map(d => ({
+      quinzena: d.quinzena, filial: d.filial, regional: d.regional, supervisor: d.supervisor,
+      entregues: d.pacotes_entregues, saldo: d.pacotes_saldo, insucessosDetalhados: {}
+    }));
+  }, [dreDataEvolucao]);
 
   const bscFiltradoEvolucao = useMemo(() => {
-    return distributedBsc.filter(d =>
-      matchFiltro(d.filial, filtroFiliais) &&
-      matchFiltro(d.regional, filtroRegionais) &&
-      matchFiltro(d.supervisor, filtroSupervisores) &&
-      matchFiltro(d.dia_semana, filtroDiasSemana)
-    );
-  }, [distributedBsc, filtroFiliais, filtroRegionais, filtroSupervisores, filtroDiasSemana]);
+    return gapsDataEvolucao.map(d => ({
+      quinzena: d.quinzena, filial: d.filial, regional: d.regional, supervisor: d.supervisor, motorista: d.motorista,
+      entregues: d.pacotes_entregues, saldo: d.pacotes_saldo,
+      insucessosDetalhados: { 'Not Visited': d.qtd_not_visited, 'PNRs': d.qtd_pnr, 'Lost Packages': d.qtd_lost }
+    }));
+  }, [gapsDataEvolucao]);
 
   const insucessosDisponiveis = useMemo(() => {
     const keys = new Set();
@@ -3570,15 +3555,15 @@ export default function App() {
   }, [dadosFiltrados]);
 
   const faturamentoTotalMetrics = useMemo(() => {
-    return faturamentoFiltrado.reduce((acc, curr) => acc + (curr.faturamento || 0), 0);
-  }, [faturamentoFiltrado]);
+    return dreDataFiltrado.reduce((acc, curr) => acc + (curr.faturamento_total || 0), 0);
+  }, [dreDataFiltrado]);
 
   const margemBrutaMetrics = useMemo(() => {
-    const totalFat = faturamentoFiltrado.reduce((acc, curr) => acc + (curr.faturamento || 0) + (curr.faturamento_paradas || 0), 0);
-    const totalCustos = custosFiltrados.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
+    const totalFat = dreDataFiltrado.reduce((acc, curr) => acc + (curr.faturamento_total || 0), 0);
+    const totalCustos = dreDataFiltrado.reduce((acc, curr) => acc + (curr.custo_capcar_pago || 0), 0);
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
     const margemErroDescontada = totalFat * 0.025;
-    const totalPenalidades = dadosFiltrados.reduce((acc, curr) => acc + (curr.valor || 0), 0);
+    const totalPenalidades = dreDataFiltrado.reduce((acc, curr) => acc + (curr.penalidades || 0), 0);
 
     const margemBase = totalFat - impostoDescontado - totalCustos - totalPenalidades;
     const margemR$ = margemBase;
@@ -4285,37 +4270,141 @@ Diretrizes:
           </button>
         </div>
         <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-slate-200">
-          <div className="flex flex-col items-center gap-4 mb-8">
-            <div className="bg-blue-600 p-4 rounded-2xl shadow-lg">
-              <Lock className="w-8 h-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-black text-slate-800 tracking-tight">DashOp Login</h1>
-            <p className="text-slate-500 text-center text-sm font-medium">Acesso restrito. Faça login com sua conta.</p>
-          </div>
-          <form onSubmit={handleLogin} className="flex flex-col gap-4">
-            <div>
-              <input
-                type="email"
-                value={emailLogin}
-                onChange={(e) => setEmailLogin(e.target.value)}
-                placeholder="E-mail"
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 mb-3"
-                required
-              />
-              <input
-                type="password"
-                value={senhaDigitada}
-                onChange={(e) => setSenhaDigitada(e.target.value)}
-                placeholder="Senha"
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800"
-                required
-              />
-              {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">E-mail ou senha incorretos. Tente novamente.</p>}
-            </div>
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98]">
-              Acessar Dashboard
-            </button>
-          </form>
+          {loginView === 'login' && (
+            <>
+              <div className="flex flex-col items-center gap-4 mb-8">
+                <div className="bg-blue-600 p-4 rounded-2xl shadow-lg">
+                  <Lock className="w-8 h-8 text-white" />
+                </div>
+                <h1 className="text-2xl font-black text-slate-800 tracking-tight">DashOp Login</h1>
+                <p className="text-slate-500 text-center text-sm font-medium">Acesso restrito. Faça login com sua conta.</p>
+              </div>
+              <form onSubmit={handleLogin} className="flex flex-col gap-4">
+                <div>
+                  <input
+                    type="email"
+                    value={emailLogin}
+                    onChange={(e) => setEmailLogin(e.target.value)}
+                    placeholder="E-mail"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 mb-3"
+                    required
+                  />
+                  <input
+                    type="password"
+                    value={senhaDigitada}
+                    onChange={(e) => setSenhaDigitada(e.target.value)}
+                    placeholder="Senha"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800"
+                    required
+                  />
+                  {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">{erroLoginMsg || 'E-mail ou senha incorretos. Tente novamente.'}</p>}
+                  {loginSuccessMsg && <p className="text-emerald-500 text-xs font-bold mt-2 ml-1">{loginSuccessMsg}</p>}
+                </div>
+                <button type="submit" disabled={isAuthLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98] disabled:opacity-50">
+                  {isAuthLoading ? 'Acessando...' : 'Acessar Dashboard'}
+                </button>
+                <div className="flex justify-between items-center mt-2">
+                  <button type="button" onClick={() => { setLoginView('forgot'); setErroLogin(false); setLoginSuccessMsg(''); }} className="text-blue-600 text-sm font-bold hover:underline">
+                    Esqueci minha senha
+                  </button>
+                  <button type="button" onClick={() => { setLoginView('register'); setErroLogin(false); setLoginSuccessMsg(''); }} className="text-slate-500 text-sm font-bold hover:text-blue-600 transition-colors">
+                    Solicitar Acesso
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+
+          {loginView === 'register' && (
+            <>
+              <div className="flex flex-col items-center gap-4 mb-8">
+                <div className="bg-emerald-500 p-4 rounded-2xl shadow-lg">
+                  <Lock className="w-8 h-8 text-white" />
+                </div>
+                <h1 className="text-2xl font-black text-slate-800 tracking-tight">Solicitar Acesso</h1>
+                <p className="text-slate-500 text-center text-sm font-medium">Preencha seus dados para avaliação.</p>
+              </div>
+              <form onSubmit={handleRegister} className="flex flex-col gap-4">
+                <div>
+                  <input
+                    type="text"
+                    value={nomeRegister}
+                    onChange={(e) => setNomeRegister(e.target.value)}
+                    placeholder="Nome Completo"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 mb-3"
+                    required
+                  />
+                  <input
+                    type="tel"
+                    value={telefoneRegister}
+                    onChange={(e) => setTelefoneRegister(e.target.value)}
+                    placeholder="Telefone (WhatsApp)"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 mb-3"
+                    required
+                  />
+                  <input
+                    type="email"
+                    value={emailLogin}
+                    onChange={(e) => setEmailLogin(e.target.value)}
+                    placeholder="E-mail"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 mb-3"
+                    required
+                  />
+                  <input
+                    type="password"
+                    value={senhaDigitada}
+                    onChange={(e) => setSenhaDigitada(e.target.value)}
+                    placeholder="Criar Senha"
+                    minLength="6"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800"
+                    required
+                  />
+                  {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">{erroLoginMsg}</p>}
+                </div>
+                <button type="submit" disabled={isAuthLoading} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98] disabled:opacity-50">
+                  {isAuthLoading ? 'Enviando...' : 'Enviar Solicitação'}
+                </button>
+                <div className="flex justify-center items-center mt-2">
+                  <button type="button" onClick={() => { setLoginView('login'); setErroLogin(false); setLoginSuccessMsg(''); }} className="text-slate-500 text-sm font-bold hover:text-blue-600 transition-colors">
+                    Voltar para o Login
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+
+          {loginView === 'forgot' && (
+            <>
+              <div className="flex flex-col items-center gap-4 mb-8">
+                <div className="bg-purple-500 p-4 rounded-2xl shadow-lg">
+                  <Lock className="w-8 h-8 text-white" />
+                </div>
+                <h1 className="text-2xl font-black text-slate-800 tracking-tight">Recuperar Senha</h1>
+                <p className="text-slate-500 text-center text-sm font-medium">Enviaremos um link de recuperação para seu e-mail.</p>
+              </div>
+              <form onSubmit={handleForgotPassword} className="flex flex-col gap-4">
+                <div>
+                  <input
+                    type="email"
+                    value={emailLogin}
+                    onChange={(e) => setEmailLogin(e.target.value)}
+                    placeholder="Seu E-mail Cadastrado"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800"
+                    required
+                  />
+                  {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">{erroLoginMsg}</p>}
+                </div>
+                <button type="submit" disabled={isAuthLoading} className="w-full bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98] disabled:opacity-50">
+                  {isAuthLoading ? 'Enviando...' : 'Enviar Link'}
+                </button>
+                <div className="flex justify-center items-center mt-2">
+                  <button type="button" onClick={() => { setLoginView('login'); setErroLogin(false); setLoginSuccessMsg(''); }} className="text-slate-500 text-sm font-bold hover:text-blue-600 transition-colors">
+                    Voltar para o Login
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
         </div>
       </div>
     );
@@ -4438,7 +4527,7 @@ Diretrizes:
             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 px-3">Módulos</p>
 
             {/* Accordion Gestão Financeira */}
-            {!isOpMode && (
+            {!isOpMode && !isImporter && (
               <div className="flex flex-col mb-2">
                 <button
                   onClick={() => {
@@ -4470,6 +4559,7 @@ Diretrizes:
             )}
 
             {/* Accordion Gestão Operacional */}
+            {!isImporter && (
             <div className="flex flex-col">
               <button
                 onClick={() => {
@@ -4491,29 +4581,26 @@ Diretrizes:
                 <button onClick={() => handleMenuChange('gestao_penalidades')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_penalidades' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                   <span className="truncate">Penalidades (Operação)</span>
                 </button>
-                {!isOpMode && (
-                  <>
-                    <button onClick={() => handleMenuChange('gestao_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                      <span className="truncate">Visão BSC</span>
-                    </button>
-                    <button onClick={() => handleMenuChange('comparativo_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'comparativo_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                      <span className="truncate">Comparativo BSC</span>
-                    </button>
-                    <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                      <span className="truncate">Gaps Operacionais</span>
-                    </button>
-                    <button onClick={() => handleMenuChange('painel_treinamentos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'painel_treinamentos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                      <span className="truncate">Treinamentos</span>
-                    </button>
-                    <button onClick={() => handleMenuChange('disponibilidade_frota')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'disponibilidade_frota' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                      <span className="truncate">Disponibilidade de Frota</span>
-                    </button>
-                  </>
-                )}
+                  <button onClick={() => handleMenuChange('gestao_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                    <span className="truncate">Visão BSC</span>
+                  </button>
+                  <button onClick={() => handleMenuChange('comparativo_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'comparativo_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                    <span className="truncate">Comparativo BSC</span>
+                  </button>
+                  <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                    <span className="truncate">Gaps Operacionais</span>
+                  </button>
+                  <button onClick={() => handleMenuChange('painel_treinamentos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'painel_treinamentos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                    <span className="truncate">Treinamentos</span>
+                  </button>
+                  <button onClick={() => handleMenuChange('disponibilidade_frota')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'disponibilidade_frota' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                    <span className="truncate">Disponibilidade de Frota</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
             {/* Accordion Planejamento */}
-            {!isOpMode && (
+            {!isOpMode && !isImporter && (
               <div className="flex flex-col">
                 <button
                   onClick={() => {
@@ -4546,7 +4633,7 @@ Diretrizes:
             )}
 
             {/* Importador Inteligente */}
-            {!isOpMode && isUserAdmin && (
+            {(isUserAdmin || isImporter) && (
               <div className="flex flex-col mt-4 pt-4 border-t border-slate-800">
                 <button
                   onClick={() => {
@@ -4560,30 +4647,46 @@ Diretrizes:
                     <span className={`truncate ${activeMenu === 'importador' ? 'font-bold' : ''}`}>Importador Inteligente</span>
                   </div>
                 </button>
-                <button
-                  onClick={() => {
-                    handleMenuChange('config_filiais');
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_filiais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_filiais' ? 'text-blue-400' : ''}`} />
-                    <span className={`truncate ${activeMenu === 'config_filiais' ? 'font-bold' : ''}`}>Config. de Filiais</span>
-                  </div>
-                </button>
-                <button
-                  onClick={() => {
-                    handleMenuChange('config_tarifas');
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_tarifas' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_tarifas' ? 'text-blue-400' : ''}`} />
-                    <span className={`truncate ${activeMenu === 'config_tarifas' ? 'font-bold' : ''}`}>Config. de Tarifas</span>
-                  </div>
-                </button>
+                {isUserAdmin && (
+                  <>
+                    <button
+                      onClick={() => {
+                        handleMenuChange('config_filiais');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_filiais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_filiais' ? 'text-blue-400' : ''}`} />
+                        <span className={`truncate ${activeMenu === 'config_filiais' ? 'font-bold' : ''}`}>Config. de Filiais</span>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleMenuChange('config_tarifas');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_tarifas' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_tarifas' ? 'text-blue-400' : ''}`} />
+                        <span className={`truncate ${activeMenu === 'config_tarifas' ? 'font-bold' : ''}`}>Config. de Tarifas</span>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleMenuChange('gestao_usuarios');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_usuarios' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Users className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_usuarios' ? 'text-blue-400' : ''}`} />
+                        <span className={`truncate ${activeMenu === 'gestao_usuarios' ? 'font-bold' : ''}`}>Gestão de Usuários</span>
+                      </div>
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -4639,7 +4742,10 @@ Diretrizes:
           </div>
 
           <div className="flex shrink-0 w-full xl:w-auto mt-2 xl:mt-0 justify-end gap-3 items-center">
-            <button onClick={() => signOut(auth)} className="flex items-center justify-center gap-2 bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
+            <button onClick={() => setActiveMenu('configuracoes')} className="flex items-center justify-center gap-2 bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
+              <Settings className="w-4 h-4" /> Configurações
+            </button>
+            <button onClick={() => supabase.auth.signOut()} className="flex items-center justify-center gap-2 bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
               Sair
             </button>
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 transition-colors shadow-sm" title={isDarkMode ? 'Modo Claro' : 'Modo Escuro'}>
@@ -4704,6 +4810,7 @@ Diretrizes:
                   rawFaturamentoData={rawFaturamentoData}
                   rawOperacionalData={rawOperacionalData}
                   mapeamentoFiliais={mapeamentoFiliais}
+                  isImporter={isImporter}
                   onImportOperacional={async (novoOperacional) => {
                     if (!novoOperacional || novoOperacional.length === 0) return;
                     const operacionalMap = new Map();
@@ -4712,6 +4819,10 @@ Diretrizes:
                     const finalOperacional = Array.from(operacionalMap.values());
                     setRawOperacionalData(finalOperacional);
                     if (rawOperacionalDataRef) rawOperacionalDataRef.current = finalOperacional;
+                    
+                    await supabase.rpc('rpc_refresh_materialized_views');
+                    await clearCache();
+                    fetchFromFirebase(true);
                   }}
                   onImportBilling={async (diarias, penalidades) => {
                     const importedQuinzena = diarias.length > 0 ? diarias[0].quinzena : (penalidades.length > 0 ? penalidades[0].quinzena : null);
@@ -4733,7 +4844,13 @@ Diretrizes:
 
                     setRawFaturamentoData(finalFaturamento);
                     setRawData(finalPenalidades);
+                    
+                    if (importedQuinzena && importedQuinzena !== 'N/A') {
+                       await supabase.rpc('rpc_sincronizar_faturamento_operacional', { p_quinzena: importedQuinzena });
+                    }
+                    await supabase.rpc('rpc_refresh_materialized_views');
                     await clearCache(); // Limpa o cache para carregar os novos dados na próxima
+                    fetchFromFirebase(true);
                   }}
                   onImportCapCar={async (dadosCapCar) => {
                     await clearCache();
@@ -4773,6 +4890,20 @@ Diretrizes:
                     setTarifasMap(newMap);
                   }}
                 />
+              </div>
+            )}
+
+            {/* GESTÃO DE USUÁRIOS */}
+            {activeMenu === 'gestao_usuarios' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full overflow-y-auto">
+                <GestaoUsuarios />
+              </div>
+            )}
+
+            {/* CONFIGURAÇÕES DA CONTA */}
+            {activeMenu === 'configuracoes' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full overflow-y-auto">
+                <Configuracoes currentUser={currentUser} userRole={userRole} />
               </div>
             )}
 

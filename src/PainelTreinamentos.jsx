@@ -19,10 +19,14 @@ import {
   Link,
   X,
   Download,
-  TrendingDown
+  TrendingDown,
+  RefreshCw,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { db, getCollectionName } from './firebase';
 import { collection, setDoc, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { supabase } from './supabase';
 
 // Converte textos de data para um formato padronizado (DD/MM/YYYY)
 const parseDataTexto = (text) => {
@@ -109,50 +113,150 @@ const chartColors = [
   '#10b981', // emerald-500
 ];
 
-const MiniPieChart = ({ data, labelKey, valueKey, onSliceClick, pieSizeClass = "w-32 h-32" }) => {
+const HorizontalLeaderboard = ({ data, labelKey, valueKey, onSliceClick }) => {
   const total = data.reduce((acc, curr) => acc + curr[valueKey], 0);
-  
-  let currentPct = 0;
-  const slices = data.map((d, i) => {
-     const pct = (d[valueKey] / total) * 100;
-     const color = chartColors[i % chartColors.length];
-     const str = `${color} ${currentPct}% ${currentPct + pct}%`;
-     currentPct += pct;
-     return str;
-  });
-  
-  const gradient = slices.length > 0 ? `conic-gradient(${slices.join(', ')})` : 'none';
+  const maxVal = Math.max(...data.map(d => d[valueKey]), 1);
 
   return (
-    <div className="flex flex-col md:flex-row items-center justify-center gap-6 mt-4 pt-4 border-t border-slate-700/50">
-       <div className={`relative ${pieSizeClass} flex-shrink-0 transition-all duration-500`}>
-          <div className="w-full h-full rounded-full shadow-lg border border-slate-700/50" style={{ background: gradient }}></div>
-          <div className="absolute inset-0 m-auto w-[60%] h-[60%] bg-[#1e1e24] rounded-full flex items-center justify-center flex-col">
-             <span className="text-[10px] font-bold text-slate-500 uppercase">Total</span>
-             <span className="text-sm font-black text-slate-200">{total}</span>
-          </div>
-       </div>
-       
-       <div className="flex-1 flex flex-wrap gap-2 w-full max-h-[320px] overflow-y-auto custom-scrollbar pr-2">
-          {data.length === 0 && <span className="text-sm text-slate-500 font-bold m-auto">Nenhum dado</span>}
-          {data.map((d, i) => {
-             const pct = ((d[valueKey] / total) * 100).toFixed(1);
-             return (
-               <div key={i} onClick={() => onSliceClick && onSliceClick(d[labelKey])} className="flex items-center gap-2 bg-[#13131a] border border-slate-800 px-3 py-2 rounded-xl text-xs w-full sm:w-[calc(50%-0.25rem)] group hover:border-slate-600 hover:bg-slate-800 cursor-pointer transition-all relative">
-                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: chartColors[i % chartColors.length] }}></div>
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <span className="font-bold text-slate-300 truncate" title={d[labelKey]}>{d[labelKey]}</span>
-                    <span className="text-[10px] font-black text-slate-500 mt-0.5">{d[valueKey]} <span className="font-medium">({pct}%)</span></span>
-                  </div>
+    <div className="flex flex-col gap-3 mt-4 pt-4 border-t border-slate-700/50 w-full overflow-y-auto custom-scrollbar max-h-[320px] pr-2">
+      <div className="flex justify-between items-end mb-2">
+         <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Ranking</span>
+         <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total: {total}</span>
+      </div>
+      {data.length === 0 && <span className="text-sm text-slate-500 font-bold m-auto py-4">Nenhum dado</span>}
+      {data.map((d, i) => {
+        const val = d[valueKey];
+        const pctOfMax = (val / maxVal) * 100;
+        const pctOfTotal = ((val / total) * 100).toFixed(1);
+        const color = chartColors[i % chartColors.length];
+        
+        return (
+          <div 
+            key={i} 
+            onClick={() => onSliceClick && onSliceClick(d[labelKey])} 
+            className="shrink-0 group relative flex items-center justify-between p-3 rounded-xl bg-[#13131a] border border-slate-800 hover:border-slate-600 cursor-pointer overflow-hidden transition-colors"
+          >
+            {/* Progress bar background */}
+            <div 
+              className="absolute left-0 top-0 bottom-0 opacity-20 transition-all duration-1000 ease-out" 
+              style={{ width: `${pctOfMax}%`, backgroundColor: color }}
+            ></div>
+            
+            {/* Content */}
+            <div className="relative z-10 flex items-center gap-3 w-full py-0.5">
+               <div className="w-1.5 h-10 rounded-full flex-shrink-0" style={{ backgroundColor: color }}></div>
+               <div className="flex flex-col justify-center flex-1 min-w-0 gap-1">
+                 <span className="font-bold text-slate-300 truncate text-sm leading-tight" title={d[labelKey]}>{d[labelKey]}</span>
+                 <span className="text-[11px] font-medium text-slate-500 truncate leading-tight">{pctOfTotal}% do total</span>
                </div>
-             )
-          })}
-       </div>
+               <div className="text-xl font-black text-slate-200 ml-4 flex-shrink-0">
+                  {val}
+               </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };
 
-const DrilldownAnalysis = ({ title, dataList, groupKeys = [], labels = [], colorTheme, heightClass = "h-[850px]", extraColumnL1 = null }) => {
+const EvolutionChart = ({ data, heightClass = "h-56" }) => {
+  if (!data || data.length === 0) return null;
+  
+  const maxVal = Math.max(...data.map(d => d.total_linhas), 1);
+  const minVal = 0;
+  
+  return (
+    <div className={`w-full ${heightClass} flex flex-col relative mt-2 bg-[#13131a] rounded-2xl border border-slate-800 p-4`}>
+      <div className="flex-1 flex items-end justify-between gap-2 relative z-10 pt-6">
+         {/* Linhas de grade horizontais */}
+         <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-6 z-0">
+            {[100, 50, 0].map((step, i) => (
+               <div key={i} className="w-full border-t border-slate-700/50 flex items-center" style={{ height: step === 0 ? '0px' : 'auto', marginTop: step === 100 ? '-6px' : '0' }}></div>
+            ))}
+         </div>
+
+         {data.map((d, i) => {
+            const isLast = i === data.length - 1;
+            const hPct = ((d.total_linhas - minVal) / (maxVal - minVal)) * 100;
+            const dtStr = d.id.replace('treinamentos_base_', '');
+            const dtFormat = `${dtStr.substring(6,8)}/${dtStr.substring(4,6)}`;
+            
+            return (
+               <div key={i} className="flex-1 flex flex-col items-center justify-end h-full group relative z-10">
+                  {/* Tooltip Hover */}
+                  <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-[11px] font-bold px-2 py-1 rounded shadow-lg pointer-events-none whitespace-nowrap border border-slate-600 z-50">
+                     {d.total_linhas} pendências
+                  </div>
+                  
+                  {/* Label Fixo no Topo da Barra (Opcional, mas ajuda muito) */}
+                  <span className={`text-[10px] font-bold mb-1 transition-colors ${isLast ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-300'}`}>
+                     {d.total_linhas}
+                  </span>
+
+                  {/* Barra */}
+                  <div 
+                     className={`w-full max-w-[32px] rounded-t-md transition-all duration-500 flex items-end justify-center 
+                     ${isLast ? 'bg-gradient-to-t from-indigo-900 to-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.4)]' : 'bg-slate-700 group-hover:bg-slate-600'}`} 
+                     style={{ height: `${Math.max(hPct, 2)}%` }} // Garante um mínimo de 2% pra barra não sumir se for 0
+                  ></div>
+                  
+                  {/* Data Eixo X */}
+                  <span className={`text-[9px] font-bold mt-2 truncate w-full text-center ${isLast ? 'text-indigo-400' : 'text-slate-500'}`}>
+                     {dtFormat}
+                  </span>
+               </div>
+            );
+         })}
+      </div>
+    </div>
+  );
+};
+
+const UnmatchedRow = ({ group, handleOpenBindModal }) => {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <>
+      <tr onClick={() => setExpanded(!expanded)} className="hover:bg-red-50/30 transition-colors cursor-pointer group">
+        <td className="py-2.5 px-4 font-mono font-bold text-slate-700">
+           <div className="flex items-center gap-2">
+             <div className="w-4 h-4 flex items-center justify-center bg-red-100 text-red-600 rounded">
+                {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+             </div>
+             {group.driverId}
+           </div>
+        </td>
+        <td className="py-2.5 px-4 font-bold text-slate-700 uppercase text-[10px]">{group.milla && group.milla !== 'N/A' ? group.milla : '-'}</td>
+        <td className="py-2.5 px-4 font-bold text-slate-600">
+           <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-md text-[10px]">{group.cursos.length} curso(s) pendente(s)</span>
+        </td>
+        <td className="py-2.5 px-4 font-medium text-slate-500">{group.ultimaRotaData}</td>
+        <td className="py-2.5 px-4 text-center" onClick={e => e.stopPropagation()}>
+           <button onClick={() => handleOpenBindModal(group.items[0])} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-white border border-slate-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 shadow-sm transition-colors">
+              <Link className="w-3 h-3" /> Vincular Manual
+           </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="bg-slate-50/50">
+           <td colSpan="5" className="px-10 py-3 border-b border-red-50/50">
+             <div className="flex flex-col gap-1">
+               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Treinamentos Pendentes</span>
+               {group.cursos.map((c, i) => (
+                  <div key={i} className="text-xs font-bold text-slate-700 flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-red-400"></div>
+                    {c}
+                  </div>
+               ))}
+             </div>
+           </td>
+        </tr>
+      )}
+    </>
+  );
+};
+
+const DrilldownAnalysis = ({ title, dataList, groupKeys = [], labels = [], colorTheme, heightClass = "h-fit min-h-[650px]", extraColumnL1 = null }) => {
   const [path, setPath] = useState([]);
   const [sortKey, setSortKey] = useState('total');
   const [sortDir, setSortDir] = useState('desc');
@@ -240,12 +344,12 @@ const DrilldownAnalysis = ({ title, dataList, groupKeys = [], labels = [], color
          )}
       </div>
 
-      <div className="flex-1 overflow-auto min-h-[200px] custom-scrollbar pr-2">
+      <div className="flex-1 overflow-auto min-h-0 custom-scrollbar pr-2">
          {/* GROUPED DATA */}
          {!isDataLevel && (
             <div className="flex flex-col gap-1 animate-in slide-in-from-right-4 duration-300">
               <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] uppercase font-black tracking-widest text-slate-500 bg-[#13131a] rounded-lg">
-                 <div className={`col-span-${(extraColumnL1 && level === 0) ? '4' : '10'} cursor-pointer hover:text-slate-300 select-none flex items-center gap-1`} onClick={() => handleSort('name')}>
+                 <div className={`${(extraColumnL1 && level === 0) ? 'col-span-4' : 'col-span-10'} cursor-pointer hover:text-slate-300 select-none flex items-center gap-1`} onClick={() => handleSort('name')}>
                     {currentLabel} {sortKey === 'name' && (sortDir === 'desc' ? '↓' : '↑')}
                  </div>
                  {(extraColumnL1 && level === 0) && (
@@ -259,7 +363,7 @@ const DrilldownAnalysis = ({ title, dataList, groupKeys = [], labels = [], color
               </div>
               {groupedData.map((row, idx) => (
                  <div key={idx} onClick={() => handleRowClick(row.name)} className="grid grid-cols-12 gap-2 px-4 py-3 text-xs font-bold border-b border-slate-800/50 hover:bg-slate-800/80 cursor-pointer transition-colors group rounded-lg">
-                    <div className={`col-span-${(extraColumnL1 && level === 0) ? '4' : '10'} text-slate-300 group-hover:text-indigo-300 flex items-center gap-2`}>
+                    <div className={`${(extraColumnL1 && level === 0) ? 'col-span-4' : 'col-span-10'} text-slate-300 group-hover:text-indigo-300 flex items-center gap-2`}>
                       <div className={`w-2 h-2 rounded-full ${colorTheme}`}></div> {row.name}
                     </div>
                     {(extraColumnL1 && level === 0) && (
@@ -306,12 +410,11 @@ const DrilldownAnalysis = ({ title, dataList, groupKeys = [], labels = [], color
                <TrendingDown className="w-3 h-3 text-slate-500" />
                {level > 0 ? `Distribuição de ${currentLabel} em ${path[level - 1]}` : `Distribuição Geral por ${currentLabel}`}
             </p>
-            <MiniPieChart 
+            <HorizontalLeaderboard 
                data={groupedData} 
                labelKey="name" 
                valueKey="total" 
                onSliceClick={(name) => handleRowClick(name)}
-               pieSizeClass={level === 0 && groupedData.length <= 6 ? "w-44 h-44" : "w-32 h-32"}
             />
          </div>
       )}
@@ -337,6 +440,21 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
   const [bindDriver, setBindDriver] = useState(null);
   const [bindNome, setBindNome] = useState('');
   const [bindFilial, setBindFilial] = useState('');
+
+  const groupedUnmatched = useMemo(() => {
+    const map = new Map();
+    unmatchedDrivers.forEach(d => {
+      if (!map.has(d.driverId)) map.set(d.driverId, []);
+      map.get(d.driverId).push(d);
+    });
+    return Array.from(map.entries()).map(([driverId, items]) => ({
+      driverId,
+      milla: items[0].milla,
+      ultimaRotaData: items[0].ultimaRotaData,
+      cursos: items.map(i => i.cursoPendente),
+      items
+    }));
+  }, [unmatchedDrivers]);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -389,6 +507,9 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
      fetchBaseForDate();
   }, [selectedUploadDate]);
 
+  const [loading, setLoading] = useState(false);
+  const [syncTrigger, setSyncTrigger] = useState(0);
+
   useEffect(() => {
     if (rawBaseData.length === 0) {
       setTrainingData([]);
@@ -396,59 +517,91 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
       return;
     }
 
-    const opMap = new Map();
-    if (rawOperacionalData && rawOperacionalData.length > 0) {
-      rawOperacionalData.forEach(row => {
-        if (row.driver_id && row.driver_id !== 'N/A' && row.driver_id.trim() !== '') {
-          opMap.set(String(row.driver_id).trim().toUpperCase(), { nome: row.motorista, filial: row.filial });
+    const processData = async () => {
+      setLoading(true);
+
+      // Extract all unique driver IDs from the training base
+      const originalIds = Array.from(new Set(rawBaseData.map(r => String(r.driverId || '').trim()))).filter(id => id && id !== 'N/A' && id !== '');
+      
+      // To prevent case sensitivity issues in Supabase (.in()), we will query the original, upper, and lowercase variations
+      const queryIds = Array.from(new Set([
+         ...originalIds, 
+         ...originalIds.map(id => id.toUpperCase()), 
+         ...originalIds.map(id => id.toLowerCase())
+      ]));
+
+      const opMap = new Map();
+      
+      // Fetch precise mapping for these drivers from Supabase in chunks to avoid limits
+      if (queryIds.length > 0) {
+        const chunkSize = 10; // Keep it small! Each driver can have multiple rows, so a chunk of 10 safely avoids the 1000 row limit.
+        const promises = [];
+        
+        for (let i = 0; i < queryIds.length; i += chunkSize) {
+          const chunk = queryIds.slice(i, i + chunkSize);
+          promises.push(
+            supabase.from('operacional').select('driver_id, motorista, filial').in('driver_id', chunk).then(({ data, error }) => {
+              if (!error && data) {
+                data.forEach(r => {
+                  if (r.driver_id) {
+                     opMap.set(String(r.driver_id).trim().toUpperCase(), { nome: r.motorista, filial: r.filial });
+                  }
+                });
+              }
+            }).catch(e => console.error("Erro ao buscar chunk do Supabase", e))
+          );
+        }
+        
+        await Promise.all(promises);
+      }
+
+      const regionalMap = new Map();
+      if (mapeamentoFiliais && mapeamentoFiliais.length > 0) {
+        mapeamentoFiliais.forEach(m => {
+           if (m.filial && m.filial.trim() !== '') {
+              regionalMap.set(String(m.filial).toUpperCase(), m.supervisor || 'N/A');
+           }
+        });
+      }
+
+      const mapped = [];
+      const unmatched = [];
+
+      rawBaseData.forEach(row => {
+        const driverInfo = opMap.get(String(row.driverId).trim().toUpperCase()) || manualMap[String(row.driverId).trim().toUpperCase()];
+        
+        const filial = driverInfo ? String(driverInfo.filial).toUpperCase() : "DESCONHECIDA";
+        const regional = regionalMap.get(filial) || "Sem Regional";
+        
+        const isUnmatched = !driverInfo || filial === "DESCONHECIDA" || filial === "N/A" || regional === "Sem Regional";
+        const diasSemRota = diffDays(row.lastRouteRaw);
+
+        const item = {
+          driverId: String(row.driverId || ''),
+          nome: String(driverInfo ? driverInfo.nome : "NÃO LOCALIZADO"),
+          filial: String(filial || ''),
+          regional: String(regional || ''),
+          cursoPendente: String(row.courseName || ''),
+          ultimaRotaTexto: String(row.lastRouteRaw || ''),
+          ultimaRotaData: parseDataTexto(row.lastRouteRaw),
+          milla: String(row.milla || ''),
+          diasSemRota,
+          status: String(row.status || '')
+        };
+
+        mapped.push(item);
+        if (isUnmatched) {
+          unmatched.push(item);
         }
       });
-    }
 
-    const regionalMap = new Map();
-    if (mapeamentoFiliais && mapeamentoFiliais.length > 0) {
-      mapeamentoFiliais.forEach(m => {
-         if (m.filial && m.filial.trim() !== '') {
-            regionalMap.set(String(m.filial).toUpperCase(), m.supervisor || 'N/A');
-         }
-      });
-    }
+      setTrainingData(mapped);
+      setUnmatchedDrivers(unmatched);
+      setLoading(false);
+    };
 
-    const mapped = [];
-    const unmatched = [];
-
-    rawBaseData.forEach(row => {
-      const driverInfo = opMap.get(row.driverId) || manualMap[row.driverId];
-      
-      const filial = driverInfo ? String(driverInfo.filial).toUpperCase() : "DESCONHECIDA";
-      const regional = regionalMap.get(filial) || "Sem Regional";
-      
-      const isUnmatched = !driverInfo || filial === "DESCONHECIDA" || filial === "N/A" || regional === "Sem Regional";
-      const diasSemRota = diffDays(row.lastRouteRaw);
-
-      const item = {
-        driverId: row.driverId,
-        nome: driverInfo ? driverInfo.nome : "NÃO LOCALIZADO",
-        filial: filial,
-        regional: regional,
-        cursoPendente: row.courseName,
-        ultimaRotaTexto: row.lastRouteRaw,
-        ultimaRotaData: parseDataTexto(row.lastRouteRaw),
-        milla: row.milla,
-        diasSemRota,
-        status: row.status
-      };
-
-      mapped.push(item);
-      if (isUnmatched) {
-        unmatched.push(item);
-      }
-    });
-
-    setTrainingData(mapped);
-    setUnmatchedDrivers(unmatched);
-
-  }, [rawBaseData, rawOperacionalData, mapeamentoFiliais, manualMap]);
+    processData();
+  }, [rawBaseData, mapeamentoFiliais, manualMap, syncTrigger]);
 
   const handleProcessFile = () => {
     if (!file) return;
@@ -645,13 +798,14 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
   };
 
   const filteredTable = useMemo(() => {
+    const s = String(searchTerm || '').toLowerCase();
     return trainingData.filter(d => 
-      d.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      d.filial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      d.regional.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      d.cursoPendente.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      d.driverId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (d.milla && d.milla.toLowerCase().includes(searchTerm.toLowerCase()))
+      String(d.nome || '').toLowerCase().includes(s) || 
+      String(d.filial || '').toLowerCase().includes(s) ||
+      String(d.regional || '').toLowerCase().includes(s) ||
+      String(d.cursoPendente || '').toLowerCase().includes(s) ||
+      String(d.driverId || '').toLowerCase().includes(s) ||
+      String(d.milla || '').toLowerCase().includes(s)
     );
   }, [trainingData, searchTerm]);
 
@@ -693,6 +847,14 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
           </div>
           
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 relative z-10">
+            <button 
+                 onClick={() => setSyncTrigger(prev => prev + 1)}
+                 className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-600 font-bold px-4 py-2.5 rounded-xl border border-indigo-100 hover:bg-indigo-100 transition-colors shadow-sm"
+                 title="Sincronizar novamente com o banco de dados operacional"
+              >
+                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                 <span className="hidden sm:inline">Sincronizar</span>
+              </button>
             {historicoList.length > 0 && (
                <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 flex items-center gap-2">
                  <Calendar className="w-4 h-4 text-indigo-500" />
@@ -703,7 +865,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
                  >
                     {historicoList.map(h => {
                        const dt = h.id.replace('treinamentos_base_', '');
-                       return <option key={h.id} value={dt}>Base: {formatBrDate(dt)}</option>
+                       return <option key={h.id} value={dt} className="bg-white text-slate-800 font-medium">Base: {formatBrDate(dt)}</option>
                     })}
                  </select>
                </div>
@@ -761,32 +923,9 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
                     </div>
                   </div>
                   
-                  <div className="w-full h-40 flex items-end gap-2 md:gap-4 border-b border-slate-100 pb-2 relative">
-                     {(() => {
-                        const maxLinhas = Math.max(...historicoList.map(h => h.total_linhas), 1);
-                        const sliceData = [...historicoList].reverse().slice(-14); // Pega as últimas 14 (do antigo pro novo)
-                        return sliceData.map((h, i) => {
-                           const pct = (h.total_linhas / maxLinhas) * 100;
-                           const isLast = i === sliceData.length - 1;
-                           const dtStr = h.id.replace('treinamentos_base_', '');
-                           const dtFormat = formatBrDate(dtStr);
-                           
-                           return (
-                             <div key={h.id} className="flex-1 flex flex-col items-center justify-end h-full group relative cursor-crosshair">
-                                <span className="absolute -top-7 text-[11px] font-black text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-slate-200 px-2 py-1 rounded-lg shadow-lg z-10 whitespace-nowrap">
-                                  {h.total_linhas} pendentes
-                                </span>
-                                <div className={`w-full max-w-[40px] rounded-t-md transition-all duration-500 flex items-end justify-center ${isLast ? 'bg-indigo-500 shadow-lg shadow-indigo-200' : 'bg-slate-200 group-hover:bg-indigo-300'}`} style={{ height: `${pct}%` }}>
-                                   {isLast && <span className="text-white text-[10px] font-black pb-1">{h.total_linhas}</span>}
-                                </div>
-                                <span className={`text-[9px] font-bold mt-2 truncate w-full text-center ${isLast ? 'text-indigo-600' : 'text-slate-400'}`}>
-                                  {dtFormat.substring(0,5)}
-                                </span>
-                             </div>
-                           )
-                        });
-                     })()}
-                  </div>
+                  <EvolutionChart 
+                     data={[...historicoList].reverse().slice(-14)} 
+                  />
                 </div>
               )}
 
@@ -852,18 +991,8 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
                          </tr>
                        </thead>
                        <tbody className="divide-y divide-red-50">
-                         {unmatchedDrivers.map((row, idx) => (
-                           <tr key={idx} className="hover:bg-red-50/30 transition-colors">
-                             <td className="py-2.5 px-4 font-mono font-bold text-slate-700">{row.driverId}</td>
-                             <td className="py-2.5 px-4 font-bold text-slate-700 uppercase text-[10px]">{row.milla && row.milla !== 'N/A' ? row.milla : '-'}</td>
-                             <td className="py-2.5 px-4 font-bold text-slate-600">{row.cursoPendente}</td>
-                             <td className="py-2.5 px-4 font-medium text-slate-500">{row.ultimaRotaData}</td>
-                             <td className="py-2.5 px-4 text-center">
-                               <button onClick={() => handleOpenBindModal(row)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-white border border-slate-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 shadow-sm transition-colors">
-                                 <Link className="w-3 h-3" /> Vincular Manual
-                               </button>
-                             </td>
-                           </tr>
+                         {groupedUnmatched.map((group, idx) => (
+                           <UnmatchedRow key={idx} group={group} handleOpenBindModal={handleOpenBindModal} />
                          ))}
                        </tbody>
                      </table>
@@ -886,6 +1015,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
                   groupKeys={['filial']}
                   labels={['Filial (Operação)']}
                   colorTheme="bg-violet-500" 
+                  heightClass="h-[850px]"
                   extraColumnL1={{ key: 'regional', label: 'Supervisor' }}
                 />
               </div>
@@ -897,7 +1027,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
                   groupKeys={['filial']}
                   labels={['Filial (Operação)']}
                   colorTheme="bg-orange-500" 
-                  heightClass="h-[600px]"
+                  heightClass="h-fit"
                   extraColumnL1={{ key: 'regional', label: 'Supervisor' }}
                 />
               </div>
