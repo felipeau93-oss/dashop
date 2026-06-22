@@ -435,8 +435,10 @@ return filtered;
 
     base.forEach(d => {
       d.metasSemana.forEach(m => {
+        if (selectedWeek === 'ALL' || m.semanaInicio === selectedWeek) {
           totalDiasRodados += m.diasRodados;
           totalDiasPossiveis += m.totalDiasAmostra;
+        }
       });
     });
     
