@@ -433,6 +433,14 @@ return filtered;
     let totalDiasRodados = 0;
     let totalDiasPossiveis = 0;
 
+    let diasDaSemana = [];
+    if (selectedWeek !== 'ALL') {
+      diasDaSemana = weeksData.find(w => w.inicio === selectedWeek)?.dias || [];
+    }
+
+    let criticos = 0;
+    let ociososHoje = 0;
+
     base.forEach(d => {
       d.metasSemana.forEach(m => {
         if (selectedWeek === 'ALL' || m.semanaInicio === selectedWeek) {
@@ -440,11 +448,20 @@ return filtered;
           totalDiasPossiveis += m.totalDiasAmostra;
         }
       });
+
+      if (selectedWeek === 'ALL') {
+        if (d.diasParadoAtual >= 3) criticos++;
+        if (d.diasParadoAtual > 0) ociososHoje++;
+      } else if (diasDaSemana.length > 0) {
+        const lastDay = diasDaSemana[diasDaSemana.length - 1];
+        const t = d.timeline.find(x => x.data === lastDay);
+        const ociosoCount = t ? t.ociosoConsecutivo : 0;
+        if (ociosoCount >= 3) criticos++;
+        if (ociosoCount > 0) ociososHoje++;
+      }
     });
     
     const total = base.length;
-    const criticos = base.filter(d => d.diasParadoAtual >= 3).length;
-    const ociososHoje = base.filter(d => d.diasParadoAtual > 0).length;
     const metaBatida = base.filter(d => {
         const weekMeta = selectedWeek !== 'ALL' ? d.metasSemana.find(m => m.semanaInicio === selectedWeek) : null;
         return selectedWeek !== 'ALL' ? (weekMeta && weekMeta.bateuMeta) : d.bateuTodasMetas;
@@ -452,7 +469,7 @@ return filtered;
     const mediaUtilizacao = totalDiasPossiveis > 0 ? (totalDiasRodados / totalDiasPossiveis) * 100 : 0;
     
     return { total, criticos, ociososHoje, metaBatida, mediaUtilizacao };
-  }, [enrichedFleetData, selectedWeek]);
+  }, [enrichedFleetData, selectedWeek, weeksData]);
 
   const dateHeaders = useMemo(() => {
     if (fleetData.length > 0 && fleetData[0].timeline) {
