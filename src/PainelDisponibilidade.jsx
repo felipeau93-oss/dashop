@@ -139,7 +139,7 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
           const uniqueRefs = Array.from(new Set(data.map(item => item.quinzena)));
           const uniqueHistory = uniqueRefs.map(q => data.find(item => item.quinzena === q));
           setHistoryList(uniqueHistory);
-          setSelectedRef(uniqueHistory[0].quinzena);
+          setSelectedRef('LATEST_3');
         }
       } catch (err) {
         console.error(err);
@@ -158,11 +158,16 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
         const limit = 1000;
         let hasMore = true;
 
+        let refsToFetch = [selectedRef];
+        if (selectedRef === 'LATEST_3') {
+           refsToFetch = historyList.slice(0, 3).map(h => h.quinzena);
+        }
+
         while (hasMore) {
           const { data, error } = await supabase
             .from('disponibilidade_frota')
             .select('*')
-            .eq('referencia', selectedRef)
+            .in('referencia', refsToFetch)
             .range(currentStart, currentStart + limit - 1);
 
           if (error) {
@@ -180,38 +185,71 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
         }
         
         if (allData.length > 0) {
-          const mapped = allData.map(d => {
-            const metas = d.metas_semana || d.metasSemana || [];
-            // Um veículo é compliance no consolidado (ALL) se ele bateu a meta na maioria das semanas que rodou, 
-            // ou se bateu a meta na semana mais recente. Para simplificar e evitar zerar, 
-            // vamos considerar se bateu meta em pelo menos alguma semana ativa, ou usar a lógica de metas ativas.
-            const metasAtivas = metas.filter(m => m.diasRodados > 0);
+          const allDatesSet = new Set();
+          allData.forEach(d => {
+             if(d.timeline) d.timeline.forEach(t => allDatesSet.add(t.data));
+          });
+          
+          const allDatesArray = Array.from(allDatesSet).sort((a, b) => {
+             const [d1, m1] = a.split('/'); const [d2, m2] = b.split('/');
+             return new Date(ANO_REFERENCIA, parseInt(m1)-1, parseInt(d1)) - new Date(ANO_REFERENCIA, parseInt(m2)-1, parseInt(d2));
+          });
+          
+          const wMap = new Map();
+          allDatesArray.forEach(d => {
+            const weekStart = getInicioDaSemana(d);
+            if (!wMap.has(weekStart)) wMap.set(weekStart, []);
+            wMap.get(weekStart).push(d);
+          });
+          setWeeksData(Array.from(wMap.entries()).map(([inicio, dias]) => ({ inicio, dias })));
+
+          const mergedByPlaca = new Map();
+          allData.forEach(d => {
+             if (!mergedByPlaca.has(d.placa)) {
+                mergedByPlaca.set(d.placa, { ...d, timelineMap: new Map(), metasMap: new Map() });
+             }
+             const existing = mergedByPlaca.get(d.placa);
+             
+             if (d.filial && d.filial !== 'N/A') existing.filial = d.filial;
+             if (d.modal && d.modal !== 'N/A') existing.modal = d.modal;
+             
+             if (d.timeline) {
+               d.timeline.forEach(t => existing.timelineMap.set(t.data, t));
+             }
+             
+             const metas = d.metas_semana || d.metasSemana || [];
+             metas.forEach(m => existing.metasMap.set(m.semanaInicio, m));
+          });
+
+          const finalMergedData = Array.from(mergedByPlaca.values()).map(existing => {
+            let ocioso = 0;
+            const fullTimeline = allDatesArray.map(date => {
+              const t = existing.timelineMap.get(date);
+              if (t) {
+                 if (t.rodou) ocioso = 0; else ocioso++;
+                 return { ...t, ociosoConsecutivo: ocioso };
+              } else {
+                 ocioso++;
+                 return { data: date, rodou: false, ociosoConsecutivo: ocioso, valorOriginal: '' };
+              }
+            });
+
+            const metasSemana = Array.from(existing.metasMap.values());
+            const metasAtivas = metasSemana.filter(m => m.diasRodados > 0);
             const bateuTodas = metasAtivas.length > 0 ? metasAtivas.every(m => m.bateuMeta) : false;
-            
+
             return {
-              placa: d.placa,
-              modal: d.modal,
-              filial: d.filial,
-              timeline: d.timeline,
-              metasSemana: metas,
-              diasParadoAtual: d.dias_parado_atual || d.diasParadoAtual || 0,
+              placa: existing.placa,
+              modal: existing.modal,
+              filial: existing.filial,
+              timeline: fullTimeline,
+              metasSemana,
+              diasParadoAtual: ocioso,
               bateuTodasMetas: bateuTodas
             };
           });
 
-          if (mapped.length > 0 && mapped[0].timeline) {
-            const dates = mapped[0].timeline.map(t => t.data);
-            // Build weeksData
-            const wMap = new Map();
-            dates.forEach(d => {
-              const weekStart = getInicioDaSemana(d);
-              if (!wMap.has(weekStart)) wMap.set(weekStart, []);
-              wMap.get(weekStart).push(d);
-            });
-            setWeeksData(Array.from(wMap.entries()).map(([inicio, dias]) => ({ inicio, dias })));
-          }
-
-          setFleetData(mapped);
+          setFleetData(finalMergedData);
         } else {
           setFleetData([]);
         }
@@ -221,7 +259,7 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
     };
 
     fetchDataForRef();
-  }, [selectedRef]);
+  }, [selectedRef, historyList]);
 
   const autoClassifiedFleetData = useMemo(() => {
     return fleetData.map(car => {
@@ -526,6 +564,7 @@ return filtered;
                       onChange={(e) => setSelectedRef(e.target.value)}
                       className="px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer w-full sm:w-auto"
                     >
+                      <option className="bg-[#1e1e24] text-white" value="LATEST_3">Últimos 3 Períodos</option>
                       {historyList.map(h => (
                         <option className="bg-[#1e1e24] text-white" key={h.quinzena} value={h.quinzena}>{h.quinzena}</option>
                       ))}
