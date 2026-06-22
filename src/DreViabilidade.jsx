@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Truck, DollarSign, TrendingUp, TrendingDown, Save, History, Trash2, X, Clock, Plus, Fuel, Wrench, Shield, Users, CircleDollarSign, Percent, FileText, ChevronDown, ChevronUp, Copy, CalendarDays } from 'lucide-react';
-import { db, getCollectionName } from './firebase';
-import { collection, addDoc, getDocs, doc, deleteDoc } from "firebase/firestore";
+import { supabase } from './supabase';
 
 const formatCurrency = (value) => {
   if (isNaN(value) || value === null || value === undefined) return 'R$ 0,00';
@@ -444,18 +443,21 @@ const DreViabilidade = ({ setAgentContext }) => {
           setHistoryData(JSON.parse(cached));
         }
 
-        const querySnapshot = await getDocs(collection(db, getCollectionName("simulacoes_testes")));
-        const data = [];
-        querySnapshot.forEach((document) => {
-          const docData = document.data();
-          if (docData.type === 'viabilidade') {
-            data.push({ ...docData, docId: document.id });
-          }
-        });
-        if (data.length > 0) {
-          data.sort((a, b) => Number(b.id) - Number(a.id));
-          setHistoryData(data);
-          localStorage.setItem('dreViabilidadeHistory', JSON.stringify(data));
+        const { data: dbData, error } = await supabase
+          .from('simulacoes')
+          .select('*')
+          .eq('type', 'viabilidade')
+          .order('id', { ascending: false });
+
+        if (error) throw error;
+        
+        if (dbData && dbData.length > 0) {
+          const formattedData = dbData.map(d => ({
+            ...d.data,
+            docId: d.id
+          }));
+          setHistoryData(formattedData);
+          localStorage.setItem('dreViabilidadeHistory', JSON.stringify(formattedData));
         }
       } catch (err) {
         console.error("Erro ao buscar histórico DRE Viabilidade:", err);
@@ -502,8 +504,20 @@ const DreViabilidade = ({ setAgentContext }) => {
     };
 
     try {
-      const docRef = await addDoc(collection(db, getCollectionName("simulacoes_testes")), saveData);
-      const newHistory = [{ ...saveData, docId: docRef.id }, ...historyData];
+      const { data: insertedData, error } = await supabase
+        .from('simulacoes')
+        .insert([{
+          date: saveData.date,
+          name: saveData.name,
+          type: saveData.type,
+          data: saveData
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const newHistory = [{ ...saveData, docId: insertedData.id }, ...historyData];
       setHistoryData(newHistory);
       localStorage.setItem('dreViabilidadeHistory', JSON.stringify(newHistory));
     } catch (error) {
@@ -525,7 +539,7 @@ const DreViabilidade = ({ setAgentContext }) => {
     if (!window.confirm("Deseja apagar esta simulação do histórico?")) return;
     try {
       if (docId) {
-        await deleteDoc(doc(db, getCollectionName("simulacoes"), docId));
+        await supabase.from('simulacoes').delete().eq('id', docId);
       }
       const newHistory = historyData.filter(h => h.id !== id);
       setHistoryData(newHistory);

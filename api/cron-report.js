@@ -42,15 +42,15 @@ const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currenc
 export default async function handler(req, res) {
   try {
     // BLOQUEIO TEMPORÁRIO A PEDIDO DO USUÁRIO
-    // O envio automático só deve começar oficialmente a partir de 22/06/2026.
+    // O envio automático só deve começar oficialmente a partir de 23/06/2026.
     // Ignoramos a requisição se a data atual for anterior a isso.
     const now = new Date();
-    const startDate = new Date('2026-06-22T00:00:00Z');
+    const startDate = new Date('2026-06-23T00:00:00Z');
     
     // O parâmetro force=true na URL permite disparar o e-mail manualmente para testes
     if (now < startDate && req.query.force !== 'true') {
       return res.status(200).json({ 
-        message: 'Envio ignorado: O envio automático oficial só começa no dia 22/06/2026.' 
+        message: 'Envio ignorado: O envio automático oficial só começa no dia 23/06/2026.' 
       });
     }
 

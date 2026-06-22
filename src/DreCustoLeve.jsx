@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Car, Truck, DollarSign, TrendingUp, TrendingDown, Package, Percent, MapPin, Calendar, Clock, Map, Save, History, Trash2, X, Check } from 'lucide-react';
 import { tarifas as defaultTarifas } from './data/tarifas';
-import { db, getCollectionName } from './firebase';
-import { collection, addDoc, getDocs, doc, deleteDoc } from "firebase/firestore";
+import { supabase } from './supabase';
 
 const formatCurrency = (value) => {
   if (isNaN(value)) return 'R$ 0,00';
@@ -203,11 +202,20 @@ export default function DreCustoLeve({ setAgentContext, dynamicTarifas = [] }) {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const querySnapshot = await getDocs(collection(db, getCollectionName("simulacoes_testes")));
+        const { data: dbData, error } = await supabase
+          .from('simulacoes')
+          .select('*')
+          .eq('type', 'custo_leve')
+          .order('id', { ascending: false });
+
+        if (error) throw error;
+        
         const data = [];
-        querySnapshot.forEach((document) => {
-          data.push({ ...document.data(), docId: document.id });
-        });
+        if (dbData && dbData.length > 0) {
+          dbData.forEach((row) => {
+            data.push({ ...row.data, docId: row.id });
+          });
+        }
         // Ordena para os mais recentes ficarem no topo (baseado no timestamp id)
         data.sort((a, b) => Number(b.id) - Number(a.id));
         setHistoryData(data);
@@ -242,8 +250,20 @@ export default function DreCustoLeve({ setAgentContext, dynamicTarifas = [] }) {
     };
     
     try {
-      const docRef = await addDoc(collection(db, getCollectionName("simulacoes_testes")), newState);
-      console.log("Salvo na nuvem com ID: ", docRef.id);
+      const { data: insertedData, error } = await supabase
+        .from('simulacoes')
+        .insert([{
+          date: newState.date,
+          name: newState.name,
+          type: 'custo_leve',
+          data: newState
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      console.log("Salvo na nuvem com ID: ", insertedData.id);
       
       const newHistory = [newState, ...historyData];
       setHistoryData(newHistory);
@@ -286,7 +306,7 @@ export default function DreCustoLeve({ setAgentContext, dynamicTarifas = [] }) {
     
     try {
       if (docId) {
-        await deleteDoc(doc(db, getCollectionName("simulacoes"), docId));
+        await supabase.from('simulacoes').delete().eq('id', docId);
       }
       const newHistory = historyData.filter(h => h.id !== id);
       setHistoryData(newHistory);

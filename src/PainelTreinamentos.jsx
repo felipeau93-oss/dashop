@@ -24,8 +24,6 @@ import {
   ChevronDown,
   ChevronRight
 } from 'lucide-react';
-import { db, getCollectionName } from './firebase';
-import { collection, setDoc, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { supabase } from './supabase';
 
 // Converte textos de data para um formato padronizado (DD/MM/YYYY)
@@ -459,15 +457,16 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const manualDoc = await getDoc(doc(db, getCollectionName('config_testes'), 'motoristas_manuais_treinamentos'));
-        if (manualDoc.exists() && manualDoc.data().mapa) {
-           setManualMap(manualDoc.data().mapa);
+        const { data: manualDoc } = await supabase.from('treinamentos').select('data').eq('id', 'motoristas_manuais_treinamentos').single();
+        if (manualDoc && manualDoc.data) {
+           setManualMap(manualDoc.data);
         }
 
-        const q = query(collection(db, getCollectionName('controle_importacoes_testes')), where('tipo_importacao', '==', 'treinamentos_base'));
-        const snapshot = await getDocs(q);
+        const { data: snapshot } = await supabase.from('treinamentos').select('data').eq('type', 'historico');
         const hData = [];
-        snapshot.forEach(d => hData.push({ id: d.id, ...d.data() }));
+        if (snapshot) {
+          snapshot.forEach(d => hData.push({ id: d.data.id, ...d.data }));
+        }
         
         if (hData.length > 0) {
           hData.sort((a, b) => new Date(b.data_atualizacao).getTime() - new Date(a.data_atualizacao).getTime());
@@ -480,7 +479,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
            setIsFetching(false);
         }
       } catch (err) {
-        console.error("Erro ao buscar dados do firebase:", err);
+        console.error("Erro ao buscar dados do supabase:", err);
         setIsFetching(false);
       }
     };
@@ -492,9 +491,9 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
      const fetchBaseForDate = async () => {
         setIsFetching(true);
         try {
-           const docSnap = await getDoc(doc(db, getCollectionName('config_testes'), `treinamentos_base_data_${selectedUploadDate}`));
-           if (docSnap.exists() && docSnap.data().data) {
-              setRawBaseData(docSnap.data().data);
+           const { data: docSnap } = await supabase.from('treinamentos').select('data').eq('id', `treinamentos_base_data_${selectedUploadDate}`).single();
+           if (docSnap && docSnap.data) {
+              setRawBaseData(docSnap.data);
            } else {
               setRawBaseData([]);
            }
@@ -559,7 +558,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
       if (mapeamentoFiliais && mapeamentoFiliais.length > 0) {
         mapeamentoFiliais.forEach(m => {
            if (m.filial && m.filial.trim() !== '') {
-              regionalMap.set(String(m.filial).toUpperCase(), m.supervisor || 'N/A');
+              regionalMap.set(String(m.filial).toUpperCase(), { regional: m.regional || 'N/A', supervisor: m.supervisor || 'N/A' });
            }
         });
       }
@@ -571,7 +570,9 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
         const driverInfo = opMap.get(String(row.driverId).trim().toUpperCase()) || manualMap[String(row.driverId).trim().toUpperCase()];
         
         const filial = driverInfo ? String(driverInfo.filial).toUpperCase() : "DESCONHECIDA";
-        const regional = regionalMap.get(filial) || "Sem Regional";
+        const mappedData = regionalMap.get(filial) || { regional: "Sem Regional", supervisor: "Sem Supervisor" };
+        const regional = mappedData.regional;
+        const supervisor = mappedData.supervisor;
         
         const isUnmatched = !driverInfo || filial === "DESCONHECIDA" || filial === "N/A" || regional === "Sem Regional";
         const diasSemRota = diffDays(row.lastRouteRaw);
@@ -581,6 +582,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
           nome: String(driverInfo ? driverInfo.nome : "NÃO LOCALIZADO"),
           filial: String(filial || ''),
           regional: String(regional || ''),
+          supervisor: String(supervisor || ''),
           cursoPendente: String(row.courseName || ''),
           ultimaRotaTexto: String(row.lastRouteRaw || ''),
           ultimaRotaData: parseDataTexto(row.lastRouteRaw),
@@ -665,10 +667,9 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
 
       let lastPendencies = new Set();
       try {
-        const docRef = doc(db, getCollectionName('config_testes'), 'treinamentos_base_last_list');
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists() && docSnap.data().lista) {
-          lastPendencies = new Set(docSnap.data().lista);
+        const { data: docSnap } = await supabase.from('treinamentos').select('data').eq('id', 'treinamentos_base_last_list').single();
+        if (docSnap && docSnap.data) {
+          lastPendencies = new Set(docSnap.data);
         }
       } catch (e) {
          console.error("Erro ao buscar lista anterior:", e);
@@ -692,17 +693,15 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
       const todayStr = getTodayDateString(); 
       
       try {
-        const historyRef = doc(db, getCollectionName('controle_importacoes_testes'), `treinamentos_base_${todayStr}`);
         const novoHist = {
           id: `treinamentos_base_${todayStr}`,
           tipo_importacao: 'treinamentos_base',
           data_atualizacao: new Date().toISOString(), 
           total_linhas: newRawBase.length
         };
-        await setDoc(historyRef, novoHist);
-
-        await setDoc(doc(db, getCollectionName('config_testes'), `treinamentos_base_data_${todayStr}`), { data: newRawBase });
-        await setDoc(doc(db, getCollectionName('config_testes'), 'treinamentos_base_last_list'), { lista: currentListForFirebase });
+        await supabase.from('treinamentos').upsert({ id: `treinamentos_base_${todayStr}`, type: 'historico', data: novoHist });
+        await supabase.from('treinamentos').upsert({ id: `treinamentos_base_data_${todayStr}`, type: 'config', data: newRawBase });
+        await supabase.from('treinamentos').upsert({ id: 'treinamentos_base_last_list', type: 'config', data: currentListForFirebase });
 
         setHistoricoList(prev => {
            const idx = prev.findIndex(p => p.id === novoHist.id);
@@ -761,6 +760,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
        "Nome do Motorista": row.nome,
        "SVC/XPT (Filial)": row.filial,
        "Regional": row.regional,
+       "Supervisor": row.supervisor,
        "Curso Pendente": row.cursoPendente,
        "Última Rota": row.ultimaRotaData,
        "Status": row.status
@@ -788,7 +788,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
      newMap[bindDriver.driverId] = { nome: bindNome.toUpperCase().trim(), filial: bindFilial.toUpperCase().trim() };
      
      try {
-        await setDoc(doc(db, getCollectionName('config_testes'), 'motoristas_manuais_treinamentos'), { mapa: newMap });
+        await supabase.from('treinamentos').upsert({ id: 'motoristas_manuais_treinamentos', type: 'config', data: newMap });
         setManualMap(newMap);
         setShowBindModal(false);
      } catch (e) {
@@ -1066,6 +1066,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
                         <th className="py-4 px-4 font-bold border-b border-slate-800">Driver ID</th>
                         <th className="py-4 px-4 font-bold border-b border-slate-800">SVC/XPT (Filial)</th>
                         <th className="py-4 px-4 font-bold border-b border-slate-800">Regional</th>
+                        <th className="py-4 px-4 font-bold border-b border-slate-800">Supervisor</th>
                         <th className="py-4 px-4 font-bold border-b border-slate-800">Nome do Motorista</th>
                         <th className="py-4 px-4 font-bold border-b border-slate-800">Milha</th>
                         <th className="py-4 px-4 font-bold border-b border-slate-800">Curso Pendente</th>
@@ -1084,6 +1085,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
                             <td className="py-3 px-4 font-mono font-bold text-slate-400">{row.driverId}</td>
                             <td className="py-3 px-4 font-bold text-slate-300">{row.filial}</td>
                             <td className="py-3 px-4 font-medium text-slate-500">{row.regional}</td>
+                            <td className="py-3 px-4 font-medium text-slate-500">{row.supervisor}</td>
                             <td className="py-3 px-4 font-bold text-slate-200">
                               {row.nome === "NÃO LOCALIZADO" ? (
                                 <span className="text-red-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Não Localizado</span>

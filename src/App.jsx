@@ -11,9 +11,7 @@ const PainelTreinamentos = lazy(() => import('./PainelTreinamentos'));
 const PainelDisponibilidade = lazy(() => import('./PainelDisponibilidade'));
 const GestaoUsuarios = lazy(() => import('./GestaoUsuarios'));
 const Configuracoes = lazy(() => import('./Configuracoes'));
-import { db, getCollectionName } from './firebase';
-import { supabase } from './supabase';
-import { collection, writeBatch, doc, getDocs, query, where, documentId } from 'firebase/firestore';
+import { supabase, isInitialRecoveryUrl } from './supabase';
 import {
   Calculator,
   Lock,
@@ -52,13 +50,10 @@ import {
   UploadCloud,
   Settings,
   GraduationCap,
-  Users
+  Users,
+  Eye,
+  EyeOff
 } from 'lucide-react';
-
-// ============================================================================
-// CHAVE DA API DO GEMINI (CFO VIRTUAL)
-// ============================================================================
-const GEMINI_API_KEY = "AQ.Ab8RN6K47gkyfb7umcghi8U5RTyZI70f7S4IxWvRbp41EAJ1Fw";
 
 // ============================================================================
 // DADOS PRÉ-PROCESSADOS
@@ -150,6 +145,30 @@ const verificarAcesso = () => {
 const parseNumber = (val) => {
   if (!val) return 0;
   return parseFloat(val.replace(/R\$\s?/g, '').replace(/"/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+};
+
+const useSessionStorage = (key, initialValue) => {
+  const [storedValue, setStoredValue] = useState(() => {
+    try {
+      const item = window.sessionStorage.getItem(key);
+      return item ? JSON.parse(item) : (initialValue instanceof Function ? initialValue() : initialValue);
+    } catch (error) {
+      console.error(error);
+      return initialValue instanceof Function ? initialValue() : initialValue;
+    }
+  });
+
+  const setValue = (value) => {
+    try {
+      const valueToStore = value instanceof Function ? value(storedValue) : value;
+      setStoredValue(valueToStore);
+      window.sessionStorage.setItem(key, JSON.stringify(valueToStore));
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  return [storedValue, setValue];
 };
 
 // ============================================================================
@@ -2275,6 +2294,7 @@ export default function App() {
   const isImporter = userRole === 'importer';
   const isOpMode = urlIsOpMode || userRole === 'operacao';
   
+  const [agentContext, setAgentContext] = useState(null);
   const [drilldownFilial, setDrilldownFilial] = useState(null);
   const [returnToModalState, setReturnToModalState] = useState(null);
   const [drilldownMotorista, setDrilldownMotorista] = useState(null);
@@ -2282,6 +2302,7 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(null);
   const [emailLogin, setEmailLogin] = useState('');
   const [senhaDigitada, setSenhaDigitada] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [erroLogin, setErroLogin] = useState(false);
   const [erroLoginMsg, setErroLoginMsg] = useState('');
   const [loginView, setLoginView] = useState('login'); // 'login', 'register', 'forgot'
@@ -2289,26 +2310,8 @@ export default function App() {
   const [telefoneRegister, setTelefoneRegister] = useState('');
   const [loginSuccessMsg, setLoginSuccessMsg] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
-
-  // ============================================================================
-  // CHATBOT E INTEGRAÇÃO DE IA (GEMINI)
-  // ============================================================================
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatInput, setChatInput] = useState('');
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const [executiveSummary, setExecutiveSummary] = useState('');
-  const [isSummaryLoading, setIsSummaryLoading] = useState(false);
-  const [agentContext, setAgentContext] = useState(''); // Contexto dinâmico da tela atual
-  const [chatMessages, setChatMessages] = useState([
-    { role: 'ai', text: 'Olá! Sou seu Agente Virtual e Especialista Logístico. Analisei os dados do seu dashboard. O que você gostaria de investigar hoje?' }
-  ]);
-  const chatBottomRef = useRef(null);
-
-  useEffect(() => {
-    if (chatBottomRef.current) {
-      chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [chatMessages, isChatLoading, isChatOpen]);
+  const isRecoveryRef = useRef(false);
+  const hasCheckedInitialRecoveryRef = useRef(false);
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('dashopTheme') === 'dark';
@@ -2384,33 +2387,82 @@ export default function App() {
   }, [isDarkMode]);
 
   useEffect(() => {
+    const checkUserRole = async (user, isRecoveryEvent = false) => {
+      // Supabase pode já ter limpado o hash, então usamos a variável isInitialRecoveryUrl
+      // Consumimos essa variável apenas UMA VEZ na primeira execução, para que
+      // o login subsequente (após o usuário concluir o reset) funcione normalmente.
+      let isUrlRecovery = false;
+      if (!hasCheckedInitialRecoveryRef.current) {
+        isUrlRecovery = isInitialRecoveryUrl;
+        hasCheckedInitialRecoveryRef.current = true;
+      }
+      
+      if (isRecoveryEvent || isUrlRecovery || isRecoveryRef.current) {
+        isRecoveryRef.current = true;
+        setLoginView('update_password');
+        setErroLogin(false);
+        setLoginSuccessMsg('Insira sua nova senha abaixo.');
+        setIsAuthenticated(false);
+        return;
+      }
+
+      console.log("=== INICIO DEBUG DE LOGIN ===");
+      console.log("Usuário logado no Supabase Auth:", user.email);
+      
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('*')
+        .eq('email', user.email)
+        .maybeSingle();
+        
+      console.log("Resultado da busca no user_roles:", data);
+      console.log("Erro da busca:", error);
+      console.log("=== FIM DEBUG DE LOGIN ===");
+      
+      // Checagem de segurança pós-await: se no meio da query de banco o evento de PASSWORD_RECOVERY
+      // foi disparado, devemos abortar o fluxo de login normal.
+      if (isRecoveryRef.current) return;
+        
+      if (data && data.role && data.role !== 'pending') {
+        setUserRole(data.role);
+        
+        // Define o menu ativo de forma síncrona para evitar que o dashboard completo "pisque" na tela
+        const isOp = new URLSearchParams(window.location.search).get('view') === 'operacao' || data.role === 'operacao';
+        if (data.role === 'importer') {
+          setActiveMenu('importador');
+        } else if (isOp) {
+          setActiveMenu('gestao_penalidades');
+        }
+        
+        setIsAuthenticated(true);
+      } else {
+        setUserRole(null);
+        setIsAuthenticated(false);
+        if (data && data.role === 'pending') {
+          setErroLoginMsg('Sua conta está em análise pelo Administrador.');
+        } else {
+          setErroLoginMsg('Necessário Permissão.');
+        }
+        setErroLogin(true);
+        setLoginView('login');
+        await supabase.auth.signOut();
+      }
+    };
+
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        const user = session?.user || null;
-        setCurrentUser(user);
-        
-        if (user) {
-          const { data, error } = await supabase
-            .from('user_roles')
-            .select('role')
-            .eq('email', user.email)
-            .single();
-            
-          if (data && data.role && data.role !== 'pending') {
-            setUserRole(data.role);
-            setIsAuthenticated(true);
-          } else {
-            setUserRole(null);
-            setIsAuthenticated(false);
-            if (data && data.role === 'pending') {
-              setErroLoginMsg('Sua conta está em análise pelo Administrador.');
-            } else {
-              setErroLoginMsg('Necessário Permissão.');
-            }
-            setErroLogin(true);
-            setLoginView('login');
-            await supabase.auth.signOut();
-          }
+        if (event === 'PASSWORD_RECOVERY') {
+          isRecoveryRef.current = true;
+          setLoginView('update_password');
+          setErroLogin(false);
+          setLoginSuccessMsg('Insira sua nova senha abaixo.');
+          setIsAuthenticated(false);
+          return;
+        }
+
+        if (session) {
+          setCurrentUser(session.user);
+          await checkUserRole(session.user, event === 'PASSWORD_RECOVERY');
         } else {
           setIsAuthenticated(false);
           setUserRole(null);
@@ -2423,24 +2475,8 @@ export default function App() {
       if (!session) {
         setIsAuthenticated(false);
       } else {
-        const user = session.user;
-        setCurrentUser(user);
-        const { data } = await supabase.from('user_roles').select('role').eq('email', user.email).single();
-        if (data && data.role && data.role !== 'pending') {
-          setUserRole(data.role);
-          setIsAuthenticated(true);
-        } else {
-          setUserRole(null);
-          setIsAuthenticated(false);
-          if (data && data.role === 'pending') {
-            setErroLoginMsg('Sua conta está em análise pelo Administrador.');
-          } else {
-            setErroLoginMsg('Necessário Permissão.');
-          }
-          setErroLogin(true);
-          setLoginView('login');
-          await supabase.auth.signOut();
-        }
+        setCurrentUser(session.user);
+        await checkUserRole(session.user, false);
       }
     });
 
@@ -2503,8 +2539,13 @@ export default function App() {
       await supabase.auth.signOut();
     } catch (err) {
       setErroLogin(true);
-      if (err.code === '23505') setErroLoginMsg('E-mail já está aguardando aprovação ou já está cadastrado.');
-      else setErroLoginMsg(`Erro no cadastro: ${err.message}`);
+      if (err.code === '23505') {
+        setErroLoginMsg('Este e-mail já está aguardando aprovação ou já está cadastrado no sistema.');
+      } else if (err.message && err.message.toLowerCase().includes('user already registered')) {
+        setErroLoginMsg('Este e-mail já possui um cadastro no sistema. Faça o login!');
+      } else {
+        setErroLoginMsg(`Erro no cadastro: ${err.message}`);
+      }
     } finally {
       setIsAuthLoading(false);
     }
@@ -2526,6 +2567,27 @@ export default function App() {
     } catch (err) {
       setErroLogin(true);
       setErroLoginMsg(`Erro: ${err.message}`);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleUpdatePassword = async (e) => {
+    e.preventDefault();
+    setIsAuthLoading(true);
+    setErroLogin(false);
+    setErroLoginMsg('');
+    try {
+      const { error } = await supabase.auth.updateUser({ password: senhaDigitada });
+      if (error) throw error;
+      setLoginSuccessMsg('Senha atualizada com sucesso! Faça login.');
+      setSenhaDigitada('');
+      isRecoveryRef.current = false;
+      setLoginView('login');
+      await supabase.auth.signOut();
+    } catch (err) {
+      setErroLogin(true);
+      setErroLoginMsg(`Erro ao atualizar senha: ${err.message}`);
     } finally {
       setIsAuthLoading(false);
     }
@@ -2559,14 +2621,14 @@ export default function App() {
   const [percentualImpostoFinanceiro, setPercentualImpostoFinanceiro] = useState(6.56);
 
   const [isLoading, setIsLoading] = useState(false);
-  const [filtroQuinzenas, setFiltroQuinzenas] = useState([]);
-  const [filtroRegionais, setFiltroRegionais] = useState([]);
-  const [filtroSupervisores, setFiltroSupervisores] = useState([]);
-  const [filtroFiliais, setFiltroFiliais] = useState([]);
-  const [filtroDiasSemana, setFiltroDiasSemana] = useState([]);
-  const [insucessosExcluidos, setInsucessosExcluidos] = useState([]);
+  const [filtroQuinzenas, setFiltroQuinzenas] = useSessionStorage('dashop_filtroQuinzenas', []);
+  const [filtroRegionais, setFiltroRegionais] = useSessionStorage('dashop_filtroRegionais', []);
+  const [filtroSupervisores, setFiltroSupervisores] = useSessionStorage('dashop_filtroSupervisores', []);
+  const [filtroFiliais, setFiltroFiliais] = useSessionStorage('dashop_filtroFiliais', []);
+  const [filtroDiasSemana, setFiltroDiasSemana] = useSessionStorage('dashop_filtroDiasSemana', []);
+  const [insucessosExcluidos, setInsucessosExcluidos] = useSessionStorage('dashop_insucessosExcluidos', []);
 
-  const [activeMenu, setActiveMenu] = useState(isOpMode ? 'gestao_penalidades' : 'gestao_financeira');
+  const [activeMenu, setActiveMenu] = useSessionStorage('dashop_activeMenu', isOpMode ? 'gestao_penalidades' : 'gestao_financeira');
 
   useEffect(() => {
     if (isImporter && activeMenu !== 'importador') {
@@ -2577,20 +2639,21 @@ export default function App() {
   }, [isImporter, isOpMode]);
   const mainScrollRef = useRef(null);
   useEffect(() => { if (mainScrollRef.current) mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' }); }, [activeMenu]);
-  const [expandedMenus, setExpandedMenus] = useState({ financeiro: true, operacional: true, planejamento: false });
+  const [expandedMenus, setExpandedMenus] = useSessionStorage('dashop_expandedMenus', { financeiro: true, operacional: true, planejamento: false });
 
   const toggleExpandedMenu = (menuKey, e) => {
     e.stopPropagation();
     setExpandedMenus(prev => ({ ...prev, [menuKey]: !prev[menuKey] }));
   };
-  const [financeiroSubTab, setFinanceiroSubTab] = useState('resumo');
+  const [financeiroSubTab, setFinanceiroSubTab] = useSessionStorage('dashop_financeiroSubTab', 'resumo');
   const [exportingType, setExportingType] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
   const [selectedQuinzenaPareto, setSelectedQuinzenaPareto] = useState(null);
   const [selectedQuinzenaDS, setSelectedQuinzenaDS] = useState(null);
 
   const [hasInitialSynced, setHasInitialSynced] = useState(false);
-  const [dataSource, setDataSource] = useState('supabase'); // 'planilhas' | 'firebase'
+  // Fonte de Dados agora é exclusivamente Supabase
+  const dataSource = 'supabase';
 
   useEffect(() => {
     setSelectedQuinzenaPareto(null);
@@ -2891,56 +2954,10 @@ export default function App() {
   }, []);
 
 
-  const syncToFirebase = async (collectionName, dataArray) => {
-    if (!dataArray || dataArray.length === 0) return;
-    try {
-      const groupedData = {};
-      dataArray.forEach(item => {
-        const q = (item && item.quinzena) ? String(item.quinzena).replace(/[^a-zA-Z0-9_-]/g, '') : 'GERAL';
-        if (!groupedData[q]) groupedData[q] = [];
-        groupedData[q].push(item);
-      });
-
-      const colRef = collection(db, getCollectionName('app_dados_comprimidos_testes'));
-      const snapshot = await getDocs(colRef);
-      const CHUNK_SIZE = 800000;
-
-      for (const [quinzena, items] of Object.entries(groupedData)) {
-        const prefix = `${collectionName}___${quinzena}___chunk_`;
-
-        let deleteBatch = writeBatch(db);
-        let deleteCount = 0;
-        snapshot.forEach(docSnap => {
-          if (docSnap.id.startsWith(prefix)) {
-            deleteBatch.delete(docSnap.ref);
-            deleteCount++;
-          }
-        });
-        if (deleteCount > 0) await deleteBatch.commit();
-
-        const fullString = JSON.stringify(items);
-        const numChunks = Math.ceil(fullString.length / CHUNK_SIZE);
-        let writeCount = 0;
-        let batch = writeBatch(db);
-
-        for (let i = 0; i < numChunks; i++) {
-          const chunkStr = fullString.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-          const docRef = doc(colRef, `${prefix}${i}`);
-          batch.set(docRef, { payload: chunkStr, index: i, collection: collectionName, quinzena: quinzena });
-          writeCount++;
-
-          if (writeCount === 10) {
-            await batch.commit();
-            batch = writeBatch(db);
-            writeCount = 0;
-          }
-        }
-        if (writeCount > 0) await batch.commit();
-        console.log(`[Chunk Sync] ${collectionName} (${quinzena}) salvo em ${numChunks} fatias!`);
-      }
-    } catch (err) {
-      console.error(`Erro ao sincronizar ${collectionName}:`, err);
-    }
+  const syncToSupabase = async (collectionName, dataArray) => {
+    // A gravação pesada foi migrada para o DataImporter,
+    // Este stub evita quebrar componentes legados que chamam syncTosupabase (agora syncToSupabase)
+    console.log(`[Supabase] Gravação de ${collectionName} direcionada para o Backend.`);
   };
   // Helper para Cache no Navegador (IndexedDB)
   const idbPromise = useMemo(() => {
@@ -2986,7 +3003,7 @@ export default function App() {
     } catch {}
   };
 
-  const fetchFromFirebase = useCallback(async (forceRefresh = false) => {
+  const fetchFromSupabase = useCallback(async (forceRefresh = false) => {
     setIsLoading(true); setError(null);
     if (forceRefresh) {
       await clearCache();
@@ -3078,47 +3095,7 @@ export default function App() {
       const custosFinanceiros = custosFinanceirosRaw.filter(d => d.tipo === 'Financeiro');
       const mergedCustos = [...custosFinanceiros, ...capcar];
 
-      // Mapeamento is loaded from chunks for compatibility
-      await new Promise(r => setTimeout(r, 50));
-      const colRef = collection(db, getCollectionName('app_dados_comprimidos_testes'));
-      const q = query(colRef, where(documentId(), '>=', 'mapeamento_filiais'), where(documentId(), '<=', 'mapeamento_filiais\uf8ff'));
-      const oldSnap = await getDocs(q);
-      const chunksData = {};
-
-      oldSnap.forEach(doc => {
-        const id = doc.id;
-        if (id.includes('___chunk_')) {
-          const parts = id.split('___');
-          const colName = parts[0];
-          const quinzena = parts[1];
-          const index = parseInt(parts[2].replace('chunk_', ''));
-          if (!chunksData[colName]) chunksData[colName] = {};
-          if (!chunksData[colName][quinzena]) chunksData[colName][quinzena] = [];
-          chunksData[colName][quinzena][index] = doc.data().payload;
-        }
-      });
-
-      const parseChunks = async (colName) => {
-        if (!chunksData[colName]) return [];
-        let combinedData = [];
-        for (const [quinzena, chunkArr] of Object.entries(chunksData[colName])) {
-          await new Promise(r => setTimeout(r, 10)); // Yield while parsing huge JSONs
-          const fullString = chunkArr.join('');
-          if (fullString) {
-            try {
-              const parsed = JSON.parse(fullString);
-              if (Array.isArray(parsed)) {
-                combinedData = combinedData.concat(parsed.map(item => ({ ...item, quinzena: item.quinzena || quinzena })));
-              } else if (parsed) {
-                combinedData = combinedData.concat([{ ...parsed, quinzena: parsed.quinzena || quinzena }]);
-              }
-            } catch (e) { }
-          }
-        }
-        return combinedData;
-      };
-
-      const mapeamento = await parseChunks('mapeamento_filiais');
+      const mapeamento = await extractItems('mapeamento_filiais');
 
       // Arrays Legados: Removidos Definitivamente (D4). Instanciamos como arrays vazios
       // para não quebrar componentes que ainda aguardam as props originais.
@@ -3153,7 +3130,7 @@ export default function App() {
 
     } catch (err) {
       console.error(err);
-      setError("Erro ao ler do Firebase: " + String(err));
+      setError("Erro ao ler do supabase: " + String(err));
     } finally {
       setIsLoading(false);
     }
@@ -3200,7 +3177,7 @@ export default function App() {
       const t5 = await fetchCSV(sheetUrlCustos, 'Custos Financeiros');
       const d5 = t5 ? processCustosData(t5) : null;
 
-      console.log('[Sheets] Dados carregados das planilhas (sem enviar ao Firebase).');
+      console.log('[Sheets] Dados carregados das planilhas (sem enviar ao supabase).');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -3210,13 +3187,13 @@ export default function App() {
   useEffect(() => {
     if (isAuthenticated && !hasInitialSynced) {
       if (dataSource === 'supabase') {
-        fetchFromFirebase();
+        fetchFromSupabase(true);
       } else {
         fetchFromGoogleSheets();
       }
       setHasInitialSynced(true);
     }
-  }, [isAuthenticated, hasInitialSynced, fetchFromFirebase, fetchFromGoogleSheets, dataSource]);
+  }, [isAuthenticated, hasInitialSynced, fetchFromSupabase, fetchFromGoogleSheets, dataSource]);
 
   const ssc4RatiosPerQuinzena = useMemo(() => {
     const ratios = {};
@@ -3579,7 +3556,7 @@ export default function App() {
       margemRS: margemR$,
       margemPct: margemPct
     };
-  }, [custosFiltrados, dadosFiltrados, percentualImpostoFinanceiro]);
+  }, [dreDataFiltrado, percentualImpostoFinanceiro]);
 
   const [selectedRegionalForMargin, setSelectedRegionalForMargin] = useState(null);
   const [selectedFilialForMargin, setSelectedFilialForMargin] = useState(null);
@@ -3936,10 +3913,12 @@ export default function App() {
       else if (d.tipo === 'Lost Packages') map[key].lost += d.valor;
       else if (d.tipo === 'Not Visited') map[key].notVisited += d.valor;
     });
-    return Object.values(map).map(item => ({
-      ...item,
-      representatividade: item.faturamento > 0 ? (item.penalidades / item.faturamento) * 100 : (item.penalidades > 0 ? Infinity : 0)
-    })).sort((a, b) => String(b.quinzena).localeCompare(String(a.quinzena)));
+    return Object.values(map)
+      .filter(item => item.faturamento > 0 || item.penalidades > 0)
+      .map(item => ({
+        ...item,
+        representatividade: item.faturamento > 0 ? (item.penalidades / item.faturamento) * 100 : (item.penalidades > 0 ? Infinity : 0)
+      })).sort((a, b) => String(b.quinzena).localeCompare(String(a.quinzena)));
   }, [dadosFiltradosEvolucao, faturamentoFiltradoEvolucao]);
 
   const paretoFilialDrilldownData = useMemo(() => {
@@ -3958,10 +3937,12 @@ export default function App() {
       else if (d.tipo === 'Lost Packages') map[key].lost += d.valor;
       else if (d.tipo === 'Not Visited') map[key].notVisited += d.valor;
     });
-    return Object.values(map).map(item => ({
-      ...item,
-      representatividade: item.faturamento > 0 ? (item.penalidades / item.faturamento) * 100 : (item.penalidades > 0 ? Infinity : 0)
-    })).sort((a, b) => b.faturamento - a.faturamento);
+    return Object.values(map)
+      .filter(item => item.faturamento > 0 || item.penalidades > 0)
+      .map(item => ({
+        ...item,
+        representatividade: item.faturamento > 0 ? (item.penalidades / item.faturamento) * 100 : (item.penalidades > 0 ? Infinity : 0)
+      })).sort((a, b) => b.faturamento - a.faturamento);
   }, [dadosFiltradosEvolucao, faturamentoFiltradoEvolucao, selectedQuinzenaPareto]);
 
   const isBscView = activeMenu === 'gestao_bsc';
@@ -4209,51 +4190,7 @@ export default function App() {
     // Evitar fetch se as métricas ainda não calcularam
     if (!margemBrutaMetrics) return;
 
-    const fetchExecutiveSummary = async () => {
-      setIsSummaryLoading(true);
-      const prompt = `Você é um Analista Executivo Sênior de uma transportadora.
-Escreva um resumo executivo extremamente sucinto e direto (máximo 1 parágrafo) analisando a quinzena atual (${targetQuinzenaRunRate}) e comparando-a com as duas anteriores (${prevQuinzenaName || 'N/A'} e ${prevPrevQuinzenaName || 'N/A'}).
-FOCO PRINCIPAL: Evolução da Rentabilidade Final (Margem Operacional), e variação percentual dos custos operacionais e faturamento.
-DADOS DA QUINZENA ATUAL (${targetQuinzenaRunRate}):
-Rentabilidade Final: R$ ${margemBrutaMetrics.margemRS.toFixed(2)} (${margemBrutaMetrics.margemPct.toFixed(1)}%)
-Custos Operacionais: R$ ${margemBrutaMetrics.custos.toFixed(2)}
-Faturamento Bruto: R$ ${margemBrutaMetrics.faturamento.toFixed(2)}
-DADOS DA QUINZENA ANTERIOR 1 (${prevQuinzenaName || 'N/A'}):
-Rentabilidade Final: R$ ${prevMargemBrutaMetrics?.margemRS?.toFixed(2) || 0} (${prevMargemBrutaMetrics?.margemPct?.toFixed(1) || 0}%)
-Custos Operacionais: R$ ${prevMargemBrutaMetrics?.custos?.toFixed(2) || 0}
-Faturamento Bruto: R$ ${prevMargemBrutaMetrics?.faturamento?.toFixed(2) || 0}
-DADOS DA QUINZENA ANTERIOR 2 (${prevPrevQuinzenaName || 'N/A'}):
-Rentabilidade Final: R$ ${prevPrevMargemBrutaMetrics?.margemRS?.toFixed(2) || 0} (${prevPrevMargemBrutaMetrics?.margemPct?.toFixed(1) || 0}%)
-Custos Operacionais: R$ ${prevPrevMargemBrutaMetrics?.custos?.toFixed(2) || 0}
-Faturamento Bruto: R$ ${prevPrevMargemBrutaMetrics?.faturamento?.toFixed(2) || 0}
-Diretrizes: 
-- Use linguagem estritamente corporativa e de fácil entendimento. 
-- Aponte a tendência clara de melhora, piora ou estabilidade. 
-- Sem introduções ou fechamentos, foque 100% no insight dos números.`;
-
-      try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }]
-          })
-        });
-        const data = await response.json();
-        if (data.candidates && data.candidates[0].content.parts[0].text) {
-          setExecutiveSummary(data.candidates[0].content.parts[0].text);
-        } else {
-          setExecutiveSummary(`⚠️ Erro na API Gemini: Falha de autenticação ou resposta inválida. Verifique se a chave GEMINI_API_KEY no código (linha 48) é uma chave válida (e não um token temporário).`);
-        }
-      } catch (err) {
-        console.error('Error fetching summary:', err);
-        setExecutiveSummary(`⚠️ Erro ao conectar com o CFO Virtual (Gemini). Verifique sua conexão e a validade da GEMINI_API_KEY. Detalhes: ${err.message}`);
-      } finally {
-        setIsSummaryLoading(false);
-      }
-    };
-
-    fetchExecutiveSummary();
+    // IA Removida a pedido do usuário
   }, [targetQuinzenaRunRate, activeMenu, isUserAdmin, margemBrutaMetrics, prevMargemBrutaMetrics, prevQuinzenaName, prevPrevMargemBrutaMetrics, prevPrevQuinzenaName]);
 
   // TELA DE LOGIN
@@ -4289,14 +4226,23 @@ Diretrizes:
                     className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 mb-3"
                     required
                   />
-                  <input
-                    type="password"
-                    value={senhaDigitada}
-                    onChange={(e) => setSenhaDigitada(e.target.value)}
-                    placeholder="Senha"
-                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800"
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={senhaDigitada}
+                      onChange={(e) => setSenhaDigitada(e.target.value)}
+                      placeholder="Senha"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 pr-12"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 focus:outline-none"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
                   {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">{erroLoginMsg || 'E-mail ou senha incorretos. Tente novamente.'}</p>}
                   {loginSuccessMsg && <p className="text-emerald-500 text-xs font-bold mt-2 ml-1">{loginSuccessMsg}</p>}
                 </div>
@@ -4350,15 +4296,24 @@ Diretrizes:
                     className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 mb-3"
                     required
                   />
-                  <input
-                    type="password"
-                    value={senhaDigitada}
-                    onChange={(e) => setSenhaDigitada(e.target.value)}
-                    placeholder="Criar Senha"
-                    minLength="6"
-                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800"
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={senhaDigitada}
+                      onChange={(e) => setSenhaDigitada(e.target.value)}
+                      placeholder="Criar Senha"
+                      minLength="6"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 pr-12"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 focus:outline-none"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
                   {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">{erroLoginMsg}</p>}
                 </div>
                 <button type="submit" disabled={isAuthLoading} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98] disabled:opacity-50">
@@ -4400,6 +4355,50 @@ Diretrizes:
                 <div className="flex justify-center items-center mt-2">
                   <button type="button" onClick={() => { setLoginView('login'); setErroLogin(false); setLoginSuccessMsg(''); }} className="text-slate-500 text-sm font-bold hover:text-blue-600 transition-colors">
                     Voltar para o Login
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+
+          {loginView === 'update_password' && (
+            <>
+              <div className="flex flex-col items-center gap-4 mb-8">
+                <div className="bg-orange-500 p-4 rounded-2xl shadow-lg">
+                  <Lock className="w-8 h-8 text-white" />
+                </div>
+                <h1 className="text-2xl font-black text-slate-800 tracking-tight">Atualizar Senha</h1>
+                <p className="text-slate-500 text-center text-sm font-medium">Digite sua nova senha abaixo.</p>
+              </div>
+              <form onSubmit={handleUpdatePassword} className="flex flex-col gap-4">
+                <div>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={senhaDigitada}
+                      onChange={(e) => setSenhaDigitada(e.target.value)}
+                      placeholder="Nova Senha"
+                      minLength="6"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 pr-12"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 focus:outline-none"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+                  {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">{erroLoginMsg}</p>}
+                  {loginSuccessMsg && <p className="text-emerald-500 text-xs font-bold mt-2 ml-1">{loginSuccessMsg}</p>}
+                </div>
+                <button type="submit" disabled={isAuthLoading} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98] disabled:opacity-50">
+                  {isAuthLoading ? 'Atualizando...' : 'Atualizar Senha'}
+                </button>
+                <div className="flex justify-center items-center mt-2">
+                  <button type="button" onClick={() => { isRecoveryRef.current = false; setLoginView('login'); setErroLogin(false); setLoginSuccessMsg(''); supabase.auth.signOut(); }} className="text-slate-500 text-sm font-bold hover:text-blue-600 transition-colors">
+                    Cancelar e Voltar
                   </button>
                 </div>
               </form>
@@ -4751,42 +4750,6 @@ Diretrizes:
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 transition-colors shadow-sm" title={isDarkMode ? 'Modo Claro' : 'Modo Escuro'}>
               {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
-
-            {/* TOGGLE FONTE DE DADOS */}
-            <div className="flex items-center bg-slate-100 rounded-xl p-1 shadow-sm border border-slate-200">
-              <button
-                onClick={() => { setDataSource('planilhas'); fetchFromGoogleSheets(); }}
-                disabled={isLoading}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${dataSource === 'planilhas'
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-white'
-                  } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoading && dataSource === 'planilhas' ? 'animate-spin' : ''}`} />
-                Planilhas
-              </button>
-              <button
-                onClick={() => { setDataSource('supabase'); fetchFromFirebase(true); }}
-                disabled={isLoading}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${dataSource === 'supabase'
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-white'
-                  } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
-              >
-                <Database className={`w-3.5 h-3.5 ${isLoading && dataSource === 'supabase' ? 'animate-spin' : ''}`} />
-                Supabase
-              </button>
-            </div>
-
-            {/* BADGE INDICADOR DA FONTE ATIVA */}
-            <div className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-sm ${dataSource === 'planilhas'
-                ? 'bg-blue-50 text-blue-600 border-blue-200'
-                : 'bg-emerald-50 text-emerald-600 border-emerald-200'
-              }`}>
-              <span className={`w-2 h-2 rounded-full animate-pulse ${dataSource === 'planilhas' ? 'bg-blue-500' : 'bg-emerald-500'
-                }`}></span>
-              {dataSource === 'planilhas' ? 'Visão Planilhas' : 'Visão Supabase'}
-            </div>
           </div>
         </header>
 
@@ -4811,6 +4774,7 @@ Diretrizes:
                   rawOperacionalData={rawOperacionalData}
                   mapeamentoFiliais={mapeamentoFiliais}
                   isImporter={isImporter}
+                  isAdmin={isUserAdmin}
                   onImportOperacional={async (novoOperacional) => {
                     if (!novoOperacional || novoOperacional.length === 0) return;
                     const operacionalMap = new Map();
@@ -4822,7 +4786,7 @@ Diretrizes:
                     
                     await supabase.rpc('rpc_refresh_materialized_views');
                     await clearCache();
-                    fetchFromFirebase(true);
+                    await fetchFromSupabase(true);
                   }}
                   onImportBilling={async (diarias, penalidades) => {
                     const importedQuinzena = diarias.length > 0 ? diarias[0].quinzena : (penalidades.length > 0 ? penalidades[0].quinzena : null);
@@ -4850,15 +4814,17 @@ Diretrizes:
                     }
                     await supabase.rpc('rpc_refresh_materialized_views');
                     await clearCache(); // Limpa o cache para carregar os novos dados na próxima
-                    fetchFromFirebase(true);
+                    await fetchFromSupabase(true);
                   }}
                   onImportCapCar={async (dadosCapCar) => {
+                    await supabase.rpc('rpc_refresh_materialized_views');
                     await clearCache();
-                    fetchFromFirebase(true);
+                    await fetchFromSupabase(true);
                   }}
                   onImportOperacionalBSC={async (dadosBSC) => {
+                    await supabase.rpc('rpc_refresh_materialized_views');
                     await clearCache();
-                    fetchFromFirebase(true);
+                    await fetchFromSupabase(true);
                   }}
                 />
               </div>
@@ -4872,9 +4838,20 @@ Diretrizes:
                   rawData={rawData}
                   rawFaturamentoData={rawFaturamentoData}
                   rawOperacionalData={rawOperacionalData}
-                  onSave={(newMap) => {
-                    syncToFirebase('mapeamento_filiais', newMap).catch(console.error);
-                    setMapeamentoFiliais(newMap);
+                  onSave={async (newMap) => {
+                    try {
+                      const cleanMap = newMap.map(({ id, created_at, ...rest }) => rest);
+                      const { error: delErr } = await supabase.from('mapeamento_filiais').delete().neq('filial', 'dummy_impossivel_123');
+                      if (delErr) throw delErr;
+                      const { error: insErr } = await supabase.from('mapeamento_filiais').insert(cleanMap);
+                      if (insErr) throw insErr;
+                      await supabase.rpc('rpc_refresh_materialized_views');
+                      await clearCache();
+                      await fetchFromSupabase(true);
+                    } catch (err) {
+                      console.error(err);
+                      alert("Erro ao salvar configurações de filiais: " + (err.message || JSON.stringify(err)));
+                    }
                   }}
                 />
               </div>
@@ -4885,9 +4862,20 @@ Diretrizes:
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
                 <ConfigTarifas
                   tarifasAtuais={tarifasMap}
-                  onSave={(newMap) => {
-                    syncToFirebase('tarifas_testes', newMap).catch(console.error);
-                    setTarifasMap(newMap);
+                  onSave={async (newMap) => {
+                    try {
+                      const cleanMap = newMap.map(({ id, created_at, ...rest }) => rest);
+                      const { error: delErr } = await supabase.from('tarifas').delete().neq('tipo', 'dummy_impossivel_123');
+                      if (delErr) throw delErr;
+                      const { error: insErr } = await supabase.from('tarifas').insert(cleanMap);
+                      if (insErr) throw insErr;
+                      await supabase.rpc('rpc_refresh_materialized_views');
+                      await clearCache();
+                      await fetchFromSupabase(true);
+                    } catch (err) {
+                      console.error(err);
+                      alert("Erro ao salvar tarifas: " + (err.message || JSON.stringify(err)));
+                    }
                   }}
                 />
               </div>
@@ -4960,27 +4948,7 @@ Diretrizes:
             {activeMenu === 'gestao_financeira' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
 
-                {/* AI SUMMARY TEMPORARILY DISABLED 
-                {isUserAdmin && (executiveSummary || isSummaryLoading) && (
-                  <div className="mb-8 bg-gradient-to-r from-blue-900 to-indigo-900 p-6 md:p-8 rounded-3xl shadow-xl text-white relative overflow-hidden">
-                    <div className="flex items-center gap-3 mb-3 relative z-10">
-                      <Sparkles className="w-5 h-5 text-blue-300" />
-                      <h3 className="text-lg font-bold text-blue-100">Resumo Executivo ({targetQuinzenaRunRate})</h3>
-                    </div>
-                    {isSummaryLoading ? (
-                      <div className="animate-pulse flex space-x-4 relative z-10">
-                        <div className="flex-1 space-y-4 py-2">
-                          <div className="h-2 bg-blue-400/30 rounded w-3/4"></div>
-                          <div className="h-2 bg-blue-400/30 rounded w-full"></div>
-                          <div className="h-2 bg-blue-400/30 rounded w-5/6"></div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="relative z-10 text-sm md:text-base text-blue-50 leading-relaxed space-y-2 whitespace-pre-wrap">{executiveSummary}</div>
-                    )}
-                  </div>
-                )}
-                */}
+
 
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
                   <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
@@ -5434,72 +5402,7 @@ Diretrizes:
           </div>
         </div>
 
-        {/* CHATBOT FLOATING UI */}
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
-          {isChatOpen && (
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-80 sm:w-96 h-[500px] max-h-[80vh] flex flex-col mb-4 overflow-hidden animate-in slide-in-from-bottom-5">
-              <div className="bg-slate-950 border-b border-slate-800 p-4 flex justify-between items-center shrink-0">
-                <div className="flex items-center gap-3">
-                  <div className="bg-blue-600 p-2 rounded-lg">
-                    <Bot className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-white font-bold text-sm">Agente Virtual</h3>
-                    <p className="text-blue-400 text-[10px] uppercase font-black tracking-wider">Online</p>
-                  </div>
-                </div>
-                <button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
 
-              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-slate-900/50">
-                {chatMessages.filter(m => m.role !== 'system').map((msg, idx) => (
-                  <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[85%] rounded-2xl p-3 text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-slate-800 text-slate-200 border border-slate-700 rounded-bl-sm'}`}>
-                      {msg.role === 'ai' && <Bot className="w-4 h-4 mb-2 text-blue-400" />}
-                      <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>
-                    </div>
-                  </div>
-                ))}
-                {isChatLoading && (
-                  <div className="flex justify-start">
-                    <div className="bg-slate-800 border border-slate-700 text-slate-400 rounded-2xl rounded-bl-sm p-3 text-sm flex gap-2 items-center">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                    </div>
-                  </div>
-                )}
-                <div ref={chatBottomRef} />
-              </div>
-
-              <form onSubmit={handleSendChatMessage} className="bg-slate-950 border-t border-slate-800 p-3 shrink-0 flex gap-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  placeholder="Pergunte ao Agente..."
-                  className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
-                />
-                <button type="submit" disabled={!chatInput.trim() || isChatLoading} className="bg-blue-600 text-white p-2 rounded-xl hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:hover:bg-blue-600 flex items-center justify-center shrink-0">
-                  <Send className="w-5 h-5" />
-                </button>
-              </form>
-            </div>
-          )}
-
-          {/* BOTÃO DO AGENTE TEMPORARIAMENTE DESATIVADO
-          <button onClick={() => setIsChatOpen(!isChatOpen)} className={`p-4 rounded-full shadow-2xl transition-all transform hover:scale-105 flex items-center gap-3 ${isChatOpen ? 'bg-slate-800 text-slate-400 border border-slate-700' : 'bg-blue-600 text-white hover:bg-blue-500'}`}>
-            {isChatOpen ? <X className="w-6 h-6" /> : (
-              <>
-                <Brain className="w-6 h-6" />
-                <span className="font-bold text-sm hidden sm:inline mr-1">Agente Virtual</span>
-              </>
-            )}
-          </button>
-          */}
-        </div>
 
       </main>
 

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Plus, Trash2, MapPin } from 'lucide-react';
+import { Settings, Save, Plus, Trash2, MapPin, Check, Edit2 } from 'lucide-react';
 
 export default function ConfigFiliais({ mapeamentoFiliais, rawData = [], rawFaturamentoData = [], rawOperacionalData = [], onSave }) {
   const [localMap, setLocalMap] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const [autoAddedCount, setAutoAddedCount] = useState(0);
+  
+  const [formData, setFormData] = useState({ index: null, filial: '', regional: '', supervisor: '' });
 
   useEffect(() => {
     let currentMap = [];
@@ -73,20 +75,46 @@ export default function ConfigFiliais({ mapeamentoFiliais, rawData = [], rawFatu
     setLocalMap(currentMap);
   }, [mapeamentoFiliais, rawData, rawFaturamentoData, rawOperacionalData]);
 
-  const handleUpdate = (index, field, value) => {
-    const newMap = [...localMap];
-    newMap[index][field] = value;
-    setLocalMap(newMap);
+  const handleSelectChange = (e) => {
+    const val = e.target.value;
+    if (val === 'NEW') {
+      setFormData({ index: null, filial: '', regional: '', supervisor: '' });
+    } else {
+      const idx = parseInt(val, 10);
+      setFormData({ index: idx, ...localMap[idx] });
+    }
   };
 
-  const handleAdd = () => {
-    setLocalMap([{ filial: '', regional: '', supervisor: '' }, ...localMap]);
+  const handleFormChange = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleDelete = (index) => {
+  const handleApplyForm = async () => {
     const newMap = [...localMap];
-    newMap.splice(index, 1);
+    if (formData.index !== null) {
+      newMap[formData.index] = { filial: formData.filial, regional: formData.regional, supervisor: formData.supervisor };
+    } else {
+      if (formData.filial.trim() !== '') {
+        newMap.unshift({ filial: formData.filial, regional: formData.regional, supervisor: formData.supervisor });
+        setFormData({ index: null, filial: '', regional: '', supervisor: '' });
+      }
+    }
     setLocalMap(newMap);
+    setIsSaving(true);
+    await onSave(newMap.filter(d => d.filial.trim() !== ''));
+    setIsSaving(false);
+  };
+
+  const handleDeleteForm = async () => {
+    if (formData.index !== null) {
+      const newMap = [...localMap];
+      newMap.splice(formData.index, 1);
+      setLocalMap(newMap);
+      setFormData({ index: null, filial: '', regional: '', supervisor: '' });
+      setIsSaving(true);
+      await onSave(newMap.filter(d => d.filial.trim() !== ''));
+      setIsSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -123,80 +151,110 @@ export default function ConfigFiliais({ mapeamentoFiliais, rawData = [], rawFatu
         <div className="flex justify-between items-center mb-6">
           <div className="flex flex-col">
             <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
-              <MapPin className="w-5 h-5 text-indigo-500" />
-              Tabela de Mapeamento
+              <Edit2 className="w-5 h-5 text-indigo-500" />
+              Editar ou Adicionar Filial
             </h2>
             <p className="text-sm text-slate-500 mt-1">
-              Para desconsiderar, adicione <strong className="text-slate-700">0</strong> e <strong className="text-slate-700">0</strong> nos campos Regional e Supervisor
+              Selecione uma filial abaixo para editá-la ou crie uma nova.
             </p>
           </div>
-          <button onClick={handleAdd} className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors">
-            <Plus className="w-4 h-4" /> Nova Filial
-          </button>
         </div>
 
         {autoAddedCount > 0 && (
           <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex items-start gap-3">
             <div className="text-indigo-600 font-medium text-sm">
-              <span className="font-bold">Varredura Automática:</span> Detectamos <span className="font-bold">{autoAddedCount}</span> {autoAddedCount === 1 ? 'nova filial' : 'novas filiais'} nos dados importados que ainda não possuíam Regional/Supervisor mapeados. {autoAddedCount === 1 ? 'Ela foi adicionada' : 'Elas foram adicionadas'} automaticamente no topo da lista abaixo para que você preencha.
+              <span className="font-bold">Varredura Automática:</span> Detectamos <span className="font-bold">{autoAddedCount}</span> {autoAddedCount === 1 ? 'nova filial' : 'novas filiais'} nos dados importados que ainda não possuíam Regional/Supervisor mapeados. {autoAddedCount === 1 ? 'Ela foi adicionada' : 'Elas foram adicionadas'} na lista para que você preencha.
             </div>
           </div>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-sm font-bold uppercase tracking-wider">
-                <th className="p-4 rounded-tl-xl">Filial (Operação)</th>
-                <th className="p-4">Regional</th>
-                <th className="p-4">Supervisor</th>
-                <th className="p-4 rounded-tr-xl text-right">Ação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {localMap.map((item, idx) => (
-                <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                  <td className="p-3">
-                    <input 
-                      type="text" 
-                      value={item.filial} 
-                      onChange={(e) => handleUpdate(idx, 'filial', e.target.value.toUpperCase())}
-                      placeholder="Ex: SSC4"
-                      className="w-full bg-transparent border-b border-dashed border-slate-300 focus:border-indigo-500 outline-none font-bold text-slate-800 py-1"
-                    />
-                  </td>
-                  <td className="p-3">
-                    <input 
-                      type="text" 
-                      value={item.regional} 
-                      onChange={(e) => handleUpdate(idx, 'regional', e.target.value)}
-                      placeholder="Ex: 3"
-                      className="w-full bg-transparent border-b border-dashed border-slate-300 focus:border-indigo-500 outline-none font-medium text-slate-700 py-1"
-                    />
-                  </td>
-                  <td className="p-3">
-                    <input 
-                      type="text" 
-                      value={item.supervisor} 
-                      onChange={(e) => handleUpdate(idx, 'supervisor', e.target.value)}
-                      placeholder="Nome do Supervisor"
-                      className="w-full bg-transparent border-b border-dashed border-slate-300 focus:border-indigo-500 outline-none font-medium text-slate-700 py-1"
-                    />
-                  </td>
-                  <td className="p-3 text-right">
-                    <button onClick={() => handleDelete(idx)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </td>
-                </tr>
+        <div className="flex flex-col md:flex-row gap-4 items-end mb-8 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+          <div className="w-full md:w-1/4">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Selecionar</label>
+            <select 
+              className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 focus:border-indigo-500 outline-none font-bold text-slate-800"
+              value={formData.index === null ? 'NEW' : formData.index}
+              onChange={handleSelectChange}
+            >
+              <option value="NEW">+ Nova Filial...</option>
+              {localMap.map((m, idx) => (
+                <option key={idx} value={idx}>{m.filial || '(Sem Nome)'}</option>
               ))}
-              {localMap.length === 0 && (
-                <tr>
-                  <td colSpan="4" className="text-center p-8 text-slate-400">Nenhum mapeamento cadastrado.</td>
+            </select>
+          </div>
+          <div className="w-full md:w-1/4">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Filial (Operação)</label>
+            <input 
+              type="text" 
+              value={formData.filial}
+              onChange={(e) => handleFormChange('filial', e.target.value.toUpperCase())}
+              placeholder="Ex: SSC4"
+              className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 focus:border-indigo-500 outline-none font-bold text-slate-800"
+            />
+          </div>
+          <div className="w-full md:w-1/4">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Regional</label>
+            <input 
+              type="text" 
+              value={formData.regional}
+              onChange={(e) => handleFormChange('regional', e.target.value)}
+              placeholder="Ex: 3"
+              className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 focus:border-indigo-500 outline-none font-medium text-slate-700"
+            />
+          </div>
+          <div className="w-full md:w-1/4">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Supervisor</label>
+            <input 
+              type="text" 
+              value={formData.supervisor}
+              onChange={(e) => handleFormChange('supervisor', e.target.value)}
+              placeholder="Nome"
+              className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 focus:border-indigo-500 outline-none font-medium text-slate-700"
+            />
+          </div>
+          <div className="flex gap-2 w-full md:w-auto">
+            <button onClick={handleApplyForm} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors flex-1 md:flex-none">
+              {formData.index === null ? <Plus className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+              {formData.index === null ? 'Adicionar' : 'Atualizar'}
+            </button>
+            {formData.index !== null && (
+              <button onClick={handleDeleteForm} className="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2.5 rounded-xl font-bold flex items-center justify-center transition-colors">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col">
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-3">
+            <MapPin className="w-4 h-4 text-slate-400" />
+            Visão Geral das Filiais Cadastradas
+          </h2>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 max-h-[400px]">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead className="bg-slate-50 sticky top-0">
+                <tr className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="py-2 px-4 border-b border-slate-200">Filial</th>
+                  <th className="py-2 px-4 border-b border-slate-200">Regional</th>
+                  <th className="py-2 px-4 border-b border-slate-200">Supervisor</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {localMap.map((item, idx) => (
+                  <tr key={idx} className={`border-b border-slate-100 transition-colors ${formData.index === idx ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}>
+                    <td className="py-1.5 px-4 font-bold text-slate-700">{item.filial || '-'}</td>
+                    <td className="py-1.5 px-4 font-medium text-slate-600">{item.regional || '-'}</td>
+                    <td className="py-1.5 px-4 font-medium text-slate-600">{item.supervisor || '-'}</td>
+                  </tr>
+                ))}
+                {localMap.length === 0 && (
+                  <tr>
+                    <td colSpan="3" className="text-center py-4 text-slate-400 text-xs">Nenhum mapeamento cadastrado.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

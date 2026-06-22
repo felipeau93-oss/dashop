@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { db, getCollectionName } from './firebase';
-import { collection, addDoc, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { supabase } from './supabase';
 import { 
   Calculator, Database, Plus, Trash2, MapPin, 
   CalendarClock, TrendingUp, TrendingDown, 
@@ -40,11 +39,14 @@ export default function Simulador({ setAgentContext, capcarData = [] }) {
   const fetchHistory = async () => {
     try {
       setIsLoadingHistory(true);
-      const snapshot = await getDocs(collection(db, getCollectionName('simulacoes_realizado_testes')));
+      const { data: snapshot, error } = await supabase.from('simulacoes').select('*').eq('type', 'simulador');
+      if (error) throw error;
       const list = [];
-      snapshot.forEach(doc => {
-        list.push({ id: doc.id, ...doc.data() });
-      });
+      if (snapshot) {
+        snapshot.forEach(doc => {
+          list.push({ id: doc.id, ...doc.data });
+        });
+      }
       list.sort((a, b) => b.dataSalva - a.dataSalva);
       setHistoryData(list);
     } catch(err) {
@@ -72,7 +74,12 @@ export default function Simulador({ setAgentContext, capcarData = [] }) {
         visaoDiaria,
         diasOperacao
       };
-      await addDoc(collection(db, getCollectionName('simulacoes_realizado_testes')), payload);
+      await supabase.from('simulacoes').insert([{
+        date: new Date().toLocaleString('pt-BR'),
+        name: nome,
+        type: 'simulador',
+        data: payload
+      }]);
       alert("Simulação salva com sucesso!");
     } catch(err) {
       console.error(err);
@@ -96,7 +103,7 @@ export default function Simulador({ setAgentContext, capcarData = [] }) {
   const handleDeleteSimulacao = async (id) => {
     if(!window.confirm("Deseja apagar esta simulação?")) return;
     try {
-      await deleteDoc(doc(db, getCollectionName('simulacoes_realizado'), id));
+      await supabase.from('simulacoes').delete().eq('id', id);
       setHistoryData(prev => prev.filter(i => i.id !== id));
     } catch(err) {
       console.error(err);

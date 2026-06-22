@@ -1,10 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Database, Box, DollarSign, History, Calendar, LayoutList, Trash2, EyeOff, Copy, RefreshCw } from 'lucide-react';
+import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Database, Box, DollarSign, History, Calendar, LayoutList, Trash2, EyeOff, Copy, RefreshCw, CalendarDays, Truck } from 'lucide-react';
 import { supabase } from './supabase';
+import GestaoDadosTab from './GestaoDadosTab';
 
-export default function DataImporter({ onImportOperacional, onImportBilling, onImportCapCar, onImportOperacionalBSC, rawFaturamentoData = [], rawOperacionalData = [], mapeamentoFiliais = [], isImporter = false }) {
+const ANO_REFERENCIA = 2026;
+
+const getInicioDaSemana = (dataString) => {
+  if (!dataString) return '';
+  const [dia, mes] = dataString.split('/');
+  if (!dia || !mes) return '';
+  const data = new Date(ANO_REFERENCIA, parseInt(mes) - 1, parseInt(dia));
+  const diaDaSemana = data.getDay(); 
+  const domingo = new Date(data);
+  domingo.setDate(data.getDate() - diaDaSemana);
+  return `${domingo.getDate().toString().padStart(2, '0')}/${(domingo.getMonth() + 1).toString().padStart(2, '0')}`;
+};
+
+export default function DataImporter({ onImportOperacional, onImportBilling, onImportCapCar, onImportOperacionalBSC, rawFaturamentoData = [], rawOperacionalData = [], mapeamentoFiliais = [], isImporter = false, isAdmin = false }) {
   const [logs, setLogs] = useState([]);
   const [activeStep, setActiveStep] = useState(1);
 
@@ -30,6 +44,11 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
   const [quinzenaBsc, setQuinzenaBsc] = useState('');
   const [isProcessingBsc, setIsProcessingBsc] = useState(false);
   const [progressBsc, setProgressBsc] = useState('');
+
+  const [dispFile, setDispFile] = useState(null);
+  const [refNameDisp, setRefNameDisp] = useState('');
+  const [isProcessingDisp, setIsProcessingDisp] = useState(false);
+  const [progressDisp, setProgressDisp] = useState('');
 
   const [historico, setHistorico] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -528,7 +547,13 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
       Papa.parse(baseFile, {
         skipEmptyLines: true,
         worker: true,
-        complete: (results) => processData(results.data),
+        complete: (results) => {
+          processData(results.data).catch(err => {
+            addLog(`Erro interno no processamento: ${err.message}`, 'error');
+            setProgressOp(`Erro: ${err.message}`);
+            setIsProcessingOp(false);
+          });
+        },
         error: (err) => { addLog(err.message, 'error'); setIsProcessingOp(false); }
       });
     } else {
@@ -537,9 +562,14 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         try {
           const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
           const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
-          processData(jsonData);
+          processData(jsonData).catch(err => {
+            addLog(`Erro interno no processamento: ${err.message}`, 'error');
+            setProgressOp(`Erro: ${err.message}`);
+            setIsProcessingOp(false);
+          });
         } catch (err) {
-          addLog(err.message, 'error');
+          addLog(`Falha ao ler XLSX (talvez arquivo corrompido ou muito grande): ${err.message}`, 'error');
+          setProgressOp(`Erro ao ler arquivo.`);
           setIsProcessingOp(false);
         }
       };
@@ -615,6 +645,50 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
       if (idxPacote === -1) idxPacote = 2;
 
       addLog(`Colunas mapeadas - Rota: [${idxRota}], Descrição: [${idxDesc}], Pacote: [${idxPacote}], Subtotal: [${idxSubtotal}], Unitário: [${idxPrecoUnitario}], Qtd: [${idxQuantidade}]`, 'info');
+
+      // PASS 1: Collect unique rotas to fetch from Supabase
+      const uniqueRotas = new Set();
+      let currentIdRotaPass1 = '';
+      let isPenaltiesPass1 = false;
+      
+      for (let i = headerIdx + 1; i < dataArray.length; i++) {
+        const row = dataArray[i];
+        if(!row) continue;
+        const rowText = row.join('').trim().toLowerCase();
+        if (rowText === '' || rowText.includes('total') || rowText.includes('subtotal')) continue;
+        
+        let desc = String(row[idxDesc] || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        let idRota = String(row[idxRota] || '').trim();
+        
+        if (!idRota || !/\d/.test(idRota)) {
+          const rotaMatch = desc.match(/\d{5,}/);
+          if (rotaMatch) idRota = rotaMatch[0];
+          else if (currentIdRotaPass1 && !isPenaltiesPass1) idRota = currentIdRotaPass1;
+        }
+        if (idRota && /\d{5,}/.test(idRota)) currentIdRotaPass1 = idRota;
+        if (desc.toLowerCase().includes('visited addresses') && !desc.toLowerCase().includes('not visited')) {
+           isPenaltiesPass1 = true;
+        }
+        if (idRota) uniqueRotas.add(idRota);
+      }
+
+      setProgressBilling(`Buscando ${uniqueRotas.size} rotas no histórico Operacional...`);
+      const rotasArrayToFetch = Array.from(uniqueRotas);
+      for (let i = 0; i < rotasArrayToFetch.length; i += 500) {
+        const chunk = rotasArrayToFetch.slice(i, i + 500);
+        try {
+          const { data } = await supabase.from('operacional').select('id_rota, filial, regional, supervisor, motorista').in('id_rota', chunk);
+          if (data) {
+            data.forEach(d => {
+              if (d.filial && d.filial !== 'N/A') {
+                mapRotaFilial[d.id_rota] = { filial: d.filial, regional: d.regional, supervisor: d.supervisor, motorista: d.motorista || 'N/A' };
+              }
+            });
+          }
+        } catch (e) {
+          console.error("Erro ao buscar rotas do supabase na importação", e);
+        }
+      }
 
       const mapDiarias = {};
       const arrayPenalidades = [];
@@ -744,8 +818,13 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
         addLog('Salvo no Supabase com sucesso!', 'success');
         setBillingFile(null);
+        setQuinzenaBilling('');
+        setNumeroFaturaBilling('');
         setProgressBilling('Concluído!');
-        setTimeout(() => setIsProcessingBilling(false), 2000);
+        setTimeout(() => {
+           setIsProcessingBilling(false);
+           setProgressBilling('');
+        }, 2000);
       } catch (err) {
         addLog(`Erro ao salvar dados: ${err.message}`, 'error');
         setProgressBilling(`Erro: ${err.message}`);
@@ -754,12 +833,28 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     };
 
     if (billingFile.name.toLowerCase().endsWith('.csv')) {
-      Papa.parse(billingFile, { skipEmptyLines: true, worker: true, complete: (res) => processData(res.data) });
+      Papa.parse(billingFile, { skipEmptyLines: true, worker: true, complete: (res) => {
+         processData(res.data).catch(err => {
+            addLog(`Erro interno no processamento: ${err.message}`, 'error');
+            setProgressBilling(`Erro: ${err.message}`);
+            setIsProcessingBilling(false);
+         });
+      } });
     } else {
       const r = new FileReader();
       r.onload = (e) => {
-        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-        processData(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 }));
+        try {
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          processData(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 })).catch(err => {
+            addLog(`Erro interno no processamento: ${err.message}`, 'error');
+            setProgressBilling(`Erro: ${err.message}`);
+            setIsProcessingBilling(false);
+          });
+        } catch (err) {
+          addLog(`Falha ao ler XLSX: ${err.message}`, 'error');
+          setProgressBilling(`Erro ao ler arquivo.`);
+          setIsProcessingBilling(false);
+        }
       };
       r.readAsArrayBuffer(billingFile);
     }
@@ -816,7 +911,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
       for (let i = headerRowIdx + 1; i < dataArray.length; i++) {
         const row = dataArray[i];
-        if (!row || row.length < 47) continue;
+        if (!row || row.length < 10) continue;
 
         const quinzena = row[4] ? String(row[4]).trim() : '';
         const filial = row[7] ? String(row[7]).trim() : '';
@@ -1012,7 +1107,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         
         const filialRaw = idxFilial !== -1 ? String(r[idxFilial] || '') : 'N/A';
         if (!filialRaw || filialRaw.trim().toUpperCase() === '#N/A' || filialRaw.trim() === '') continue;
-        const filial = filialRaw.trim();
+        let filial = filialRaw.trim();
 
         let quinzena = 'GERAL';
         let dataPadrao = 'N/A';
@@ -1028,17 +1123,27 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
            quinzena = String(r[idxQuinzena]).trim();
         }
         
+        const id_rota = idxIdRota !== -1 && r[idxIdRota] && String(r[idxIdRota]).trim() !== '' ? String(r[idxIdRota]).trim() : '-';
+
         const fKey = filial.toUpperCase();
-        const config = configMap[fKey] || {};
+        let config = configMap[fKey];
         
-        const regional = config.regional || (idxRegional !== -1 && r[idxRegional] ? String(r[idxRegional]).trim() : 'N/A');
-        const supervisor = config.supervisor || (idxSupervisor !== -1 && r[idxSupervisor] ? String(r[idxSupervisor]).trim() : 'N/A');
+        let regional = config ? config.regional : (idxRegional !== -1 && r[idxRegional] ? String(r[idxRegional]).trim() : 'N/A');
+        let supervisor = config ? config.supervisor : (idxSupervisor !== -1 && r[idxSupervisor] ? String(r[idxSupervisor]).trim() : 'N/A');
+
+        if (!config && id_rota !== '-') {
+          const opMatch = rawOperacionalData.find(op => op.id_rota === id_rota);
+          if (opMatch && opMatch.filial && opMatch.filial !== 'N/A') {
+            filial = opMatch.filial;
+            regional = opMatch.regional;
+            supervisor = opMatch.supervisor;
+          }
+        }
         
         const clusterRaw = idxCluster !== -1 && r[idxCluster] ? String(r[idxCluster]).trim() : '';
         const cluster = clusterRaw && clusterRaw !== '-' && clusterRaw.toUpperCase() !== 'N/A' ? clusterRaw : 'Ambulâncias';
         
         const motorista = idxMotorista !== -1 && r[idxMotorista] && String(r[idxMotorista]).trim() !== '' ? String(r[idxMotorista]).trim() : 'N/A';
-        const id_rota = idxIdRota !== -1 && r[idxIdRota] && String(r[idxIdRota]).trim() !== '' ? String(r[idxIdRota]).trim() : '-';
 
         const parseNum = (val) => {
           if (!val) return 0;
@@ -1105,6 +1210,187 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     }
   };
 
+  // ============================================================================
+  // ETAPA 7: DISPONIBILIDADE
+  // ============================================================================
+  const handleProcessDispFile = () => {
+    if (!dispFile) return;
+    if (!refNameDisp.trim()) {
+      alert("A Referência/Período é obrigatória para Disponibilidade.");
+      return;
+    }
+    
+    setIsProcessingDisp(true);
+    setProgressDisp('Lendo arquivo...');
+    addLog(`Iniciando processamento da planilha de disponibilidade: ${dispFile.name}`, 'info');
+
+    const processData = async (dataArray) => {
+      try {
+        let headerRowIdx = -1;
+        for (let i = 0; i < Math.min(15, dataArray.length); i++) {
+          if (dataArray[i] && dataArray[i].some(c => String(c).toUpperCase() === 'PLACA' || String(c).toUpperCase() === 'MODAL')) {
+            headerRowIdx = i; break;
+          }
+        }
+
+        if (headerRowIdx === -1) {
+          addLog("Cabeçalho não encontrado na planilha de disponibilidade.", 'error');
+          setIsProcessingDisp(false);
+          return;
+        }
+
+        const rawHeaders = dataArray[headerRowIdx].map(h => {
+          let text = String(h || '').trim();
+          if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(text)) return text.substring(0, 5);
+          return text;
+        });
+        
+        const dates = rawHeaders.filter(h => /^\d{1,2}\/\d{1,2}$/.test(h));
+
+        const wMap = new Map();
+        dates.forEach(d => {
+          const weekStart = getInicioDaSemana(d);
+          if (weekStart) {
+             if (!wMap.has(weekStart)) wMap.set(weekStart, []);
+             wMap.get(weekStart).push(d);
+          }
+        });
+        const weeksArray = Array.from(wMap.entries()).map(([inicio, dias]) => ({ inicio, dias }));
+
+        const idxPlaca = rawHeaders.findIndex(h => h.toUpperCase() === 'PLACA');
+        const idxModal = rawHeaders.findIndex(h => h.toUpperCase() === 'MODAL');
+        const idxXPT = rawHeaders.findIndex(h => h.toUpperCase() === 'XPT' || h.toUpperCase() === 'FILIAL');
+
+        const parsed = [];
+
+        for (let i = headerRowIdx + 1; i < dataArray.length; i++) {
+          const row = dataArray[i];
+          if (!row || row.length === 0) continue;
+          const placa = row[idxPlaca] ? String(row[idxPlaca]).trim() : '';
+          if (!placa) continue;
+
+          const modal = idxModal !== -1 && row[idxModal] ? String(row[idxModal]).trim() : 'N/A';
+          const filial = idxXPT !== -1 && row[idxXPT] ? String(row[idxXPT]).trim() : 'N/A';
+
+          let ociosoConsecutivo = 0;
+          const timeline = dates.map(date => {
+            const colIdx = rawHeaders.indexOf(date);
+            const valor = String(row[colIdx] || '').trim();
+            const rodou = valor !== '' && valor.toUpperCase() !== '-NÃO INFORMADO-' && valor.toUpperCase() !== '-NAO INFORMADO-' && valor !== '0';
+            
+            if (!rodou) ociosoConsecutivo++; else ociosoConsecutivo = 0;
+
+            return { data: date, rodou, ociosoConsecutivo, valorOriginal: valor };
+          });
+
+          parsed.push({ placa, modal, filial, timeline });
+        }
+
+        const mergedMap = new Map();
+        parsed.forEach(p => {
+          if (mergedMap.has(p.placa)) {
+             const existing = mergedMap.get(p.placa);
+             if (p.filial && p.filial !== 'N/A') existing.filial = p.filial;
+             if (p.modal && p.modal !== 'N/A') existing.modal = p.modal;
+             p.timeline.forEach(t => existing.timelineMap.set(t.data, { data: t.data, rodou: t.rodou, valorOriginal: t.valorOriginal }));
+          } else {
+             mergedMap.set(p.placa, { ...p, timelineMap: new Map(p.timeline.map(t => [t.data, { data: t.data, rodou: t.rodou, valorOriginal: t.valorOriginal }])) });
+          }
+        });
+
+        const allDatesSet = new Set();
+        mergedMap.forEach(v => v.timelineMap.forEach((_, dateStr) => allDatesSet.add(dateStr)));
+        const allDatesArray = Array.from(allDatesSet).sort((a, b) => {
+           const [d1, m1] = a.split('/'); const [d2, m2] = b.split('/');
+           const currentYear = ANO_REFERENCIA;
+           return new Date(currentYear, parseInt(m1)-1, parseInt(d1)) - new Date(currentYear, parseInt(m2)-1, parseInt(d2));
+        });
+
+        const wMapGlobal = new Map();
+        allDatesArray.forEach(d => {
+          const weekStart = getInicioDaSemana(d);
+          if (weekStart) {
+             if (!wMapGlobal.has(weekStart)) wMapGlobal.set(weekStart, []);
+             wMapGlobal.get(weekStart).push(d);
+          }
+        });
+        const globalWeeksArray = Array.from(wMapGlobal.entries()).map(([inicio, dias]) => ({ inicio, dias }));
+
+        const finalDataToSave = [];
+
+        mergedMap.forEach(v => {
+           let ocioso = 0;
+           const newTimeline = allDatesArray.map(date => {
+              const t = v.timelineMap.get(date);
+              if (t) {
+                 if (!t.rodou) ocioso++; else ocioso = 0;
+                 return { ...t, ociosoConsecutivo: ocioso };
+              } else {
+                 ocioso++;
+                 return { data: date, rodou: false, ociosoConsecutivo: ocioso, valorOriginal: '' };
+              }
+           });
+
+           const newMetas = globalWeeksArray.map(w => {
+             let diasRodados = 0;
+             w.dias.forEach(d => {
+               const info = newTimeline.find(t => t.data === d);
+               if (info && info.rodou) diasRodados++;
+             });
+             return { semanaInicio: w.inicio, diasRodados, totalDiasAmostra: w.dias.length, bateuMeta: diasRodados >= 6 };
+           });
+
+           finalDataToSave.push({
+             placa: v.placa,
+             modal: v.modal,
+             filial: v.filial,
+             timeline: newTimeline,
+             metas_semana: newMetas,
+             dias_parado_atual: ocioso,
+             bateu_todas_metas: newMetas.every(m => m.bateuMeta),
+             referencia: refNameDisp.trim()
+           });
+        });
+
+        setProgressDisp('Salvando no banco de dados...');
+        
+        await supabase.from('disponibilidade_frota').delete().eq('referencia', refNameDisp.trim());
+        
+        for (let i = 0; i < finalDataToSave.length; i += CHUNK_SIZE) {
+          const chunk = finalDataToSave.slice(i, i + CHUNK_SIZE);
+          await supabase.from('disponibilidade_frota').insert(chunk);
+          setProgressDisp(`Processando linhas ${Math.min(i + CHUNK_SIZE, finalDataToSave.length)} de ${finalDataToSave.length}...`);
+        }
+
+        addLog('Registrando no histórico de importações...', 'info');
+        await registrarImportacao('Disponibilidade de Frota', refNameDisp.trim(), finalDataToSave.length);
+        addLog('Processamento da disponibilidade de frota concluído com sucesso!', 'success');
+        
+        setDispFile(null);
+      } catch (err) {
+        console.error("Erro ao salvar no Supabase", err);
+        addLog(`Erro crítico ao processar: ${err.message}`, 'error');
+      } finally {
+        setIsProcessingDisp(false);
+        setProgressDisp('');
+      }
+    };
+
+    if (dispFile.name.toLowerCase().endsWith('.csv')) {
+      Papa.parse(dispFile, { skipEmptyLines: true, worker: true, complete: (res) => processData(res.data), error: (err) => { addLog(err.message, 'error'); setIsProcessingDisp(false); } });
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, raw: false, dateNF: 'dd/mm' });
+          processData(jsonData);
+        } catch (err) { addLog(err.message, 'error'); setIsProcessingDisp(false); }
+      };
+      reader.readAsArrayBuffer(dispFile);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 lg:p-8 bg-slate-900 min-h-full">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -1125,18 +1411,29 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
             </>
           )}
           <button onClick={() => setActiveStep(4)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 4 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>4. BSC</button>
-          <button
-            onClick={() => setActiveStep(5)}
-            className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors ${activeStep === 5 ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
-          >
-            Histórico
-          </button>
-          <button
-            onClick={() => setActiveStep(6)}
-            className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeStep === 6 ? 'border-red-500 text-red-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
-          >
-            <AlertTriangle className="w-4 h-4" /> Rotas Pendentes
-          </button>
+          <button onClick={() => setActiveStep(7)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 7 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>7. Disponibilidade</button>
+          {isAdmin && (
+            <>
+              <button
+                onClick={() => setActiveStep(5)}
+                className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors ${activeStep === 5 ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
+              >
+                Histórico
+              </button>
+              <button
+                onClick={() => setActiveStep(6)}
+                className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeStep === 6 ? 'border-red-500 text-red-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
+              >
+                <AlertTriangle className="w-4 h-4" /> Rotas Pendentes
+              </button>
+              <button
+                onClick={() => setActiveStep(8)}
+                className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeStep === 8 ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
+              >
+                <Database className="w-4 h-4" /> Gestão de Dados
+              </button>
+            </>
+          )}
         </div>
 
         <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700">
@@ -1393,6 +1690,62 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
               )}
             </div>
           )}
+          {activeStep === 7 && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-black text-white flex items-center gap-3"><Truck className="w-6 h-6 text-emerald-500" /> Disponibilidade de Frota</h2>
+              </div>
+              
+              <div className="bg-slate-900/50 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+                <div className="w-full md:w-1/2">
+                  <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Referência / Período</label>
+                  <input type="text" placeholder="Ex: Semana 10 a 16" value={refNameDisp} onChange={e => setRefNameDisp(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" />
+                  <p className="text-[10px] text-slate-500 mt-2 font-medium">Este nome identificará o período da importação no Painel de Disponibilidade.</p>
+                </div>
+              </div>
+
+              {!dispFile ? (
+                <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-slate-700 border-dashed rounded-3xl cursor-pointer bg-slate-900/30 hover:bg-slate-800/50 hover:border-emerald-500 transition-all group">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <div className="bg-emerald-500/10 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform">
+                      <UploadCloud className="w-8 h-8 text-emerald-400" />
+                    </div>
+                    <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
+                    <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
+                  </div>
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setDispFile(e.target.files[0])} className="hidden" />
+                </label>
+              ) : (
+                <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-emerald-500/20 p-3 rounded-xl">
+                        <FileSpreadsheet className="w-6 h-6 text-emerald-400" />
+                      </div>
+                      <div>
+                        <p className="text-white font-bold">{dispFile.name}</p>
+                        <p className="text-slate-400 text-xs mt-1">Pronto para processar</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setDispFile(null)} className="p-2 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors">
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                  
+                  <button onClick={handleProcessDispFile} disabled={isProcessingDisp} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20">
+                    {isProcessingDisp ? <><Loader2 className="w-5 h-5 animate-spin" /> Processando...</> : 'Iniciar Processamento'}
+                  </button>
+                  
+                  {progressDisp && (
+                    <div className="p-4 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 flex items-center gap-3">
+                      {isProcessingDisp && <Loader2 className="w-4 h-4 animate-spin" />}
+                      <span className="text-sm font-medium">{progressDisp}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {activeStep === 5 && (
             <div className="space-y-4 animate-in fade-in duration-300">
               <div className="flex items-center justify-between">
@@ -1586,6 +1939,10 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                 )}
               </div>
             </div>
+          )}
+
+          {activeStep === 8 && (
+            <GestaoDadosTab mapeamentoFiliais={mapeamentoFiliais} rawOperacionalData={rawOperacionalData} />
           )}
         </div>
       </div>

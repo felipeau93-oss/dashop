@@ -28,36 +28,47 @@ DROP POLICY IF EXISTS "Admins can update roles" ON public.user_roles;
 DROP POLICY IF EXISTS "Admins can delete roles" ON public.user_roles;
 DROP POLICY IF EXISTS "Users can request access" ON public.user_roles;
 
--- 4. Recria as Políticas
+-- 4. Função Segura (Bypassa RLS temporariamente) para verificar se o usuário atual é admin
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.user_roles 
+    WHERE lower(email) = lower(auth.email()) AND role = 'admin'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 5. Recria as Políticas
 -- Policy: Usuários podem ler sua própria role
 CREATE POLICY "Users can view their own role" 
 ON public.user_roles FOR SELECT 
-USING (auth.email() = email);
+USING (lower(auth.email()) = lower(email));
 
 -- Policy: Admins podem ler todas as roles
 CREATE POLICY "Admins can view all roles" 
 ON public.user_roles FOR SELECT 
-USING (EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.email = auth.email() AND ur.role = 'admin'));
+USING (public.is_admin());
 
 -- Policy: Admins podem inserir roles diretamente
 CREATE POLICY "Admins can insert roles" 
 ON public.user_roles FOR INSERT 
-WITH CHECK (EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.email = auth.email() AND ur.role = 'admin'));
+WITH CHECK (public.is_admin());
 
 -- Policy: Admins podem atualizar roles
 CREATE POLICY "Admins can update roles" 
 ON public.user_roles FOR UPDATE 
-USING (EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.email = auth.email() AND ur.role = 'admin'));
+USING (public.is_admin());
 
 -- Policy: Admins podem deletar roles
 CREATE POLICY "Admins can delete roles" 
 ON public.user_roles FOR DELETE 
-USING (EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.email = auth.email() AND ur.role = 'admin'));
+USING (public.is_admin());
 
--- Policy: Novos usuários logados podem solicitar acesso enviando uma linha 'pending' com o seu próprio email
+-- Policy: Qualquer pessoa (mesmo sem estar logada, já que o email ainda precisa de confirmação) pode enviar um request 'pending'
 CREATE POLICY "Users can request access"
 ON public.user_roles FOR INSERT 
-WITH CHECK (auth.email() = email AND role = 'pending');
+WITH CHECK (role = 'pending');
 
 -- 5. INSERIR UM ADMIN INICIAL (Para garantir que você tenha acesso)
 -- Substitua pelo seu email da Resend ou o seu email real do projeto!

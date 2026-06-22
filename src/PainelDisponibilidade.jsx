@@ -105,7 +105,7 @@ const DrilldownBarChart = ({ data, onBarClick, targetValue = 6, yMax = 7, height
   );
 };
 
-export default function PainelDisponibilidade({ rawOperacionalData = [], configFiliais = [] }) {
+export default function PainelDisponibilidade({ rawOperacionalData = [], mapeamentoFiliais = [] }) {
   const [fleetData, setFleetData] = useState([]);
   const [weeksData, setWeeksData] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -224,11 +224,11 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], configF
 
   const filialConfigMap = useMemo(() => {
     const map = new Map();
-    configFiliais.forEach(f => {
+    mapeamentoFiliais.forEach(f => {
       if (f.filial) map.set(f.filial.toUpperCase(), { regional: f.regional || 'N/A', supervisor: f.supervisor || 'N/A' });
     });
     return map;
-  }, [configFiliais]);
+  }, [mapeamentoFiliais]);
 
   useEffect(() => {
     if (autoClassifiedFleetData.length === 0) return;
