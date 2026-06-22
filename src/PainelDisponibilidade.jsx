@@ -201,7 +201,19 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
             if (!wMap.has(weekStart)) wMap.set(weekStart, []);
             wMap.get(weekStart).push(d);
           });
-          setWeeksData(Array.from(wMap.entries()).map(([inicio, dias]) => ({ inicio, dias })));
+          
+          let weeksArray = Array.from(wMap.entries()).map(([inicio, dias]) => ({ inicio, dias }));
+          
+          // Se for "Últimos 3 Períodos", garantimos que mostre no máximo as 3 semanas mais recentes
+          if (selectedRef === 'LATEST_3' && weeksArray.length > 3) {
+             weeksArray = weeksArray.slice(-3);
+          }
+          setWeeksData(weeksArray);
+          
+          const allowedDates = new Set();
+          weeksArray.forEach(w => w.dias.forEach(d => allowedDates.add(d)));
+          const filteredDatesArray = allDatesArray.filter(d => allowedDates.has(d));
+          const allowedWeeks = new Set(weeksArray.map(w => w.inicio));
 
           const mergedByPlaca = new Map();
           allData.forEach(d => {
@@ -223,7 +235,7 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
 
           const finalMergedData = Array.from(mergedByPlaca.values()).map(existing => {
             let ocioso = 0;
-            const fullTimeline = allDatesArray.map(date => {
+            const fullTimeline = filteredDatesArray.map(date => {
               const t = existing.timelineMap.get(date);
               if (t) {
                  if (t.rodou) ocioso = 0; else ocioso++;
@@ -234,7 +246,16 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
               }
             });
 
-            const metasSemana = Array.from(existing.metasMap.values());
+            let metasSemana = Array.from(existing.metasMap.values());
+            if (selectedRef === 'LATEST_3') {
+               metasSemana = metasSemana.filter(m => allowedWeeks.has(m.semanaInicio));
+            }
+            metasSemana.sort((a, b) => {
+               const w1 = parseInt(a.semanaInicio.replace('W','')) || 0;
+               const w2 = parseInt(b.semanaInicio.replace('W','')) || 0;
+               return w1 - w2;
+            });
+
             const metasAtivas = metasSemana.filter(m => m.diasRodados > 0);
             const bateuTodas = metasAtivas.length > 0 ? metasAtivas.every(m => m.bateuMeta) : false;
 
