@@ -582,16 +582,6 @@ return filtered;
                       <option className="bg-[#1e1e24] text-white" value="Last Mile">Last Mile</option>
                       <option className="bg-[#1e1e24] text-white" value="Middle Mile">Middle Mile</option>
                     </select>
-                    <select
-                      value={selectedRef}
-                      onChange={(e) => setSelectedRef(e.target.value)}
-                      className="px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer w-full sm:w-auto"
-                    >
-                      <option className="bg-[#1e1e24] text-white" value="LATEST_3">Últimos 3 Períodos</option>
-                      {historyList.map(h => (
-                        <option className="bg-[#1e1e24] text-white" key={h.quinzena} value={h.quinzena}>{h.quinzena}</option>
-                      ))}
-                    </select>
                     {weeksData.length > 0 && (
                       <select
                         value={selectedWeek}
