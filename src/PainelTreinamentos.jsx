@@ -177,8 +177,8 @@ const EvolutionChart = ({ data, heightClass = "h-56" }) => {
          {data.map((d, i) => {
             const isLast = i === data.length - 1;
             const hPct = ((d.total_linhas - minVal) / (maxVal - minVal)) * 100;
-            const dtStr = d.id.replace('treinamentos_base_', '');
-            const dtFormat = `${dtStr.substring(6,8)}/${dtStr.substring(4,6)}`;
+            const dtStr = d.id;
+            const dtFormat = dtStr.includes('_') ? `${dtStr.split('_')[2]}/${dtStr.split('_')[1]}` : dtStr;
             
             return (
                <div key={i} className="flex-1 flex flex-col items-center justify-end h-full group relative z-10">
@@ -457,24 +457,17 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const { data: manualDoc } = await supabase.from('treinamentos').select('data').eq('id', 'motoristas_manuais_treinamentos').single();
-        if (manualDoc && manualDoc.data) {
-           setManualMap(manualDoc.data);
+        const { data: manuais } = await supabase.from('motoristas_manuais_treinamentos').select('*');
+        if (manuais) {
+           const map = {};
+           manuais.forEach(m => { map[m.driver_id] = { nome: m.nome, filial: m.filial }; });
+           setManualMap(map);
         }
 
-        const { data: snapshot } = await supabase.from('treinamentos').select('data').eq('type', 'historico');
-        const hData = [];
-        if (snapshot) {
-          snapshot.forEach(d => hData.push({ id: d.data.id, ...d.data }));
-        }
-        
-        if (hData.length > 0) {
-          hData.sort((a, b) => new Date(b.data_atualizacao).getTime() - new Date(a.data_atualizacao).getTime());
-          setHistoricoList(hData);
-          
-          const latestDocId = hData[0].id; 
-          const latestDateStr = latestDocId.replace('treinamentos_base_', '');
-          setSelectedUploadDate(latestDateStr);
+        const { data: snapshot } = await supabase.from('treinamentos_historico').select('*').order('data_atualizacao', { ascending: false });
+        if (snapshot && snapshot.length > 0) {
+          setHistoricoList(snapshot);
+          setSelectedUploadDate(snapshot[0].id);
         } else {
            setIsFetching(false);
         }
@@ -491,9 +484,16 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
      const fetchBaseForDate = async () => {
         setIsFetching(true);
         try {
-           const { data: docSnap } = await supabase.from('treinamentos').select('data').eq('id', `treinamentos_base_data_${selectedUploadDate}`).single();
-           if (docSnap && docSnap.data) {
-              setRawBaseData(docSnap.data);
+           const { data: docSnap } = await supabase.from('treinamentos_pendentes').select('*').eq('id_historico', selectedUploadDate);
+           if (docSnap) {
+              const mapped = docSnap.map(row => ({
+                 driverId: row.driver_id,
+                 courseName: row.curso,
+                 lastRouteRaw: row.ultima_rota_data,
+                 milla: row.milla,
+                 status: row.status
+              }));
+              setRawBaseData(mapped);
            } else {
               setRawBaseData([]);
            }
@@ -667,9 +667,13 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
 
       let lastPendencies = new Set();
       try {
-        const { data: docSnap } = await supabase.from('treinamentos').select('data').eq('id', 'treinamentos_base_last_list').single();
-        if (docSnap && docSnap.data) {
-          lastPendencies = new Set(docSnap.data);
+        const sortedHistorico = [...historicoList].sort((a,b) => new Date(b.data_atualizacao).getTime() - new Date(a.data_atualizacao).getTime());
+        if (sortedHistorico.length > 0) {
+           const lastId = sortedHistorico[0].id;
+           const { data: lastPend } = await supabase.from('treinamentos_pendentes').select('driver_id, curso').eq('id_historico', lastId);
+           if (lastPend) {
+              lastPend.forEach(p => lastPendencies.add(`${p.driver_id}_${p.curso}`));
+           }
         }
       } catch (e) {
          console.error("Erro ao buscar lista anterior:", e);
@@ -694,14 +698,29 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
       
       try {
         const novoHist = {
-          id: `treinamentos_base_${todayStr}`,
-          tipo_importacao: 'treinamentos_base',
+          id: todayStr,
           data_atualizacao: new Date().toISOString(), 
           total_linhas: newRawBase.length
         };
-        await supabase.from('treinamentos').upsert({ id: `treinamentos_base_${todayStr}`, type: 'historico', data: novoHist });
-        await supabase.from('treinamentos').upsert({ id: `treinamentos_base_data_${todayStr}`, type: 'config', data: newRawBase });
-        await supabase.from('treinamentos').upsert({ id: 'treinamentos_base_last_list', type: 'config', data: currentListForFirebase });
+        const { error: err1 } = await supabase.from('treinamentos_historico').upsert(novoHist);
+        if (err1) { console.error("Erro histórico:", err1); throw err1; }
+        
+        const insertData = newRawBase.map(r => ({
+           id_historico: todayStr,
+           driver_id: r.driverId,
+           curso: r.courseName,
+           ultima_rota_data: r.lastRouteRaw,
+           milla: r.milla,
+           status: r.status
+        }));
+        
+        const { error: err2 } = await supabase.from('treinamentos_pendentes').delete().eq('id_historico', todayStr);
+        if (err2) { console.error("Erro delete:", err2); throw err2; }
+        
+        for (let i = 0; i < insertData.length; i += 1000) {
+           const { error: err3 } = await supabase.from('treinamentos_pendentes').insert(insertData.slice(i, i + 1000));
+           if (err3) { console.error("Erro insert:", err3); throw err3; }
+        }
 
         setHistoricoList(prev => {
            const idx = prev.findIndex(p => p.id === novoHist.id);
@@ -710,13 +729,14 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
               novo[idx] = novoHist;
               return novo;
            }
-           return [novoHist, ...prev].sort((a,b) => new Date(b.data_atualizacao) - new Date(a.data_atualizacao));
+           return [novoHist, ...prev].sort((a,b) => new Date(b.data_atualizacao).getTime() - new Date(a.data_atualizacao).getTime());
         });
         
         setSelectedUploadDate(todayStr);
 
       } catch (err) {
         console.error("Erro ao salvar dados no Firebase", err);
+        alert("Erro ao salvar no banco! Abra o Console (F12) para ver os detalhes. " + (err.message || err.details || ""));
       }
 
       setIsProcessing(false);
@@ -788,7 +808,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
      newMap[bindDriver.driverId] = { nome: bindNome.toUpperCase().trim(), filial: bindFilial.toUpperCase().trim() };
      
      try {
-        await supabase.from('treinamentos').upsert({ id: 'motoristas_manuais_treinamentos', type: 'config', data: newMap });
+        await supabase.from('motoristas_manuais_treinamentos').upsert({ driver_id: bindDriver.driverId, nome: bindNome.toUpperCase().trim(), filial: bindFilial.toUpperCase().trim() });
         setManualMap(newMap);
         setShowBindModal(false);
      } catch (e) {
@@ -864,7 +884,7 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
                     className="bg-transparent text-sm font-bold text-slate-700 focus:outline-none cursor-pointer"
                  >
                     {historicoList.map(h => {
-                       const dt = h.id.replace('treinamentos_base_', '');
+                       const dt = h.id;
                        return <option key={h.id} value={dt} className="bg-white text-slate-800 font-medium">Base: {formatBrDate(dt)}</option>
                     })}
                  </select>
