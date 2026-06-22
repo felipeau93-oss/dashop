@@ -2309,6 +2309,7 @@ export default function App() {
   const [nomeRegister, setNomeRegister] = useState('');
   const [telefoneRegister, setTelefoneRegister] = useState('');
   const [loginSuccessMsg, setLoginSuccessMsg] = useState('');
+  const [otpCode, setOtpCode] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const isRecoveryRef = useRef(false);
   const hasCheckedInitialRecoveryRef = useRef(false);
@@ -2529,19 +2530,22 @@ export default function App() {
         nome: formatName(nomeRegister),
         telefone: telefoneRegister
       }]);
-      if (dbError) throw dbError;
+      
+      // Se o erro for 23505 (já existe), significa que o usuário já tinha tentado
+      // cadastrar mas não confirmou o OTP. O Supabase Auth já reenviou o e-mail,
+      // então podemos apenas ignorar o erro do banco e ir para a tela de OTP.
+      if (dbError && dbError.code !== '23505') {
+        throw dbError;
+      }
 
-      setLoginSuccessMsg('Solicitação enviada com sucesso! Aguarde a aprovação do administrador.');
+      setLoginSuccessMsg('Código de verificação enviado para seu e-mail!');
       setNomeRegister('');
       setTelefoneRegister('');
       setSenhaDigitada('');
-      setLoginView('login');
-      await supabase.auth.signOut();
+      setLoginView('verify_otp_signup');
     } catch (err) {
       setErroLogin(true);
-      if (err.code === '23505') {
-        setErroLoginMsg('Este e-mail já está aguardando aprovação ou já está cadastrado no sistema.');
-      } else if (err.message && err.message.toLowerCase().includes('user already registered')) {
+      if (err.message && err.message.toLowerCase().includes('user already registered')) {
         setErroLoginMsg('Este e-mail já possui um cadastro no sistema. Faça o login!');
       } else if (err.message && err.message.toLowerCase().includes('violates row-level security policy')) {
         setErroLoginMsg('Seu e-mail já está pré-cadastrado no sistema. Por favor, tente fazer o login com a senha que você acabou de criar, ou redefina sua senha.');
@@ -2564,8 +2568,8 @@ export default function App() {
         redirectTo: window.location.origin,
       });
       if (error) throw error;
-      setLoginSuccessMsg('Link de recuperação enviado! Verifique seu e-mail (e caixa de spam).');
-      setLoginView('login');
+      setLoginSuccessMsg('Código de recuperação enviado! Verifique seu e-mail (e caixa de spam).');
+      setLoginView('verify_otp_reset');
     } catch (err) {
       setErroLogin(true);
       setErroLoginMsg(`Erro: ${err.message}`);
@@ -2590,6 +2594,53 @@ export default function App() {
     } catch (err) {
       setErroLogin(true);
       setErroLoginMsg(`Erro ao atualizar senha: ${err.message}`);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleVerifyOtpSignup = async (e) => {
+    e.preventDefault();
+    setIsAuthLoading(true);
+    setErroLogin(false);
+    setErroLoginMsg('');
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: emailLogin,
+        token: otpCode,
+        type: 'signup'
+      });
+      if (error) throw error;
+      setLoginSuccessMsg('E-mail verificado com sucesso! Aguarde a aprovação do administrador.');
+      setOtpCode('');
+      setLoginView('login');
+      await supabase.auth.signOut();
+    } catch (err) {
+      setErroLogin(true);
+      setErroLoginMsg(`Código inválido ou expirado. Verifique e tente novamente.`);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleVerifyOtpReset = async (e) => {
+    e.preventDefault();
+    setIsAuthLoading(true);
+    setErroLogin(false);
+    setErroLoginMsg('');
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: emailLogin,
+        token: otpCode,
+        type: 'recovery'
+      });
+      if (error) throw error;
+      setLoginSuccessMsg('Código validado! Crie sua nova senha abaixo.');
+      setOtpCode('');
+      setLoginView('update_password');
+    } catch (err) {
+      setErroLogin(true);
+      setErroLoginMsg(`Código inválido ou expirado. Verifique e tente novamente.`);
     } finally {
       setIsAuthLoading(false);
     }
@@ -4426,6 +4477,76 @@ export default function App() {
                 <div className="flex justify-center items-center mt-2">
                   <button type="button" onClick={() => { isRecoveryRef.current = false; setLoginView('login'); setErroLogin(false); setLoginSuccessMsg(''); supabase.auth.signOut(); }} className="text-slate-500 text-sm font-bold hover:text-blue-600 transition-colors">
                     Cancelar e Voltar
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+
+          {loginView === 'verify_otp_signup' && (
+            <>
+              <div className="flex flex-col items-center gap-4 mb-8">
+                <div className="bg-emerald-500 p-4 rounded-2xl shadow-lg">
+                  <Lock className="w-8 h-8 text-white" />
+                </div>
+                <h1 className="text-2xl font-black text-slate-800 tracking-tight">Verificar E-mail</h1>
+                <p className="text-slate-500 text-center text-sm font-medium">Digite o código enviado para o seu e-mail.</p>
+              </div>
+              <form onSubmit={handleVerifyOtpSignup} className="flex flex-col gap-4">
+                <div>
+                  <input
+                    type="text"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    placeholder="Código de verificação"
+                    maxLength="8"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 text-center tracking-widest text-lg"
+                    required
+                  />
+                  {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">{erroLoginMsg}</p>}
+                  {loginSuccessMsg && <p className="text-emerald-500 text-xs font-bold mt-2 ml-1">{loginSuccessMsg}</p>}
+                </div>
+                <button type="submit" disabled={isAuthLoading || otpCode.length < 6} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98] disabled:opacity-50">
+                  {isAuthLoading ? 'Verificando...' : 'Verificar E-mail'}
+                </button>
+                <div className="flex justify-center items-center mt-2">
+                  <button type="button" onClick={() => { setLoginView('login'); setErroLogin(false); setLoginSuccessMsg(''); }} className="text-slate-500 text-sm font-bold hover:text-blue-600 transition-colors">
+                    Voltar para o Login
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+
+          {loginView === 'verify_otp_reset' && (
+            <>
+              <div className="flex flex-col items-center gap-4 mb-8">
+                <div className="bg-purple-500 p-4 rounded-2xl shadow-lg">
+                  <Lock className="w-8 h-8 text-white" />
+                </div>
+                <h1 className="text-2xl font-black text-slate-800 tracking-tight">Validar Código</h1>
+                <p className="text-slate-500 text-center text-sm font-medium">Digite o código enviado para o seu e-mail.</p>
+              </div>
+              <form onSubmit={handleVerifyOtpReset} className="flex flex-col gap-4">
+                <div>
+                  <input
+                    type="text"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    placeholder="Código de verificação"
+                    maxLength="8"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium bg-white text-slate-800 text-center tracking-widest text-lg"
+                    required
+                  />
+                  {erroLogin && <p className="text-red-500 text-xs font-bold mt-2 ml-1">{erroLoginMsg}</p>}
+                  {loginSuccessMsg && <p className="text-emerald-500 text-xs font-bold mt-2 ml-1">{loginSuccessMsg}</p>}
+                </div>
+                <button type="submit" disabled={isAuthLoading || otpCode.length < 6} className="w-full bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98] disabled:opacity-50">
+                  {isAuthLoading ? 'Validando...' : 'Validar Código'}
+                </button>
+                <div className="flex justify-center items-center mt-2">
+                  <button type="button" onClick={() => { setLoginView('login'); setErroLogin(false); setLoginSuccessMsg(''); }} className="text-slate-500 text-sm font-bold hover:text-blue-600 transition-colors">
+                    Voltar para o Login
                   </button>
                 </div>
               </form>
