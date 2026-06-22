@@ -2543,6 +2543,8 @@ export default function App() {
         setErroLoginMsg('Este e-mail já está aguardando aprovação ou já está cadastrado no sistema.');
       } else if (err.message && err.message.toLowerCase().includes('user already registered')) {
         setErroLoginMsg('Este e-mail já possui um cadastro no sistema. Faça o login!');
+      } else if (err.message && err.message.toLowerCase().includes('violates row-level security policy')) {
+        setErroLoginMsg('Seu e-mail já está pré-cadastrado no sistema. Por favor, tente fazer o login com a senha que você acabou de criar, ou redefina sua senha.');
       } else {
         setErroLoginMsg(`Erro no cadastro: ${err.message}`);
       }
@@ -3111,12 +3113,37 @@ export default function App() {
       setRawCustosData(mergedCustos);
       if (rawCustosDataRef) rawCustosDataRef.current = mergedCustos;
 
-      // Seta os dados novos do Thin Client cruzando com o Mapeamento de Filiais
       const getRegSup = (filial, d) => {
         const fKey = normalizeText(filial || '');
         const mapped = mapeamento.find(m => normalizeText(m.filial || '') === fKey);
         return mapped ? { regional: mapped.regional, supervisor: mapped.supervisor } : { regional: d.regional || 'Sem Regional', supervisor: d.supervisor || 'Sem Supervisor' };
       };
+
+      // AUTO-REGISTRO DE NOVAS FILIAIS
+      // Qualquer filial não mapeada descoberta nos dados ganha um registro no banco
+      const allViewData = [...(viewDreDataRaw || []), ...(viewGapsDataRaw || [])];
+      const unmapped = new Map();
+      allViewData.forEach(d => {
+         const fNorm = normalizeText(d.filial || '');
+         if (fNorm && fNorm !== 'N/A' && fNorm !== 'SEM NOME' && fNorm !== 'N/D') {
+            const isMapped = mapeamento.some(m => normalizeText(m.filial || '') === fNorm);
+            if (!isMapped && !unmapped.has(fNorm)) {
+               unmapped.set(fNorm, { 
+                 filial: d.filial, 
+                 regional: (d.regional && d.regional !== 'N/A') ? d.regional : '', 
+                 supervisor: (d.supervisor && d.supervisor !== 'N/A') ? d.supervisor : '' 
+               });
+            }
+         }
+      });
+      if (unmapped.size > 0) {
+         const newFiliais = Array.from(unmapped.values());
+         // Insere as filiais novatas sem bloquear a UI e sem duplicar (upsert)
+         supabase.from('mapeamento_filiais').upsert(newFiliais, { onConflict: 'filial' })
+            .then(({ error }) => { if (!error) console.log('[Auto-Save] Filiais registradas:', newFiliais.length); });
+         // Aplica os novos mapeamentos à lista local na hora
+         mapeamento.push(...newFiliais);
+      }
 
       setDreData((viewDreDataRaw || []).map(d => ({ 
         ...d, 

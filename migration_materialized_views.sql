@@ -100,7 +100,7 @@ bsc_agg AS (
          CASE WHEN SUM(COALESCE(entregues, 0) + COALESCE(saldo, 0)) > 0 
               THEN ROUND((SUM(COALESCE(entregues, 0)) / SUM(COALESCE(entregues, 0) + COALESCE(saldo, 0))) * 100, 2)
               ELSE 0 END as nota_bsc
-  FROM bsc
+  FROM operacional
   WHERE motorista IS NOT NULL AND motorista != 'N/A'
   GROUP BY quinzena, filial, motorista
 )
@@ -132,9 +132,12 @@ CREATE UNIQUE INDEX idx_mv_gaps_operacionais ON view_gaps_operacionais_bsc(quinz
 CREATE OR REPLACE FUNCTION rpc_refresh_materialized_views()
 RETURNS void AS $$
 BEGIN
-  -- Atualiza de forma concorrente para não travar leituras simultâneas
-  REFRESH MATERIALIZED VIEW CONCURRENTLY view_dre_custo_leve;
-  REFRESH MATERIALIZED VIEW CONCURRENTLY view_gaps_operacionais_bsc;
+  -- Aumenta o tempo de timeout local da transação (para garantir)
+  SET LOCAL statement_timeout = '60s';
+  
+  -- Atualiza as views materializadas sem CONCURRENTLY (muito mais rápido e evita timeout)
+  REFRESH MATERIALIZED VIEW view_dre_custo_leve;
+  REFRESH MATERIALIZED VIEW view_gaps_operacionais_bsc;
 END;
 $$ LANGUAGE plpgsql;
 

@@ -8,12 +8,17 @@ import { supabase } from './supabase';
 const ANO_REFERENCIA = 2026;
 
 const getInicioDaSemana = (dataString) => {
+  if (!dataString) return '';
   const [dia, mes] = dataString.split('/');
+  if (!dia || !mes) return '';
   const data = new Date(ANO_REFERENCIA, parseInt(mes) - 1, parseInt(dia));
-  const diaDaSemana = data.getDay(); 
-  const domingo = new Date(data);
-  domingo.setDate(data.getDate() - diaDaSemana);
-  return `${domingo.getDate().toString().padStart(2, '0')}/${(domingo.getMonth() + 1).toString().padStart(2, '0')}`;
+  
+  const dt = new Date(data.getTime());
+  dt.setHours(0, 0, 0, 0);
+  dt.setDate(dt.getDate() + 4 - (dt.getDay() || 7));
+  const yearStart = new Date(dt.getFullYear(), 0, 1);
+  const weekNo = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+  return `W${weekNo}`;
 };
 
 const EvolutionLineChart = ({ data, targetValue = 6, yMax = 7, heightClass = "h-[300px]", isPercentage = false }) => {
@@ -338,8 +343,14 @@ return filtered;
     const evolution = Array.from(evolMap.entries()).map(([semana, stats]) => ({
       label: semana, value: stats.sumPossiveis > 0 ? (stats.sumRodados / stats.sumPossiveis) * 100 : 0
     })).sort((a, b) => {
-      const [d1, m1] = a.label.split('/'); const [d2, m2] = b.label.split('/');
-      return new Date(ANO_REFERENCIA, parseInt(m1)-1, parseInt(d1)) - new Date(ANO_REFERENCIA, parseInt(m2)-1, parseInt(d2));
+      if (a.label.startsWith('W') && b.label.startsWith('W')) {
+        const w1 = parseInt(a.label.replace('W', ''), 10) || 0;
+        const w2 = parseInt(b.label.replace('W', ''), 10) || 0;
+        return w1 - w2;
+      } else {
+        const [d1, m1] = a.label.split('/'); const [d2, m2] = b.label.split('/');
+        return new Date(ANO_REFERENCIA, parseInt(m1)-1, parseInt(d1)) - new Date(ANO_REFERENCIA, parseInt(m2)-1, parseInt(d2));
+      }
     });
 
     const drilldown = Array.from(drillMap.entries()).map(([key, stats]) => ({

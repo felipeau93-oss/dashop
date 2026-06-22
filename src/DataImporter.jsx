@@ -12,10 +12,13 @@ const getInicioDaSemana = (dataString) => {
   const [dia, mes] = dataString.split('/');
   if (!dia || !mes) return '';
   const data = new Date(ANO_REFERENCIA, parseInt(mes) - 1, parseInt(dia));
-  const diaDaSemana = data.getDay(); 
-  const domingo = new Date(data);
-  domingo.setDate(data.getDate() - diaDaSemana);
-  return `${domingo.getDate().toString().padStart(2, '0')}/${(domingo.getMonth() + 1).toString().padStart(2, '0')}`;
+  
+  const dt = new Date(data.getTime());
+  dt.setHours(0, 0, 0, 0);
+  dt.setDate(dt.getDate() + 4 - (dt.getDay() || 7));
+  const yearStart = new Date(dt.getFullYear(), 0, 1);
+  const weekNo = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+  return `W${weekNo}`;
 };
 
 export default function DataImporter({ onImportOperacional, onImportBilling, onImportCapCar, onImportOperacionalBSC, rawFaturamentoData = [], rawOperacionalData = [], mapeamentoFiliais = [], isImporter = false, isAdmin = false }) {
@@ -349,7 +352,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
     const processData = async (dataArray) => {
       let headerRowIdx = -1;
-      let rotaColIdx = -1, xptColIdx = -1, saldoColIdx = -1, entreguesColIdx = -1, insucessosColIdx = -1, driverIdColIdx = -1, motoristaColIdx = -1, quinzenaColIdx = -1;
+      let rotaColIdx = -1, xptColIdx = -1, saldoColIdx = -1, entreguesColIdx = -1, insucessosColIdx = -1, driverIdColIdx = -1, motoristaColIdx = -1, quinzenaColIdx = -1, regionalColIdx = -1, supervisorColIdx = -1;
 
       for (let i = 0; i < Math.min(15, dataArray.length); i++) {
         const row = dataArray[i];
@@ -362,10 +365,13 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         const cDriver = row.findIndex((c, idx) => String(c).toUpperCase() === 'DRIVER' || String(c).toUpperCase() === 'DRIVER ID' || (String(c).trim() === '#' && idx === 5));
         const cMotorista = row.findIndex(c => String(c).toUpperCase() === 'MOTORISTA' || String(c).toUpperCase() === 'DRIVER NAME' || String(c).toUpperCase() === 'NOME');
         const cQuinzena = row.findIndex(c => String(c).toUpperCase().includes('QUINZENA'));
+        const cRegional = row.findIndex(c => String(c).toUpperCase().includes('REGIONAL') || String(c).toUpperCase() === 'REGIAO');
+        const cSupervisor = row.findIndex(c => String(c).toUpperCase().includes('SUPERV') || String(c).toUpperCase().includes('GESTOR') || String(c).toUpperCase().includes('COORD'));
 
         if (cRota !== -1 && cXpt !== -1) {
           headerRowIdx = i; rotaColIdx = cRota; xptColIdx = cXpt; saldoColIdx = cSaldo; entreguesColIdx = cEntregues;
           insucessosColIdx = cInsucessos; driverIdColIdx = cDriver; motoristaColIdx = cMotorista; 
+          regionalColIdx = cRegional; supervisorColIdx = cSupervisor;
           if (isOpMulti) quinzenaColIdx = cQuinzena;
           break;
         }
@@ -429,6 +435,12 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
           const fKey = filial.toUpperCase();
           const config = configMap[fKey] || {};
           
+          let fileRegional = regionalColIdx !== -1 ? String(r[regionalColIdx] || '').trim() : '';
+          let fileSupervisor = supervisorColIdx !== -1 ? String(r[supervisorColIdx] || '').trim() : '';
+          
+          const finalRegional = (config.regional && config.regional !== 'N/A') ? config.regional : (fileRegional || 'N/A');
+          const finalSupervisor = (config.supervisor && config.supervisor !== 'N/A') ? config.supervisor : (fileSupervisor || 'N/A');
+          
           const saldo = saldoColIdx !== -1 ? (parseFloat(r[saldoColIdx]) || 0) : 0;
           const entregues = entreguesColIdx !== -1 ? (parseFloat(r[entreguesColIdx]) || 0) : 0;
           const driverId = driverIdColIdx !== -1 ? String(r[driverIdColIdx]).trim() : '';
@@ -449,8 +461,8 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
           newOperacionalData.push({
             id_rota: rota,
             filial,
-            regional: config.regional || 'N/A',
-            supervisor: config.supervisor || 'N/A',
+            regional: finalRegional,
+            supervisor: finalSupervisor,
             saldo,
             entregues,
             insucessosDetalhados,
