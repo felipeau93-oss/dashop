@@ -1361,7 +1361,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
              timeline: newTimeline,
              metas_semana: newMetas,
              dias_parado_atual: ocioso,
-             bateu_todas_metas: newMetas.every(m => m.bateuMeta),
+             bateu_todas_metas: newMetas.filter(m => m.diasRodados > 0).length > 0 ? newMetas.filter(m => m.diasRodados > 0).every(m => m.bateuMeta) : false,
              referencia: autoRef
            });
         });

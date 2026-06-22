@@ -180,15 +180,24 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
         }
         
         if (allData.length > 0) {
-          const mapped = allData.map(d => ({
-            placa: d.placa,
-            modal: d.modal,
-            filial: d.filial,
-            timeline: d.timeline,
-            metasSemana: d.metas_semana || d.metasSemana,
-            diasParadoAtual: d.dias_parado_atual || d.diasParadoAtual,
-            bateuTodasMetas: d.bateu_todas_metas || d.bateuTodasMetas
-          }));
+          const mapped = allData.map(d => {
+            const metas = d.metas_semana || d.metasSemana || [];
+            // Um veículo é compliance no consolidado (ALL) se ele bateu a meta na maioria das semanas que rodou, 
+            // ou se bateu a meta na semana mais recente. Para simplificar e evitar zerar, 
+            // vamos considerar se bateu meta em pelo menos alguma semana ativa, ou usar a lógica de metas ativas.
+            const metasAtivas = metas.filter(m => m.diasRodados > 0);
+            const bateuTodas = metasAtivas.length > 0 ? metasAtivas.every(m => m.bateuMeta) : false;
+            
+            return {
+              placa: d.placa,
+              modal: d.modal,
+              filial: d.filial,
+              timeline: d.timeline,
+              metasSemana: metas,
+              diasParadoAtual: d.dias_parado_atual || d.diasParadoAtual || 0,
+              bateuTodasMetas: bateuTodas
+            };
+          });
 
           if (mapped.length > 0 && mapped[0].timeline) {
             const dates = mapped[0].timeline.map(t => t.data);
