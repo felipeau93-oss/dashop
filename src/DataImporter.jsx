@@ -49,7 +49,6 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
   const [progressBsc, setProgressBsc] = useState('');
 
   const [dispFile, setDispFile] = useState(null);
-  const [refNameDisp, setRefNameDisp] = useState('');
   const [isProcessingDisp, setIsProcessingDisp] = useState(false);
   const [progressDisp, setProgressDisp] = useState('');
 
@@ -1227,10 +1226,6 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
   // ============================================================================
   const handleProcessDispFile = () => {
     if (!dispFile) return;
-    if (!refNameDisp.trim()) {
-      alert("A Referência/Período é obrigatória para Disponibilidade.");
-      return;
-    }
     
     setIsProcessingDisp(true);
     setProgressDisp('Lendo arquivo...');
@@ -1327,6 +1322,13 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
           }
         });
         const globalWeeksArray = Array.from(wMapGlobal.entries()).map(([inicio, dias]) => ({ inicio, dias }));
+        
+        let autoRef = 'Referência Desconhecida';
+        if (globalWeeksArray.length > 0) {
+           const sortedWeeks = globalWeeksArray.map(w => parseInt(w.inicio.replace('W', ''))).sort((a,b) => a - b);
+           if (sortedWeeks.length === 1) autoRef = `Semana W${sortedWeeks[0]}`;
+           else autoRef = `Semanas W${sortedWeeks[0]} a W${sortedWeeks[sortedWeeks.length - 1]}`;
+        }
 
         const finalDataToSave = [];
 
@@ -1360,13 +1362,13 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
              metas_semana: newMetas,
              dias_parado_atual: ocioso,
              bateu_todas_metas: newMetas.every(m => m.bateuMeta),
-             referencia: refNameDisp.trim()
+             referencia: autoRef
            });
         });
 
         setProgressDisp('Salvando no banco de dados...');
         
-        await supabase.from('disponibilidade_frota').delete().eq('referencia', refNameDisp.trim());
+        await supabase.from('disponibilidade_frota').delete().eq('referencia', autoRef);
         
         for (let i = 0; i < finalDataToSave.length; i += CHUNK_SIZE) {
           const chunk = finalDataToSave.slice(i, i + CHUNK_SIZE);
@@ -1375,7 +1377,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         }
 
         addLog('Registrando no histórico de importações...', 'info');
-        await registrarImportacao('Disponibilidade de Frota', refNameDisp.trim(), finalDataToSave.length);
+        await registrarImportacao('Disponibilidade de Frota', autoRef, finalDataToSave.length);
         addLog('Processamento da disponibilidade de frota concluído com sucesso!', 'success');
         
         setDispFile(null);
@@ -1708,14 +1710,6 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                 <h2 className="text-2xl font-black text-white flex items-center gap-3"><Truck className="w-6 h-6 text-emerald-500" /> Disponibilidade de Frota</h2>
               </div>
               
-              <div className="bg-slate-900/50 p-5 rounded-2xl border border-slate-700/50 space-y-4">
-                <div className="w-full md:w-1/2">
-                  <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Referência / Período</label>
-                  <input type="text" placeholder="Ex: Semana 10 a 16" value={refNameDisp} onChange={e => setRefNameDisp(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" />
-                  <p className="text-[10px] text-slate-500 mt-2 font-medium">Este nome identificará o período da importação no Painel de Disponibilidade.</p>
-                </div>
-              </div>
-
               {!dispFile ? (
                 <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-slate-700 border-dashed rounded-3xl cursor-pointer bg-slate-900/30 hover:bg-slate-800/50 hover:border-emerald-500 transition-all group">
                   <div className="flex flex-col items-center justify-center pt-5 pb-6">
