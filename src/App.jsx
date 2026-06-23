@@ -1388,6 +1388,22 @@ const DetalheFinanceiroSection = ({ dadosFiltrados, onExport, isExporting, initi
   const [selectedMotorista, setSelectedMotorista] = useState(initialMotorista || null);
   React.useEffect(() => { if (initialMotorista) setSelectedMotorista(initialMotorista); else setSelectedMotorista(null); }, [initialMotorista]);
 
+  const [detailedCasosMap, setDetailedCasosMap] = useState({});
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+
+  React.useEffect(() => {
+    if (selectedFilial && !detailedCasosMap[selectedFilial]) {
+      setIsLoadingDetails(true);
+      supabase.rpc('get_detalhes_penalidades_filial', { p_filial: selectedFilial })
+        .then(({ data, error }) => {
+          if (!error && data) {
+            setDetailedCasosMap(prev => ({ ...prev, [selectedFilial]: data }));
+          }
+        })
+        .finally(() => setIsLoadingDetails(false));
+    }
+  }, [selectedFilial, detailedCasosMap]);
+
   const handleSort = (key) => {
     let direction = 'desc';
     if (sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
@@ -1437,10 +1453,35 @@ const DetalheFinanceiroSection = ({ dadosFiltrados, onExport, isExporting, initi
     const filialData = dataAgrupada.find(f => f.filial === selectedFilial);
     if (!filialData) return [];
     if (!selectedMotorista) return sortArray(filialData.motoristas);
+    
+    if (detailedCasosMap[selectedFilial]) {
+      const validQuinzenas = new Set(dadosFiltrados.map(df => df.quinzena));
+      const dbCasos = detailedCasosMap[selectedFilial]
+        .filter(d => normalizeText(d.motorista) === normalizeText(selectedMotorista) && validQuinzenas.has(d.quinzena))
+        .map(d => {
+           let isRota = d.tipo === 'Not Visited';
+           let idVal = isRota ? d.id_rota : d.id_pacote;
+
+           if (!idVal || idVal === '-' || idVal === 'N/A') {
+             idVal = d.id_rota;
+             isRota = true;
+           }
+
+           return {
+             tipo: d.tipo,
+             valor: d.valor,
+             qtd: d.qtd || 1,
+             id_display: idVal || '-',
+             isRota: isRota
+           };
+        });
+      if (dbCasos.length > 0) return sortArray(dbCasos);
+    }
+
     const motoristaData = filialData.motoristas.find(m => m.motorista === selectedMotorista);
     if (!motoristaData) return [];
     return sortArray(motoristaData.casos);
-  }, [dataAgrupada, selectedFilial, selectedMotorista, sortConfig]);
+  }, [dataAgrupada, selectedFilial, selectedMotorista, sortConfig, detailedCasosMap]);
 
   const SortIcon = ({ columnKey }) => {
     if (sortConfig.key !== columnKey) return <ArrowUpDown className="w-3 h-3 inline-block ml-1 opacity-30" />;
@@ -1505,7 +1546,7 @@ const DetalheFinanceiroSection = ({ dadosFiltrados, onExport, isExporting, initi
                 <td className="py-2 px-3 font-semibold uppercase">{caso.tipo}</td>
                 <td className="py-2 px-3 font-mono text-[11px]">
                   {caso.id_display !== '-' && caso.id_display !== 'N/A' ? (
-                    caso.tipo === 'Not Visited' ? (
+                    caso.isRota ? (
                       <a href={`https://envios.adminml.com/logistics/monitoring-distribution/detail/${caso.id_display}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline hover:text-blue-700" onClick={(e) => e.stopPropagation()}>
                         {caso.id_display}
                       </a>
@@ -4284,6 +4325,37 @@ export default function App() {
             "Quantidade": qtd
           });
         });
+
+        if (filial) {
+           const { data: detalhes } = await supabase.rpc('get_detalhes_penalidades_filial', { p_filial: filial });
+           if (detalhes && detalhes.length > 0) {
+              const detFiltrados = detalhes.filter(d => 
+                 filtroQuinzenas.length === 0 || filtroQuinzenas.includes(d.quinzena)
+              );
+              casosMap.length = 0; 
+              detFiltrados.forEach(d => {
+                 if (motorista && normalizeText(d.motorista) !== normalizeText(motorista)) return;
+                 
+                 let isRota = d.tipo === 'Not Visited';
+                 let idVal = isRota ? d.id_rota : d.id_pacote;
+                 if (!idVal || idVal === '-' || idVal === 'N/A') {
+                   idVal = d.id_rota;
+                   isRota = true;
+                 }
+
+                 casosMap.push({
+                   "Filial": d.filial,
+                   "Regional": d.regional,
+                   "Supervisor": d.supervisor,
+                   "Motorista": d.motorista,
+                   "Tipo Penalidade": d.tipo,
+                   "ID (Pacote/Rota)": idVal || '-',
+                   "Valor (R$)": d.valor,
+                   "Quantidade": d.qtd || 1
+                 });
+              });
+           }
+        }
 
         const filiaisData = Object.values(filiaisMap).sort((a, b) => b["Total (R$)"] - a["Total (R$)"]);
         const motoristasData = Object.values(motoristasMap).sort((a, b) => b["Total (R$)"] - a["Total (R$)"]);
