@@ -1420,7 +1420,7 @@ const DetalheFinanceiroSection = ({ dadosFiltrados, onExport, isExporting, initi
       else if (d.tipo === 'Lost Packages') { map[fKey].motoristasMap[mKey].lostValor += valor; map[fKey].motoristasMap[mKey].lostQtd += qtd; }
       else if (d.tipo === 'Not Visited') { map[fKey].motoristasMap[mKey].nvValor += valor; map[fKey].motoristasMap[mKey].nvQtd += qtd; }
 
-      map[fKey].motoristasMap[mKey].casos.push({ tipo: d.tipo, valor: valor, qtd: qtd, id_display: d.tipo === 'Not Visited' ? (d.id_rota || '-') : (d.id_pacote || '-') });
+      map[fKey].motoristasMap[mKey].casos.push({ tipo: d.tipo, valor: valor, qtd: qtd, id_display: d.tipo === 'Not Visited' ? (d.id_rota || '-') : ((!d.id_pacote || d.id_pacote === '-' || d.id_pacote === 'N/A') ? (d.id_rota || '-') : d.id_pacote) });
     });
     return Object.values(map).map(f => ({ ...f, motoristas: Object.values(f.motoristasMap) }));
   }, [dadosFiltrados]);
@@ -2063,9 +2063,12 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
     const mapEvolucao = {};
     const fatFilial = (faturamentoPlanilha || []).filter(f => norm(f.filial) === fName);
     fatFilial.forEach(f => {
+      const faturamentoTotal = (f.faturamento || 0) + (f.faturamento_paradas || 0);
+      if (faturamentoTotal === 0 && !isOpMode) return; // IGNORA quinzenas que zeraram faturamento (vieram do operacional)
+
       const q = f.quinzena;
       if (!mapEvolucao[q]) mapEvolucao[q] = { quinzena: q, valor: 0, faturamento: 0, pnrQtd: 0, lostQtd: 0, nvQtd: 0, totalQtd: 0, pnr: 0, lost: 0, notVisited: 0 };
-      mapEvolucao[q].faturamento += (f.faturamento || 0) + (f.faturamento_paradas || 0);
+      mapEvolucao[q].faturamento += faturamentoTotal;
     });
 
     casosFilial.forEach(c => {
@@ -2090,7 +2093,9 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
       }
     });
 
-    const evolutionArray = Object.values(mapEvolucao).sort((a, b) => a.quinzena.localeCompare(b.quinzena));
+    let evolutionArray = Object.values(mapEvolucao).sort((a, b) => a.quinzena.localeCompare(b.quinzena));
+    evolutionArray = evolutionArray.filter(e => e.quinzena <= targetQuinzena).slice(-3);
+
     evolutionArray.forEach(e => {
       e.totalQtd = Math.round((e.pnrQtd + e.lostQtd + e.nvQtd) * 10) / 10;
       e.penalidades = e.valor;
@@ -2191,9 +2196,16 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
                           <td className="p-3 text-slate-400">{c.tipo}</td>
                           <td className="p-3 font-mono text-slate-400">
                             {(() => {
-                              const isRota = c.tipo === 'Not Visited';
-                              const idVal = isRota ? c.id_rota : c.id_pacote;
-                              if (!idVal || idVal === '-' || idVal === 'N/A') return idVal || '-';
+                              let isRota = c.tipo === 'Not Visited';
+                              let idVal = isRota ? c.id_rota : c.id_pacote;
+
+                              if (!idVal || idVal === '-' || idVal === 'N/A') {
+                                idVal = c.id_rota;
+                                isRota = true;
+                              }
+
+                              if (!idVal || idVal === '-' || idVal === 'N/A') return '-';
+                              
                               if (isRota) return <a href={`https://envios.adminml.com/logistics/monitoring-distribution/detail/${idVal}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline hover:text-blue-300" onClick={(e) => e.stopPropagation()}>{idVal}</a>;
                               return <a href={`https://envios.adminml.com/logistics/package-management/package/${idVal}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline hover:text-blue-300" onClick={(e) => e.stopPropagation()}>{idVal}</a>;
                             })()}
@@ -2299,6 +2311,28 @@ export default function App() {
   const [returnToModalState, setReturnToModalState] = useState(null);
   const [drilldownMotorista, setDrilldownMotorista] = useState(null);
   const [modalEvolutivoFilial, setModalEvolutivoFilial] = useState(null);
+  const [isLoadingDetalhes, setIsLoadingDetalhes] = useState(false);
+  const [detailedPenalidades, setDetailedPenalidades] = useState([]);
+
+  const handleOpenEvolutivo = async (filialName) => {
+    setIsLoadingDetalhes(true);
+    try {
+      const { data, error } = await supabase.rpc('get_detalhes_penalidades_filial', { p_filial: filialName });
+      if (error) {
+        console.error(error);
+        setDetailedPenalidades(distributedDados.filter(d => d.filial === filialName));
+      } else {
+        setDetailedPenalidades(data || []);
+      }
+    } catch (e) {
+      console.error(e);
+      setDetailedPenalidades(distributedDados.filter(d => d.filial === filialName));
+    } finally {
+      setIsLoadingDetalhes(false);
+      setModalEvolutivoFilial(filialName);
+    }
+  };
+
   const [isAuthenticated, setIsAuthenticated] = useState(null);
   const [emailLogin, setEmailLogin] = useState('');
   const [senhaDigitada, setSenhaDigitada] = useState('');
@@ -2420,9 +2454,16 @@ export default function App() {
       console.log("Erro da busca:", error);
       console.log("=== FIM DEBUG DE LOGIN ===");
       
-      // Checagem de segurança pós-await: se no meio da query de banco o evento de PASSWORD_RECOVERY
-      // foi disparado, devemos abortar o fluxo de login normal.
+      // Checagem de segurança pós-await
       if (isRecoveryRef.current) return;
+
+      if (data && data.needs_password_change) {
+        setLoginView('update_password');
+        setErroLogin(false);
+        setLoginSuccessMsg('Por motivos de segurança, você precisa definir sua nova senha antes de acessar o sistema.');
+        setIsAuthenticated(false);
+        return;
+      }
         
       if (data && data.role && data.role !== 'pending') {
         setUserRole(data.role);
@@ -2501,7 +2542,13 @@ export default function App() {
       setSenhaDigitada('');
     } catch (err) {
       setErroLogin(true);
-      setErroLoginMsg('E-mail ou senha incorretos. Tente novamente.');
+      if (err.message && err.message.toLowerCase().includes('email not confirmed')) {
+        setErroLoginMsg('');
+        setLoginSuccessMsg('O seu e-mail ainda não foi verificado. Digite abaixo o código de segurança que enviamos para o seu e-mail.');
+        setLoginView('verify_otp_signup');
+      } else {
+        setErroLoginMsg('E-mail ou senha incorretos. Tente novamente.');
+      }
     } finally {
       setIsAuthLoading(false);
     }
@@ -2586,6 +2633,13 @@ export default function App() {
     try {
       const { error } = await supabase.auth.updateUser({ password: senhaDigitada });
       if (error) throw error;
+      
+      // Remove a flag de troca obrigatória, se existir
+      const targetEmail = currentUser?.email || emailLogin;
+      if (targetEmail) {
+        await supabase.from('user_roles').update({ needs_password_change: false }).eq('email', targetEmail.trim().toLowerCase());
+      }
+
       setLoginSuccessMsg('Senha atualizada com sucesso! Faça login.');
       setSenhaDigitada('');
       isRecoveryRef.current = false;
@@ -4125,7 +4179,7 @@ export default function App() {
             "Quinzena": d.quinzena || 'N/A',
             "Motorista": d.motorista || 'N/A',
             "Tipo Penalidade": d.tipo || 'N/A',
-            "ID (Pacote/Rota)": d.tipo === 'Not Visited' ? (d.id_rota || '-') : (d.id_pacote || '-'),
+            "ID (Pacote/Rota)": d.tipo === 'Not Visited' ? (d.id_rota || '-') : ((!d.id_pacote || d.id_pacote === '-' || d.id_pacote === 'N/A') ? (d.id_rota || '-') : d.id_pacote),
             "Quantidade": 1
           };
           res["Valor (R$)"] = d.valor || 0;
@@ -4225,7 +4279,7 @@ export default function App() {
             "Supervisor": sup,
             "Motorista": mKey,
             "Tipo Penalidade": d.tipo,
-            "ID (Pacote/Rota)": d.tipo === 'Not Visited' ? (d.id_rota || '-') : (d.id_pacote || '-'),
+            "ID (Pacote/Rota)": d.tipo === 'Not Visited' ? (d.id_rota || '-') : ((!d.id_pacote || d.id_pacote === '-' || d.id_pacote === 'N/A') ? (d.id_rota || '-') : d.id_pacote),
             "Valor (R$)": valor,
             "Quantidade": qtd
           });
@@ -5190,8 +5244,13 @@ export default function App() {
                   </>
                 )}
 
-                <div className="mb-8">
-                  <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { setModalEvolutivoFilial(f); }} />
+                <div className="mb-8 relative">
+                  {isLoadingDetalhes && (
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm rounded-3xl">
+                      <div className="flex flex-col items-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-2"></div><span className="text-sm font-bold text-white">Carregando detalhes...</span></div>
+                    </div>
+                  )}
+                  <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { handleOpenEvolutivo(f); }} />
                 </div>
 
                 <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 mb-8">
@@ -5424,9 +5483,16 @@ export default function App() {
                   </div>
                 </div>
 
-                <RunRatePenalidadesSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { setModalEvolutivoFilial(f); }} />
+                <div className="relative">
+                  {isLoadingDetalhes && (
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm rounded-3xl">
+                      <div className="flex flex-col items-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-2"></div><span className="text-sm font-bold text-white">Carregando detalhes...</span></div>
+                    </div>
+                  )}
+                  <RunRatePenalidadesSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { handleOpenEvolutivo(f); }} />
+                </div>
 
-                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200">
+                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 mt-8">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
                       <Scale className="w-6 h-6 text-violet-500" />
@@ -5456,8 +5522,9 @@ export default function App() {
 
             {/* DETALHE FINANCEIRO */}
             {activeMenu === 'detalhe_financeiro' && (
-              <DetalheFinanceiroSection dadosFiltrados={dadosFiltrados} onExport={(options) => handleDownloadExcel('penalidades', options)} isExporting={exportingType === 'excel-penalidades'} initialFilial={drilldownFilial} initialMotorista={drilldownMotorista} returnToModalState={returnToModalState} onReturnToModal={() => { setActiveMenu(returnToModalState.menu); setModalEvolutivoFilial(returnToModalState.filial); setReturnToModalState(null); setFiltroQuinzenas([]); }} />
+              <DetalheFinanceiroSection dadosFiltrados={dadosFiltrados} onExport={(options) => handleDownloadExcel('penalidades', options)} isExporting={exportingType === 'excel-penalidades'} initialFilial={drilldownFilial} initialMotorista={drilldownMotorista} returnToModalState={returnToModalState} onReturnToModal={() => { setActiveMenu(returnToModalState.menu); handleOpenEvolutivo(returnToModalState.filial); setReturnToModalState(null); setFiltroQuinzenas([]); }} />
             )}
+
 
             {/* COMPARATIVO BSC */}
             {activeMenu === 'comparativo_bsc' && (
@@ -5559,9 +5626,10 @@ export default function App() {
           isOpMode={isOpMode}
           filial={modalEvolutivoFilial}
           targetQuinzena={targetQuinzenaRunRate}
-          dadosPlanilha={distributedDados}
+          dadosPlanilha={detailedPenalidades.length > 0 ? detailedPenalidades : distributedDados}
           faturamentoPlanilha={distributedFaturamento}
           onClose={() => setModalEvolutivoFilial(null)}
+
           onExportExcel={(casos) => handleDownloadExcel('evolutivo', { data: casos, filial: modalEvolutivoFilial, isOpMode })}
           onNavigateToDetalhes={(motorista) => {
             setActiveMenu('detalhe_financeiro');
