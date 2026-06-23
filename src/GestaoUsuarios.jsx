@@ -1,15 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
+import { createClient } from '@supabase/supabase-js';
 import { UserPlus, Trash2, Shield, User, Loader2, CheckCircle2, Clock } from 'lucide-react';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export default function GestaoUsuarios() {
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [newNome, setNewNome] = useState('');
+  const [newTelefone, setNewTelefone] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState('operacao');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [activeTab, setActiveTab] = useState('ativos'); // 'ativos' | 'pendentes'
+
+  const formatName = (str) => {
+    return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  };
 
   const fetchUsers = async () => {
     setIsLoading(true);
@@ -35,24 +46,65 @@ export default function GestaoUsuarios() {
 
   const handleAddUser = async (e) => {
     e.preventDefault();
-    if (!newEmail.trim()) return;
+    if (!newEmail.trim() || !newNome.trim()) return;
     setIsSubmitting(true);
     setError('');
+    setSuccessMessage('');
     
     try {
-      const { error } = await supabase
-        .from('user_roles')
-        .insert([{ email: newEmail.trim().toLowerCase(), role: newRole }]);
-        
-      if (error) throw error;
+      // Cria cliente secundário para não deslogar o admin atual
+      const adminAuthClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        }
+      });
+
+      // Gera senha temporária de 8 caracteres
+      const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
+      let tempPassword = "";
+      for (let i = 0; i < 8; i++) {
+        tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      // Cria usuário no Auth
+      const { data: authData, error: authError } = await adminAuthClient.auth.signUp({
+        email: newEmail.trim().toLowerCase(),
+        password: tempPassword,
+      });
+
+      if (authError) {
+        if (authError.message && authError.message.toLowerCase().includes('user already registered')) {
+          throw new Error('Este e-mail já está cadastrado no sistema.');
+        }
+        throw authError;
+      }
       
+      const { error: dbError } = await supabase
+        .from('user_roles')
+        .insert([{ 
+          email: newEmail.trim().toLowerCase(), 
+          role: newRole,
+          nome: formatName(newNome),
+          telefone: newTelefone,
+          needs_password_change: true
+        }]);
+        
+      if (dbError) throw dbError;
+      
+      setNewNome('');
+      setNewTelefone('');
       setNewEmail('');
       setNewRole('operacao');
+      setSuccessMessage(`Usuário criado com sucesso! A senha temporária é: ${tempPassword} (Copie e envie ao usuário. O usuário deverá utilizar o código OTP recebido por e-mail no primeiro acesso.)`);
+      window.alert(`ATENÇÃO! Copie a senha temporária abaixo para enviar ao usuário:\n\n${tempPassword}\n\nO Supabase enviará apenas o código numérico OTP no e-mail dele.`);
+      
       await fetchUsers();
     } catch (err) {
       console.error(err);
       if (err.code === '23505') {
-        setError('Este e-mail já possui um papel cadastrado ou pendente.');
+        setError('Este e-mail já possui um papel cadastrado ou pendente na tabela de permissões.');
       } else {
         setError(`Erro ao cadastrar usuário: ${err.message}`);
       }
@@ -105,7 +157,7 @@ export default function GestaoUsuarios() {
         </h1>
         <p className="text-slate-500 font-medium mt-1">Gerencie os acessos, permissões e solicitações do DashOp.</p>
         <p className="text-xs text-blue-600 bg-blue-50 p-3 rounded-lg mt-3 font-semibold border border-blue-100">
-          Nota: O usuário precisará criar uma conta (Sign Up / Solicitar Acesso) com este mesmo e-mail na tela de login.
+          Nota: O sistema gerará uma senha temporária ao criar um usuário. O Supabase enviará o e-mail de OTP. Envie a senha temporária para a pessoa.
         </p>
       </div>
 
@@ -114,39 +166,69 @@ export default function GestaoUsuarios() {
           <UserPlus className="w-5 h-5 text-emerald-500" />
           Conceder Novo Acesso Manualmente
         </h2>
-        <form onSubmit={handleAddUser} className="flex flex-col md:flex-row gap-4 items-end">
-          <div className="flex-1 w-full">
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">E-mail do Usuário</label>
-            <input
-              type="email"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              placeholder="exemplo@espindolalog.com"
-              className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
+        <form onSubmit={handleAddUser} className="flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nome Completo</label>
+              <input
+                type="text"
+                value={newNome}
+                onChange={(e) => setNewNome(e.target.value)}
+                placeholder="João da Silva"
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">E-mail do Usuário</label>
+              <input
+                type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                placeholder="exemplo@espindolalog.com"
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
           </div>
-          <div className="w-full md:w-64">
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Papel (Role)</label>
-            <select
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          <div className="flex flex-col md:flex-row gap-4 items-end">
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Telefone (Opcional)</label>
+              <input
+                type="tel"
+                value={newTelefone}
+                onChange={(e) => setNewTelefone(e.target.value)}
+                placeholder="51999999999"
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Papel (Role)</label>
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="operacao">Operação (Apenas Ops)</option>
+                <option value="importer">Importer (Apenas Importador)</option>
+                <option value="admin">Administrador (Total)</option>
+              </select>
+            </div>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full md:w-48 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <option value="operacao">Operação (Apenas Ops)</option>
-              <option value="importer">Importer (Apenas Importador)</option>
-              <option value="admin">Administrador (Total)</option>
-            </select>
+              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Criar Acesso'}
+            </button>
           </div>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full md:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Adicionar'}
-          </button>
         </form>
         {error && <p className="text-red-500 text-sm font-bold mt-4">{error}</p>}
+        {successMessage && (
+          <div className="mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <p className="text-emerald-700 text-sm font-bold break-all">{successMessage}</p>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-4 mb-4">
