@@ -4332,6 +4332,9 @@ export default function App() {
               const detFiltrados = detalhes.filter(d => 
                  filtroQuinzenas.length === 0 || filtroQuinzenas.includes(d.quinzena)
               );
+              
+              const regSupObj = exportData.length > 0 ? { reg: exportData[0].regional, sup: exportData[0].supervisor } : { reg: 'N/A', sup: 'N/A' };
+
               casosMap.length = 0; 
               detFiltrados.forEach(d => {
                  if (motorista && normalizeText(d.motorista) !== normalizeText(motorista)) return;
@@ -4345,8 +4348,8 @@ export default function App() {
 
                  casosMap.push({
                    "Filial": d.filial,
-                   "Regional": d.regional,
-                   "Supervisor": d.supervisor,
+                   "Regional": d.regional && d.regional !== 'N/A' ? d.regional : regSupObj.reg,
+                   "Supervisor": d.supervisor && d.supervisor !== 'N/A' ? d.supervisor : regSupObj.sup,
                    "Motorista": d.motorista,
                    "Tipo Penalidade": d.tipo,
                    "ID (Pacote/Rota)": idVal || '-',
