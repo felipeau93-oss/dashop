@@ -2678,7 +2678,7 @@ export default function App() {
       // Remove a flag de troca obrigatória, se existir
       const targetEmail = currentUser?.email || emailLogin;
       if (targetEmail) {
-        await supabase.from('user_roles').update({ needs_password_change: false }).eq('email', targetEmail.trim().toLowerCase());
+        await supabase.rpc('clear_needs_password_change', { p_email: targetEmail.trim().toLowerCase() });
       }
 
       setLoginSuccessMsg('Senha atualizada com sucesso! Faça login.');
@@ -4315,6 +4315,7 @@ export default function App() {
           else if (d.tipo === 'Not Visited') { motoristasMap[mUniqueKey]["NV (R$)"] += valor; motoristasMap[mUniqueKey]["NV (Qtd)"] += qtd; }
 
           casosMap.push({
+            "Quinzena": d.quinzena || 'N/A',
             "Filial": fKey,
             "Regional": reg,
             "Supervisor": sup,
@@ -4347,6 +4348,7 @@ export default function App() {
                  }
 
                  casosMap.push({
+                   "Quinzena": d.quinzena || 'N/A',
                    "Filial": d.filial,
                    "Regional": d.regional && d.regional !== 'N/A' ? d.regional : regSupObj.reg,
                    "Supervisor": d.supervisor && d.supervisor !== 'N/A' ? d.supervisor : regSupObj.sup,
