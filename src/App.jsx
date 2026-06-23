@@ -5235,11 +5235,6 @@ export default function App() {
                       <div className="flex flex-col mb-8 z-10">
                         <span className="text-5xl font-black leading-tight tracking-tight text-red-400 flex items-center gap-3">
                           {formatCurrency(resumoMetrics.total)}
-                          {prevMargemBrutaMetrics && (
-                            <span className={`text-sm px-2 py-1 rounded-lg flex items-center font-bold ${resumoMetrics.total <= prevMargemBrutaMetrics.penalidades ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                              {resumoMetrics.total <= prevMargemBrutaMetrics.penalidades ? '⬇' : '⬆'} {Math.abs(((resumoMetrics.total - prevMargemBrutaMetrics.penalidades) / (prevMargemBrutaMetrics.penalidades || 1)) * 100).toFixed(1)}% vs anterior
-                            </span>
-                          )}
                         </span>
                         <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Total Descontado ({formatQtd(resumoMetrics.qtdTotal)} infrações)</span>
                       </div>
@@ -5252,11 +5247,6 @@ export default function App() {
                         <span className="text-emerald-400 font-bold">Faturamento Total</span>
                         <div className="flex flex-col items-end">
                           <span className="text-emerald-400 font-bold text-base">{formatCurrency(faturamentoTotalMetrics)}</span>
-                          {prevMargemBrutaMetrics && prevMargemBrutaMetrics.faturamento > 0 && (
-                            <span className={`text-[10px] font-bold ${faturamentoTotalMetrics >= prevMargemBrutaMetrics.faturamento ? 'text-emerald-500' : 'text-red-400'}`}>
-                              {faturamentoTotalMetrics >= prevMargemBrutaMetrics.faturamento ? '⬆' : '⬇'} {Math.abs(((faturamentoTotalMetrics - prevMargemBrutaMetrics.faturamento) / prevMargemBrutaMetrics.faturamento) * 100).toFixed(1)}% vs ant.
-                            </span>
-                          )}
                         </div>
                       </div>
                       <div className="flex justify-between items-center"><span className="text-violet-400 font-bold">% de Representatividade</span> <span className="text-white font-bold">{faturamentoTotalMetrics > 0 ? ((resumoMetrics.total / faturamentoTotalMetrics) * 100).toFixed(2) + '%' : '0%'}</span></div>
@@ -5415,11 +5405,6 @@ export default function App() {
                       <div className="flex flex-col mb-8 z-10">
                         <span className={`text-5xl font-black leading-tight tracking-tight flex items-center gap-3 ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                           {formatCurrency(margemBrutaMetrics.margemRS)}
-                          {prevMargemBrutaMetrics && (
-                            <span className={`text-sm px-2 py-1 rounded-lg flex items-center font-bold ${margemBrutaMetrics.margemRS >= (prevMargemBrutaMetrics.margemRS || 0) ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                              {margemBrutaMetrics.margemRS >= (prevMargemBrutaMetrics.margemRS || 0) ? '⬆' : '⬇'} {Math.abs(prevMargemBrutaMetrics.margemRS ? ((margemBrutaMetrics.margemRS - prevMargemBrutaMetrics.margemRS) / Math.abs(prevMargemBrutaMetrics.margemRS)) * 100 : 0).toFixed(1)}% vs anterior
-                            </span>
-                          )}
                         </span>
                         <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Margem global de {margemBrutaMetrics.margemPct.toFixed(1)}%</span>
                       </div>
