@@ -94,15 +94,16 @@ pen_agg AS (
   GROUP BY quinzena, filial, motorista
 ),
 bsc_agg AS (
-  SELECT quinzena, filial, motorista, 
-         SUM(COALESCE(entregues, 0)) as pacotes_entregues,
-         SUM(COALESCE(saldo, 0)) as pacotes_saldo,
-         CASE WHEN SUM(COALESCE(entregues, 0) + COALESCE(saldo, 0)) > 0 
-              THEN ROUND((SUM(COALESCE(entregues, 0)) / SUM(COALESCE(entregues, 0) + COALESCE(saldo, 0))) * 100, 2)
-              ELSE 0 END as nota_bsc
-  FROM operacional
-  WHERE motorista IS NOT NULL AND motorista != 'N/A'
-  GROUP BY quinzena, filial, motorista
+  SELECT b.quinzena, b.filial, o.motorista, 
+         0 as pacotes_entregues,
+         0 as pacotes_saldo,
+         MAX(b.nota) as nota_bsc
+  FROM bsc b
+  LEFT JOIN (
+    SELECT DISTINCT driver_id, motorista FROM operacional WHERE driver_id IS NOT NULL AND driver_id != 'N/A'
+  ) o ON b.driver_id = o.driver_id
+  WHERE o.motorista IS NOT NULL AND o.motorista != 'N/A'
+  GROUP BY b.quinzena, b.filial, o.motorista
 )
 SELECT 
   COALESCE(p.quinzena, b.quinzena) as quinzena,
