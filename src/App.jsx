@@ -231,13 +231,6 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
               return `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(yPct, 0), 100)}`;
             }).join(' ')} fill="none" stroke="#8b5cf6" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
           </svg>)}
-          {showForecastLine && (<svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <polyline points={safeData.map((d, i) => {
-              const valLine = Math.max(0, d[forecastKey] || 0);
-              const yPct = isMarginChart ? (valLine / maxFat) * 100 : (log10(valLine) / logMaxFat) * 100;
-              return `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(yPct, 0), 100)}`;
-            }).join(' ')} fill="none" stroke="#fb923c" strokeWidth="2.5" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
-          </svg>)}
           {showLine && hoveredIndex !== null && safeData[hoveredIndex] && showFaturamento && (
             <div className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 opacity-80 z-10 pointer-events-none transition-all duration-200" style={{ bottom: `${Math.min(Math.max(((safeData[hoveredIndex].representatividade || 0) / maxRep) * 100, 0), 100)}%` }} />
           )}
