@@ -184,7 +184,7 @@ const useSessionStorage = (key, initialValue) => {
 // ============================================================================
 
 
-const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = showFaturamento, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false, showDSLine = false, dsKey = 'ds', dsLabel = 'DS', showTotalLine = false }) => {
+const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = showFaturamento, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false, showDSLine = false, dsKey = 'ds', dsLabel = 'DS', showTotalLine = false, showForecastLine = false, forecastKey = 'forecastPenalidades' }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   useEffect(() => setHoveredIndex(null), [data]);
   const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
@@ -230,6 +230,13 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
               const yPct = isMarginChart ? (valLine / maxFat) * 100 : (log10(valLine) / logMaxFat) * 100;
               return `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(yPct, 0), 100)}`;
             }).join(' ')} fill="none" stroke="#8b5cf6" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+          </svg>)}
+          {showForecastLine && (<svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <polyline points={safeData.map((d, i) => {
+              const valLine = Math.max(0, d[forecastKey] || 0);
+              const yPct = isMarginChart ? (valLine / maxFat) * 100 : (log10(valLine) / logMaxFat) * 100;
+              return `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(yPct, 0), 100)}`;
+            }).join(' ')} fill="none" stroke="#fb923c" strokeWidth="2.5" strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
           </svg>)}
           {showLine && hoveredIndex !== null && safeData[hoveredIndex] && showFaturamento && (
             <div className="absolute left-0 w-full border-t-2 border-dashed border-slate-800 opacity-80 z-10 pointer-events-none transition-all duration-200" style={{ bottom: `${Math.min(Math.max(((safeData[hoveredIndex].representatividade || 0) / maxRep) * 100, 0), 100)}%` }} />
@@ -528,7 +535,7 @@ const NativeRunRateChart = ({ diasOperados, totalDias, currentSaldo, currentEntr
 // ============================================================================
 // COMPONENTES DE SEÇÃO (PÁGINAS)
 // ============================================================================
-const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDrilldown }) => {
+const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDrilldown, isForecastMode, setIsForecastMode }) => {
   const [selectedOfensorFilial, setSelectedOfensorFilial] = useState(null);
   const { totalDias, diasOperados, isClosed } = useMemo(() => {
     if (!targetQuinzena || targetQuinzena === 'N/A') return { totalDias: 15, diasOperados: 15, isClosed: true };
@@ -575,14 +582,15 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
     );
   }
 
-  const mult = isClosed ? 1 : (diasOperados > 0 ? totalDias / diasOperados : 1);
+  const baseMult = isClosed ? 1 : (diasOperados > 0 ? totalDias / diasOperados : 1);
+  const mult = isForecastMode ? baseMult : 1;
 
   let globalPen = 0, globalPnr = 0, globalLost = 0, globalNv = 0;
   baseData.forEach(d => { globalPen += d.penalidades; globalPnr += d.pnr; globalLost += d.lost; globalNv += d.notVisited; });
 
   const projFilialData = baseData.map(d => {
-    const mult = 1;
     const pPen = d.penalidades * mult;
+    const forecastPenalidades = d.penalidades * baseMult;
     let penAnterior = undefined;
     if (prevStats && prevStats.filiaisMap) {
       const filialPassada = prevStats.filiaisMap[normalizeText(d.filial)];
@@ -736,7 +744,16 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div className="flex items-center gap-3">
           <Activity className="w-6 h-6 text-blue-500" />
-          <div><h2 className="text-xl md:text-2xl font-bold text-slate-800">{isClosed ? 'Resultado de Penalidades (Consolidado)' : 'Projeção de Penalidades'} - {targetQuinzena}</h2></div>
+          <div><h2 className="text-xl md:text-2xl font-bold text-slate-800">{isClosed ? 'Resultado de Penalidades (Consolidado)' : 'Desempenho de Penalidades'} - {targetQuinzena}</h2></div>
+        {isClosed ? null : (
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl ml-4 shadow-sm cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => setIsForecastMode(!isForecastMode)}>
+            <div className={`w-10 h-5 rounded-full relative transition-colors ${isForecastMode ? 'bg-orange-500' : 'bg-slate-300'}`}>
+              <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${isForecastMode ? 'translate-x-5' : 'translate-x-0'}`} />
+            </div>
+            <span className="text-xs font-bold text-slate-600 uppercase">Modo Previsão</span>
+          </div>
+        )}
+
         </div>
         <div className="flex flex-col sm:flex-row gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full lg:w-auto">
           {isClosed ? (
@@ -781,7 +798,7 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
           <div className="flex items-center justify-between mb-4 px-2 pt-2"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">{selectedRegional ? `Filiais: ${selectedRegional}` : `Penalidades por Regional`}</h3>{selectedRegional && (<button onClick={() => setSelectedRegional(null)} className="text-[10px] sm:text-xs font-bold text-blue-500 bg-blue-50/50 px-2 py-1 rounded hover:bg-blue-100 transition-colors">← Voltar</button>)}</div>
-          {!selectedRegional ? <NativeComboChart data={projRegionalData} labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} showFaturamento={false} showTotalLine={true} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" showFaturamento={false} showTotalLine={true} />}
+          {!selectedRegional ? <NativeComboChart data={projRegionalData} showForecastLine={!isClosed} forecastKey="forecastPenalidades" labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} showFaturamento={false} showTotalLine={true} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" showFaturamento={false} showTotalLine={true} />}
         </div>
         <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col"><h3 className="text-sm font-bold text-slate-500 text-center mb-2 pt-2 uppercase tracking-wider">Penalidades por Filial</h3><NativeComboChart data={projFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" showFaturamento={false} showTotalLine={true} /></div>
       </div>
@@ -906,7 +923,7 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
   );
 };
 
-const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrilldown }) => {
+const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrilldown, isForecastMode, setIsForecastMode }) => {
   const [selectedOfensorFilial, setSelectedOfensorFilial] = useState(null);
   const { totalDias, diasOperados, isClosed } = useMemo(() => {
     if (!targetQuinzena || targetQuinzena === 'N/A') return { totalDias: 15, diasOperados: 15, isClosed: true };
@@ -953,16 +970,18 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrill
     );
   }
 
-  const mult = isClosed ? 1 : (diasOperados > 0 ? totalDias / diasOperados : 1);
+  const baseMult = isClosed ? 1 : (diasOperados > 0 ? totalDias / diasOperados : 1);
+  const mult = isForecastMode ? baseMult : 1;
 
   let globalFat = 0, globalPen = 0, globalPnr = 0, globalLost = 0, globalNv = 0;
   baseData.forEach(d => { globalFat += d.faturamento; globalPen += d.penalidades; globalPnr += d.pnr; globalLost += d.lost; globalNv += d.notVisited; });
 
   const projFilialData = baseData.map(d => {
-    const mult = 1;
     const pFat = d.faturamento * mult;
     const pPen = d.penalidades * mult;
-    return { ...d, faturamento: pFat, penalidades: pPen, pnr: d.pnr * mult, lost: d.lost * mult, notVisited: d.notVisited * mult, representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0) };
+    const forecastFaturamento = d.faturamento * baseMult;
+    const forecastPenalidades = d.penalidades * baseMult;
+    return { ...d, faturamento: pFat, penalidades: pPen, forecastFaturamento, forecastPenalidades, pnr: d.pnr * mult, lost: d.lost * mult, notVisited: d.notVisited * mult, representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0) };
   }).sort((a, b) => b.penalidades - a.penalidades);
 
   const regionalMap = {};
@@ -976,9 +995,10 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrill
   });
 
   const projRegionalData = Object.values(regionalMap).map(r => {
-    const mult = 1;
     const pFat = r.faturamento * mult; const pPen = r.penalidades * mult;
-    return { ...r, faturamento: pFat, penalidades: pPen, pnr: r.pnr * mult, lost: r.lost * mult, notVisited: r.notVisited * mult, representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0) };
+    const forecastFaturamento = r.faturamento * baseMult;
+    const forecastPenalidades = r.penalidades * baseMult;
+    return { ...r, faturamento: pFat, penalidades: pPen, forecastFaturamento, forecastPenalidades, pnr: r.pnr * mult, lost: r.lost * mult, notVisited: r.notVisited * mult, representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0) };
   }).sort((a, b) => b.penalidades - a.penalidades);
 
   const topOfensores = [...projFilialData].filter(d => d.penalidades > 0).sort((a, b) => b.representatividade - a.representatividade).slice(0, 6);
@@ -1052,7 +1072,16 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrill
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div className="flex items-center gap-3">
           <Activity className="w-6 h-6 text-blue-500" />
-          <div><h2 className="text-xl md:text-2xl font-bold text-slate-800">{isClosed ? 'Resultado Financeiro (Consolidado)' : 'Projeção de Fechamento Financeiro'} - {targetQuinzena}</h2></div>
+          <div><h2 className="text-xl md:text-2xl font-bold text-slate-800">{isClosed ? 'Resultado Financeiro (Consolidado)' : 'Desempenho Financeiro'} - {targetQuinzena}</h2></div>
+        {isClosed ? null : (
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl ml-4 shadow-sm cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => setIsForecastMode(!isForecastMode)}>
+            <div className={`w-10 h-5 rounded-full relative transition-colors ${isForecastMode ? 'bg-orange-500' : 'bg-slate-300'}`}>
+              <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${isForecastMode ? 'translate-x-5' : 'translate-x-0'}`} />
+            </div>
+            <span className="text-xs font-bold text-slate-600 uppercase">Modo Previsão</span>
+          </div>
+        )}
+
         </div>
         <div className="flex flex-col sm:flex-row gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full lg:w-auto">
           {isClosed ? (
@@ -1096,7 +1125,7 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrill
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
           <div className="flex items-center justify-between mb-4 px-2 pt-2"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">{selectedRegional ? `Filiais: ${selectedRegional}` : `Resultado por Regional`}</h3>{selectedRegional && (<button onClick={() => setSelectedRegional(null)} className="text-[10px] sm:text-xs font-bold text-blue-500 bg-blue-50/50 px-2 py-1 rounded hover:bg-blue-100 transition-colors">← Voltar</button>)}</div>
-          {!selectedRegional ? <NativeComboChart data={projRegionalData} labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" />}
+          {!selectedRegional ? <NativeComboChart data={projRegionalData} showForecastLine={!isClosed} forecastKey="forecastPenalidades" labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" />}
         </div>
         <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col"><h3 className="text-sm font-bold text-slate-500 text-center mb-2 pt-2 uppercase tracking-wider">Descontos por Filial</h3><NativeComboChart data={projFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" /></div>
       </div>
@@ -1238,7 +1267,7 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrill
   );
 };
 
-const RunRateOperacionalSection = ({ baseData, targetQuinzena, titlePrefix = "Operacional" }) => {
+const RunRateOperacionalSection = ({ baseData, targetQuinzena, titlePrefix = "Operacional", isForecastMode, setIsForecastMode }) => {
   const { totalDias, diasOperados, isClosed } = useMemo(() => {
     if (!targetQuinzena || targetQuinzena === 'N/A') return { totalDias: 15, diasOperados: 15, isClosed: true };
     const year = parseInt(targetQuinzena.substring(0, 4));
@@ -1276,12 +1305,12 @@ const RunRateOperacionalSection = ({ baseData, targetQuinzena, titlePrefix = "Op
   const [selectedRegional, setSelectedRegional] = useState(null);
   if (!baseData || baseData.length === 0) return (<div className="bg-slate-50 p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col items-center justify-center text-center gap-3"><AlertCircle className="w-8 h-8 text-slate-400" /><p className="text-slate-500 font-medium max-w-md">Nenhuma informação disponível para {targetQuinzena}.</p></div>);
 
-  const mult = isClosed ? 1 : (diasOperados > 0 ? totalDias / diasOperados : 1);
+  const baseMult = isClosed ? 1 : (diasOperados > 0 ? totalDias / diasOperados : 1);
+  const mult = isForecastMode ? baseMult : 1;
   let globalSaldo = 0, globalEntregues = 0;
   baseData.forEach(d => { globalSaldo += d.saldo; globalEntregues += d.entregues; });
 
   const projFilialData = baseData.map(d => {
-    const mult = 1;
     const pSaldo = d.saldo * mult; const pEntregues = d.entregues * mult;
     const pIns = {}; if (d.insucessosDetalhados) { Object.entries(d.insucessosDetalhados).forEach(([k, v]) => pIns[k] = v * mult); }
     return { ...d, saldo: pSaldo, entregues: pEntregues, ds: Math.min(100, pSaldo > 0 ? (pEntregues / pSaldo) * 100 : 0), insucessosDetalhados: pIns };
@@ -1298,7 +1327,6 @@ const RunRateOperacionalSection = ({ baseData, targetQuinzena, titlePrefix = "Op
   });
 
   const projRegionalData = Object.values(regionalMap).map(r => {
-    const mult = 1;
     const pSaldo = r.saldo * mult; const pEntregues = r.entregues * mult;
     const pIns = {}; if (r.insucessosDetalhados) { Object.entries(r.insucessosDetalhados).forEach(([k, v]) => pIns[k] = v * mult); }
     return { ...r, saldo: pSaldo, entregues: pEntregues, ds: Math.min(100, pSaldo > 0 ? (pEntregues / pSaldo) * 100 : 0), insucessosDetalhados: pIns };
@@ -2347,6 +2375,7 @@ export default function App() {
   const navigate = useNavigate();
   const urlIsOpMode = new URLSearchParams(window.location.search).get('view') === 'operacao';
   const [currentUser, setCurrentUser] = useState(null);
+  const [isForecastMode, setIsForecastMode] = useState(false);
   const [userRole, setUserRole] = useState(null); // 'admin', 'importer', 'operacao'
 
   const isUserAdmin = userRole === 'admin';
@@ -5249,7 +5278,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { handleOpenEvolutivo(f); }} />
+                  <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { handleOpenEvolutivo(f); }} isForecastMode={isForecastMode} setIsForecastMode={setIsForecastMode} />
                 </div>
 
                 <motion.div
@@ -5524,7 +5553,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  <RunRatePenalidadesSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { handleOpenEvolutivo(f); }} />
+                  <RunRatePenalidadesSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { handleOpenEvolutivo(f); }} isForecastMode={isForecastMode} setIsForecastMode={setIsForecastMode} />
                 </div>
 
                 <motion.div
@@ -5640,7 +5669,7 @@ export default function App() {
                   </motion.div>
                 </div>
 
-                <RunRateOperacionalSection baseData={currentOpRunRateData} targetQuinzena={targetQuinzenaRunRate} titlePrefix={titlePrefix} />
+                <RunRateOperacionalSection baseData={currentOpRunRateData} targetQuinzena={targetQuinzenaRunRate} titlePrefix={titlePrefix} isForecastMode={isForecastMode} setIsForecastMode={setIsForecastMode} />
 
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
