@@ -13,6 +13,28 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
+async function fetchAllSupabase(queryBuilderFn) {
+  let allData = [];
+  let from = 0;
+  const pageSize = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data, error } = await queryBuilderFn().range(from, from + pageSize - 1);
+    if (error) throw error;
+    if (data && data.length > 0) {
+      allData = allData.concat(data);
+      if (data.length < pageSize) {
+        hasMore = false;
+      } else {
+        from += pageSize;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+  return allData;
+}
 export default async function handler(req, res) {
   try {
     // BLOQUEIO TEMPORÁRIO A PEDIDO DO USUÁRIO
@@ -59,13 +81,13 @@ export default async function handler(req, res) {
 
     const targetQuinzena = quinzenasData[0].quinzena;
 
-    // 3. Buscar todos os dados para montar o Gráfico de Evolução Quinzenal
-    const { data: dadosGrafico, error: chartError } = await supabase
-      .from('penalidades')
-      .select('quinzena, valor')
-      .not('quinzena', 'is', null);
-
-    if (chartError) {
+    // 3. Buscar todos os dados para montar o Gráfico de Evolução Quinzenal (com paginação para evitar limite de 1000 rows)
+    let dadosGrafico;
+    try {
+      dadosGrafico = await fetchAllSupabase(() => 
+        supabase.from('penalidades').select('quinzena, valor').not('quinzena', 'is', null)
+      );
+    } catch (chartError) {
       console.error("Erro ao buscar dados do gráfico:", chartError);
       return res.status(500).json({ error: 'Erro ao buscar dados do gráfico no Supabase.' });
     }
@@ -140,13 +162,13 @@ export default async function handler(req, res) {
 
     const encodedChartUrl = `https://quickchart.io/chart?w=800&h=400&devicePixelRatio=2&c=${encodeURIComponent(chartConfigStr)}`;
 
-    // 4. Buscar os Dados da Quinzena Atual
-    const { data: casosDaQuinzena, error: casosError } = await supabase
-      .from('penalidades')
-      .select('*')
-      .eq('quinzena', targetQuinzena);
-
-    if (casosError) {
+    // 4. Buscar os Dados da Quinzena Atual (com paginação)
+    let casosDaQuinzena;
+    try {
+      casosDaQuinzena = await fetchAllSupabase(() => 
+        supabase.from('penalidades').select('*').eq('quinzena', targetQuinzena)
+      );
+    } catch (casosError) {
       console.error("Erro ao buscar casos da quinzena:", casosError);
       return res.status(500).json({ error: 'Erro ao buscar casos da quinzena no Supabase.' });
     }
