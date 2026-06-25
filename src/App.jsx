@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, Fragment, useRef, Suspense, lazy } from 'react';
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 
 const Simulador = lazy(() => import('./Simulador'));
 const DreAnaliseCusto = lazy(() => import('./DreAnaliseCusto'));
@@ -11,7 +12,14 @@ const PainelTreinamentos = lazy(() => import('./PainelTreinamentos'));
 const PainelDisponibilidade = lazy(() => import('./PainelDisponibilidade'));
 const GestaoUsuarios = lazy(() => import('./GestaoUsuarios'));
 const Configuracoes = lazy(() => import('./Configuracoes'));
+const GestaoMotoristas = lazy(() => import('./GestaoMotoristas'));
+const DatabaseExplorer = lazy(() => import('./DatabaseExplorer'));
 import { supabase, isInitialRecoveryUrl } from './supabase';
+import Sidebar from './components/layout/Sidebar';
+import Header from './components/layout/Header';
+import { Skeleton } from './components/ui/Skeleton';
+import { HeatmapPenalidades } from './components/ui/HeatmapPenalidades';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Calculator,
   Lock,
@@ -174,59 +182,7 @@ const useSessionStorage = (key, initialValue) => {
 // ============================================================================
 // COMPONENTES AUXILIARES E GRÁFICOS
 // ============================================================================
-const InverseMultiSelectDropdown = ({ label, options, excluded, onChange }) => {
-  const [isOpen, setIsOpen] = useState(false);
 
-  const toggleOption = (opt) => {
-    if (excluded.includes(opt)) {
-      onChange(excluded.filter(i => i !== opt));
-    } else {
-      onChange([...excluded, opt]);
-    }
-  };
-
-  const selectAll = () => onChange([]);
-  const deselectAll = () => onChange([...options]);
-
-  const includedCount = options.length - excluded.length;
-  let displayText = 'Todas';
-  if (includedCount === 0) displayText = 'Nenhuma';
-  else if (includedCount === 1) displayText = options.find(o => !excluded.includes(o));
-  else if (includedCount < options.length) displayText = `${includedCount} ativas`;
-
-  return (
-    <div className={`relative shrink-0 flex items-center ${isOpen ? 'z-50' : 'z-10'}`}>
-      <span className="text-[10px] font-bold text-slate-500 uppercase px-2 hidden sm:block">{label}:</span>
-      <button onClick={() => setIsOpen(!isOpen)} className={`bg-white border text-sm rounded-xl px-3 py-1.5 outline-none font-bold cursor-pointer shadow-sm flex items-center justify-between min-w-[120px] max-w-[180px] transition-all duration-200 ${isOpen ? 'border-blue-500 ring-2 ring-blue-500/20 text-blue-700' : 'border-slate-300 text-slate-700 hover:border-blue-400'}`}>
-        <span className="truncate">{displayText}</span>
-        <ArrowDown className={`w-3 h-3 ml-2 shrink-0 transition-transform ${isOpen ? 'rotate-180 text-blue-500' : 'text-slate-400'}`} />
-      </button>
-      {isOpen && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)}></div>
-          <div className="absolute top-full mt-2 w-64 max-h-72 overflow-y-auto bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-100">
-            <div className="flex gap-2 mb-1">
-              <button onClick={selectAll} className="flex-1 text-center px-2 py-2 rounded-lg text-xs font-bold transition-colors bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white">Marcar Todas</button>
-              <button onClick={deselectAll} className="flex-1 text-center px-2 py-2 rounded-lg text-xs font-bold transition-colors bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white">Desmarcar</button>
-            </div>
-            <div className="h-px bg-slate-700 my-1"></div>
-            {options.map((opt, idx) => {
-              const isChecked = !excluded.includes(opt);
-              return (
-                <div key={idx} onClick={() => toggleOption(opt)} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-700 rounded-lg cursor-pointer transition-colors group">
-                  <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0 ${isChecked ? 'bg-blue-500 border-blue-500' : 'border-slate-500 bg-slate-800 group-hover:border-slate-400'}`}>
-                    {isChecked && <Check className="w-3 h-3 text-white" />}
-                  </div>
-                  <span className={`text-sm truncate ${isChecked ? 'font-bold text-white' : 'font-medium text-slate-400'}`} title={opt}>{opt}</span>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
 
 const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = showFaturamento, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false, showDSLine = false, dsKey = 'ds', dsLabel = 'DS', showTotalLine = false }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
@@ -234,7 +190,7 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
   const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
   if (safeData.length === 0) return <div className={`w-full ${heightClass} flex items-center justify-center text-slate-400`}>Nenhum dado disponível.</div>;
 
-  const maxFat = Math.max(1, ...safeData.map(d => Math.max(showFaturamento ? (d.faturamento || 0) : 0, d.penalidades || 0)));
+  const maxFat = Math.max(1, ...safeData.map(d => Math.max(showFaturamento ? (d.faturamento || 0) : 0, d.penalidades || 0, d.penAnterior || 0)));
   const maxRep = Math.max(10, ...safeData.map(d => d.representatividade !== Infinity && d.representatividade ? d.representatividade : 0));
   const log10 = (val) => Math.log10(Math.max(val, 0) + 1);
   const logMaxFat = log10(maxFat);
@@ -270,7 +226,8 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
           </svg>)}
           {showTotalLine && (<svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
             <polyline points={safeData.map((d, i) => {
-              const yPct = isMarginChart ? ((d.penalidades || 0) / maxFat) * 100 : (log10(d.penalidades || 0) / logMaxFat) * 100;
+              const valLine = d.penAnterior !== undefined ? Math.max(0, d.penAnterior) : (d.penalidades || 0);
+              const yPct = isMarginChart ? (valLine / maxFat) * 100 : (log10(valLine) / logMaxFat) * 100;
               return `${(i + 0.5) * (100 / safeData.length)},${100 - Math.min(Math.max(yPct, 0), 100)}`;
             }).join(' ')} fill="none" stroke="#8b5cf6" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
           </svg>)}
@@ -287,7 +244,7 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
 
             return (
               <div key={i} className="flex-1 flex flex-col justify-end h-full group relative max-w-[40px]" onMouseEnter={() => setHoveredIndex(i)} onMouseLeave={() => setHoveredIndex(null)} onClick={() => onBarClick && onBarClick(d[labelKey])} style={{ cursor: onBarClick ? 'pointer' : 'default' }}>
-                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] sm:text-xs py-1.5 sm:py-2 px-2 sm:px-3 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700">
+                <div className={`absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] sm:text-xs py-1.5 sm:py-2 px-2 sm:px-3 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700 transition-all duration-200 ${hoveredIndex === i ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
                   <div className="font-bold text-slate-300 mb-1.5 border-b border-slate-700 pb-1 w-full text-center">{d[labelKey]}</div>
                   {showFaturamento && !hideFaturamentoTooltip && <div className="flex justify-between gap-4 mb-0.5"><span className="text-emerald-400 font-bold">Faturamento</span><span className="font-mono font-bold">{formatCurrency(d.faturamento || 0)}</span></div>}
                   <div className={`flex justify-between gap-4 ${!isMarginChart ? 'border-b border-slate-700' : ''}`}><span className="text-slate-300 font-bold">{tooltipSecondaryLabel || (isMarginChart ? 'Total Pago' : 'Total Penalidades')}</span><span className="font-mono text-red-400 font-bold">{formatCurrency(d.penalidades || 0)}</span></div>
@@ -300,6 +257,20 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
                       <div className="flex justify-between mb-0.5 pl-2"><span className="text-orange-400 text-[10px]">└ Lost</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.lost || 0)}</span></div>
                       <div className="flex justify-between mb-1.5 pl-2"><span className="text-slate-400 text-[10px]">└ Not Visited</span><span className="font-mono text-[10px] text-white">{formatCurrency(d.notVisited || 0)}</span></div>
                     </>
+                  )}
+                  {showTotalLine && d.penAnterior !== undefined && (
+                    <div className="flex justify-between font-bold border-t border-slate-700 pt-2 mt-2">
+                      <span className="text-violet-300">Q. Anterior</span>
+                      <span className="text-violet-400">{formatCurrency(d.penAnterior)}</span>
+                    </div>
+                  )}
+                  {showTotalLine && d.penAnterior !== undefined && (
+                    <div className="flex justify-between font-bold border-slate-700 pt-1 mt-1">
+                      <span className={d.penalidades > d.penAnterior ? "text-red-400" : "text-emerald-400"}>Evolução</span>
+                      <span className={d.penalidades > d.penAnterior ? "text-red-400" : "text-emerald-400"}>
+                        {d.penalidades > d.penAnterior ? '+' : ''}{d.penAnterior > 0 ? (((d.penalidades - d.penAnterior) / d.penAnterior) * 100).toFixed(1) : 0}%
+                      </span>
+                    </div>
                   )}
                   {showFaturamento && (
                     <div className="flex justify-between font-bold border-t border-slate-700 pt-2 mt-2">
@@ -318,17 +289,23 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
                 </div>
                 {showFaturamento && (
                   <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-violet-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${repPct}% - 4px)` }}>
-                    <span className="absolute bottom-full mb-1 text-[9px] font-bold text-violet-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none">{d[labelKey]}</span>
+                    <span className={`absolute ${i % 2 === 0 ? 'bottom-full mb-1' : 'top-full mt-1'} text-[9px] font-bold text-violet-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none`}>
+                      {d[labelKey] && d[labelKey].length > 25 ? d[labelKey].substring(0, 25) + '...' : d[labelKey]}
+                    </span>
                   </div>
                 )}
                 {showDSLine && (
                   <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-yellow-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${Math.min(Math.max((d[dsKey] || 0), 0), 100)}% - 4px)` }}>
-                    <span className="absolute bottom-full mb-1 text-[9px] font-bold text-yellow-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none">{d[labelKey]}</span>
+                    <span className={`absolute ${i % 2 === 0 ? 'bottom-full mb-1' : 'top-full mt-1'} text-[9px] font-bold text-yellow-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none`}>
+                      {d[labelKey] && d[labelKey].length > 25 ? d[labelKey].substring(0, 25) + '...' : d[labelKey]}
+                    </span>
                   </div>
                 )}
                 {showTotalLine && (
-                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-violet-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${Math.min(Math.max(penPct, 0), 100)}% - 4px)` }}>
-                    <span className="absolute bottom-full mb-1 text-[10px] font-bold text-violet-300 bg-slate-800 px-2 py-1 rounded shadow-sm whitespace-nowrap z-50 pointer-events-none hidden group-hover:block">{formatCurrency(d.penalidades || 0)}</span>
+                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-violet-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${Math.min(Math.max(d.penAnterior !== undefined ? (isMarginChart ? (Math.max(0, d.penAnterior) / maxFat) * 100 : (log10(Math.max(0, d.penAnterior)) / logMaxFat) * 100) : penPct, 0), 100)}% - 4px)` }}>
+                    <span className={`absolute ${i % 2 === 0 ? 'bottom-full mb-1' : 'top-full mt-1'} text-[9px] font-bold text-violet-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none`}>
+                      {d[labelKey] && d[labelKey].length > 25 ? d[labelKey].substring(0, 25) + '...' : d[labelKey]}
+                    </span>
                   </div>
                 )}
               </div>
@@ -605,7 +582,14 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
 
   const projFilialData = baseData.map(d => {
     const pPen = d.penalidades * mult;
-    return { ...d, faturamento: 0, penalidades: pPen, pnr: d.pnr * mult, lost: d.lost * mult, notVisited: d.notVisited * mult, representatividade: 0 };
+    let penAnterior = undefined;
+    if (prevStats && prevStats.filiaisMap) {
+      const filialPassada = prevStats.filiaisMap[normalizeText(d.filial)];
+      if (filialPassada) {
+        penAnterior = filialPassada.pen || 0;
+      }
+    }
+    return { ...d, faturamento: 0, penalidades: pPen, pnr: d.pnr * mult, lost: d.lost * mult, notVisited: d.notVisited * mult, representatividade: 0, penAnterior };
   }).sort((a, b) => b.penalidades - a.penalidades);
 
   const regionalMap = {};
@@ -613,14 +597,22 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
     const regName = d.regional && d.regional !== 'N/A' ? `Regional ${d.regional}` : 'Sem Regional';
     const supName = d.supervisor && d.supervisor !== 'N/A' ? d.supervisor : '';
     const r = supName && regName !== 'Sem Regional' ? `${regName} - ${supName}` : regName;
-    if (!regionalMap[r]) regionalMap[r] = { name: r, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
+    if (!regionalMap[r]) regionalMap[r] = { name: r, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0, penAnterior: 0, hasPrev: false };
     regionalMap[r].penalidades += d.penalidades;
     regionalMap[r].pnr += d.pnr; regionalMap[r].lost += d.lost; regionalMap[r].notVisited += d.notVisited;
+
+    if (prevStats && prevStats.filiaisMap) {
+      const filialPassada = prevStats.filiaisMap[normalizeText(d.filial)];
+      if (filialPassada) {
+        regionalMap[r].penAnterior += (filialPassada.pen || 0);
+        regionalMap[r].hasPrev = true;
+      }
+    }
   });
 
   const projRegionalData = Object.values(regionalMap).map(r => {
     const pPen = r.penalidades * mult;
-    return { ...r, faturamento: 0, penalidades: pPen, pnr: r.pnr * mult, lost: r.lost * mult, notVisited: r.notVisited * mult, representatividade: 0 };
+    return { ...r, faturamento: 0, penalidades: pPen, pnr: r.pnr * mult, lost: r.lost * mult, notVisited: r.notVisited * mult, representatividade: 0, penAnterior: r.hasPrev ? r.penAnterior : undefined };
   }).sort((a, b) => b.penalidades - a.penalidades);
 
   const topOfensores = [...projFilialData].filter(d => d.penalidades > 0).sort((a, b) => b.penalidades - a.penalidades).slice(0, 6);
@@ -1504,6 +1496,13 @@ const DetalheFinanceiroSection = ({ dadosFiltrados, onExport, isExporting, initi
           </button>
         </div>
       </div>
+
+      {selectedFilial && !selectedMotorista && (
+        <div className="mb-4">
+          <HeatmapPenalidades data={dadosFiltrados.filter(d => d.filial === selectedFilial)} />
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-sm w-full">
         <table className="w-full text-left border-collapse min-w-[1000px]">
           <thead className="bg-slate-50 sticky top-0 z-20 shadow-sm">
@@ -2339,6 +2338,8 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
   );
 };
 export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const urlIsOpMode = new URLSearchParams(window.location.search).get('view') === 'operacao';
   const [currentUser, setCurrentUser] = useState(null);
   const [userRole, setUserRole] = useState(null); // 'admin', 'importer', 'operacao'
@@ -2394,6 +2395,36 @@ export default function App() {
   });
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Logout automático por inatividade
+  useEffect(() => {
+    if (isAuthenticated !== true) return;
+
+    let inactivityTimer;
+    const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // 1 hora
+
+    const resetTimer = () => {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(async () => {
+        try {
+          console.log('Sessão encerrada por inatividade.');
+          await supabase.auth.signOut();
+        } catch (e) {
+          console.error('Logout error:', e);
+        }
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    events.forEach(event => window.addEventListener(event, resetTimer));
+
+    resetTimer();
+
+    return () => {
+      clearTimeout(inactivityTimer);
+      events.forEach(event => window.removeEventListener(event, resetTimer));
+    };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const styleId = 'dark-mode-injector';
@@ -2776,15 +2807,39 @@ export default function App() {
   const [filtroDiasSemana, setFiltroDiasSemana] = useSessionStorage('dashop_filtroDiasSemana', []);
   const [insucessosExcluidos, setInsucessosExcluidos] = useSessionStorage('dashop_insucessosExcluidos', []);
 
-  const [activeMenu, setActiveMenu] = useSessionStorage('dashop_activeMenu', isOpMode ? 'gestao_penalidades' : 'gestao_financeira');
+  const activeMenu = useMemo(() => {
+    const p = location.pathname;
+    if (p.startsWith('/financeiro/detalhes')) return 'detalhe_financeiro';
+    if (p.startsWith('/financeiro/margem')) return 'gestao_margem';
+    if (p.startsWith('/financeiro')) return 'gestao_financeira';
+    if (p.startsWith('/operacional/penalidades')) return 'gestao_penalidades';
+    if (p.startsWith('/operacional/bsc/comparativo')) return 'comparativo_bsc';
+    if (p.startsWith('/operacional/bsc')) return 'gestao_bsc';
+    if (p.startsWith('/operacional/gaps')) return 'gaps_operacionais';
+    if (p.startsWith('/operacional')) return 'gestao_operacional';
+    if (p.startsWith('/treinamentos')) return 'painel_treinamentos';
+    if (p.startsWith('/frota')) return 'disponibilidade_frota';
+    if (p.startsWith('/motoristas')) return 'gestao_motoristas';
+    if (p.startsWith('/planejamento')) return 'planejamento';
+    if (p.startsWith('/dre/custos')) return 'dre_custos';
+    if (p.startsWith('/dre/leves')) return 'dre_leves';
+    if (p.startsWith('/dre/viabilidade')) return 'dre_viabilidade';
+    if (p.startsWith('/importador')) return 'importador';
+    if (p.startsWith('/configuracoes/filiais')) return 'config_filiais';
+    if (p.startsWith('/configuracoes/tarifas')) return 'config_tarifas';
+    if (p.startsWith('/usuarios')) return 'gestao_usuarios';
+    if (p.startsWith('/explorador')) return 'explorador_dados';
+    if (p.startsWith('/configuracoes')) return 'configuracoes';
+    return isOpMode ? 'gestao_penalidades' : 'gestao_financeira';
+  }, [location.pathname, isOpMode]);
 
   useEffect(() => {
     if (isImporter && activeMenu !== 'importador') {
-      setActiveMenu('importador');
+      navigate('/importador', { replace: true });
     } else if (isOpMode && (activeMenu === 'gestao_financeira' || activeMenu === 'detalhe_financeiro' || activeMenu === 'gestao_margem' || activeMenu === 'planejamento' || activeMenu === 'dre_custos' || activeMenu === 'dre_leves' || activeMenu === 'dre_viabilidade')) {
-      setActiveMenu('gestao_penalidades');
+      navigate('/operacional/penalidades', { replace: true });
     }
-  }, [isImporter, isOpMode]);
+  }, [isImporter, isOpMode, activeMenu, navigate]);
   const mainScrollRef = useRef(null);
   useEffect(() => { if (mainScrollRef.current) mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' }); }, [activeMenu]);
   const [expandedMenus, setExpandedMenus] = useSessionStorage('dashop_expandedMenus', { financeiro: true, operacional: true, planejamento: false });
@@ -2818,10 +2873,34 @@ export default function App() {
   }, [filtroSupervisores]);
 
   const handleMenuChange = (menu) => {
-    setActiveMenu(menu);
+    let path = '/financeiro';
+    if (menu === 'detalhe_financeiro') path = '/financeiro/detalhes';
+    else if (menu === 'gestao_margem') path = '/financeiro/margem';
+    else if (menu === 'gestao_financeira') path = '/financeiro';
+    else if (menu === 'gestao_penalidades') path = '/operacional/penalidades';
+    else if (menu === 'comparativo_bsc') path = '/operacional/bsc/comparativo';
+    else if (menu === 'gestao_bsc') path = '/operacional/bsc';
+    else if (menu === 'gaps_operacionais') path = '/operacional/gaps';
+    else if (menu === 'gestao_operacional') path = '/operacional';
+    else if (menu === 'painel_treinamentos') path = '/treinamentos';
+    else if (menu === 'disponibilidade_frota') path = '/frota';
+    else if (menu === 'gestao_motoristas') path = '/motoristas';
+    else if (menu === 'planejamento') path = '/planejamento';
+    else if (menu === 'dre_custos') path = '/dre/custos';
+    else if (menu === 'dre_leves') path = '/dre/leves';
+    else if (menu === 'dre_viabilidade') path = '/dre/viabilidade';
+    else if (menu === 'importador') path = '/importador';
+    else if (menu === 'config_filiais') path = '/configuracoes/filiais';
+    else if (menu === 'config_tarifas') path = '/configuracoes/tarifas';
+    else if (menu === 'gestao_usuarios') path = '/usuarios';
+    else if (menu === 'explorador_dados') path = '/explorador';
+    else if (menu === 'configuracoes') path = '/configuracoes';
+
+    navigate(path);
     setSortConfig({ key: null, direction: 'desc' });
     setIsMobileMenuOpen(false);
   };
+  const setActiveMenu = handleMenuChange;
 
   const hasActiveFilters = filtroQuinzenas.length > 0 || filtroRegionais.length > 0 || filtroSupervisores.length > 0 || filtroFiliais.length > 0 || insucessosExcluidos.length > 0 || filtroDiasSemana.length > 0;
 
@@ -4402,12 +4481,20 @@ export default function App() {
     // IA Removida a pedido do usuário
   }, [targetQuinzenaRunRate, activeMenu, isUserAdmin, margemBrutaMetrics, prevMargemBrutaMetrics, prevQuinzenaName, prevPrevMargemBrutaMetrics, prevPrevQuinzenaName]);
 
+  // Se logado e tentar ir pro login, redireciona pro inicio
+  if (isAuthenticated === true && location.pathname === '/login') {
+    return <Navigate to="/" replace />;
+  }
+
   // TELA DE LOGIN
   if (isAuthenticated === null) {
     return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div></div>;
   }
 
   if (isAuthenticated === false) {
+    if (location.pathname !== '/login') {
+      return <Navigate to="/login" replace />;
+    }
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4 font-sans text-slate-800">
         <div className="absolute top-6 right-6">
@@ -4778,259 +4865,47 @@ export default function App() {
       )}
 
       {/* SIDEBAR */}
-      <aside className={`fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 md:relative md:translate-x-0 w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 overflow-y-auto border-r border-slate-800 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6 bg-slate-950 border-b border-slate-800 sticky top-0 z-10 flex justify-between items-center">
-          <div className="flex items-center gap-2 select-none">
-            {/* Símbolo Abstrato (Pulso em um bloco tecnológico) */}
-            <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-950 shadow-lg border border-blue-400/20">
-              <Activity className="w-5 h-5 text-emerald-400 absolute" strokeWidth={2.5} />
-            </div>
-
-            {/* Tipografia Moderna */}
-            <span className="text-2xl font-black tracking-tighter text-white">
-              Dash<span className="text-blue-500">Op</span>
-              <span className="text-emerald-400 text-3xl leading-none">.</span>
-            </span>
-          </div>
-          {/* BOTÃO FECHAR MENU (MOBILE) */}
-          <button
-            className="md:hidden p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white"
-            onClick={() => setIsMobileMenuOpen(false)}
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <nav className="flex-1 py-6 flex flex-col gap-6 px-4">
-          <div className="flex flex-col gap-1 pb-6">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 px-3">Módulos</p>
-
-            {/* Accordion Gestão Financeira */}
-            {!isOpMode && !isImporter && (
-              <div className="flex flex-col mb-2">
-                <button
-                  onClick={() => {
-                    handleMenuChange('gestao_financeira');
-                    if (!expandedMenus.financeiro) toggleExpandedMenu('financeiro', { stopPropagation: () => { } });
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_financeira', 'detalhe_financeiro', 'gestao_margem'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <DollarSign className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_financeira' ? 'text-blue-400' : ''}`} />
-                    <span className={`truncate ${activeMenu === 'gestao_financeira' ? 'font-bold' : ''}`}>Gestão Financeira</span>
-                  </div>
-                  <div onClick={(e) => toggleExpandedMenu('financeiro', e)} className="p-1 hover:bg-slate-700 rounded-md transition-colors text-slate-500 hover:text-slate-300">
-                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${expandedMenus.financeiro ? 'rotate-180' : ''}`} />
-                  </div>
-                </button>
-
-                <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.financeiro ? 'max-h-40 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
-                  <button onClick={() => handleMenuChange('detalhe_financeiro')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'detalhe_financeiro' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                    <span className="truncate">Penalidades Detalhadas</span>
-                  </button>
-                  <button onClick={() => handleMenuChange('gestao_margem')} className={`w-full flex items-center justify-between text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_margem' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                    <span className="truncate">Margem de Contribuição</span>
-                    <span className="text-[9px] font-black bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2 shrink-0">Dev</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Accordion Gestão Operacional */}
-            {!isImporter && (
-            <div className="flex flex-col">
-              <button
-                onClick={() => {
-                  handleMenuChange('gestao_operacional');
-                  if (!expandedMenus.operacional) toggleExpandedMenu('operacional', { stopPropagation: () => { } });
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_operacional', 'gestao_penalidades', 'gestao_bsc', 'comparativo_bsc', 'gaps_operacionais', 'painel_treinamentos', 'disponibilidade_frota'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
-              >
-                <div className="flex items-center gap-3">
-                  <Box className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_operacional' ? 'text-blue-400' : ''}`} />
-                  <span className={`truncate ${activeMenu === 'gestao_operacional' ? 'font-bold' : ''}`}>Gestão Operacional</span>
-                </div>
-                <div onClick={(e) => toggleExpandedMenu('operacional', e)} className="p-1 hover:bg-slate-700 rounded-md transition-colors text-slate-500 hover:text-slate-300">
-                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${expandedMenus.operacional ? 'rotate-180' : ''}`} />
-                </div>
-              </button>
-
-              <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.operacional ? 'max-h-60 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
-                <button onClick={() => handleMenuChange('gestao_penalidades')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_penalidades' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Penalidades (Operação)</span>
-                </button>
-                  <button onClick={() => handleMenuChange('gestao_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                    <span className="truncate">Visão BSC</span>
-                  </button>
-                  <button onClick={() => handleMenuChange('comparativo_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'comparativo_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                    <span className="truncate">Comparativo BSC</span>
-                  </button>
-                  <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                    <span className="truncate">Gaps Operacionais</span>
-                  </button>
-                  <button onClick={() => handleMenuChange('painel_treinamentos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'painel_treinamentos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                    <span className="truncate">Treinamentos</span>
-                  </button>
-                  <button onClick={() => handleMenuChange('disponibilidade_frota')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'disponibilidade_frota' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                    <span className="truncate">Disponibilidade de Frota</span>
-                  </button>
-                </div>
-              </div>
-            )}
-            {/* Accordion Planejamento */}
-            {!isOpMode && !isImporter && (
-              <div className="flex flex-col">
-                <button
-                  onClick={() => {
-                    handleMenuChange('planejamento');
-                    if (!expandedMenus.planejamento) toggleExpandedMenu('planejamento', { stopPropagation: () => { } });
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['planejamento', 'dre_custos', 'dre_leves', 'dre_viabilidade'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Calculator className={`w-4 h-4 shrink-0 ${activeMenu === 'planejamento' ? 'text-blue-400' : ''}`} />
-                    <span className={`truncate ${activeMenu === 'planejamento' ? 'font-bold' : ''}`}>Planejamento</span>
-                  </div>
-                  <div onClick={(e) => toggleExpandedMenu('planejamento', e)} className="p-1 hover:bg-slate-700 rounded-md transition-colors text-slate-500 hover:text-slate-300">
-                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${expandedMenus.planejamento ? 'rotate-180' : ''}`} />
-                  </div>
-                </button>
-
-                <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.planejamento ? 'max-h-60 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
-                  <button onClick={() => handleMenuChange('dre_custos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_custos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                    <span className="truncate">DRE Custo Pesados</span>
-                  </button>
-                  <button onClick={() => handleMenuChange('dre_leves')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_leves' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                    <span className="truncate">DRE Custo Leves</span>
-                  </button>
-                  <button onClick={() => handleMenuChange('dre_viabilidade')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_viabilidade' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                    <span className="truncate">DRE Viabilidade</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Importador Inteligente */}
-            {(isUserAdmin || isImporter) && (
-              <div className="flex flex-col mt-4 pt-4 border-t border-slate-800">
-                <button
-                  onClick={() => {
-                    handleMenuChange('importador');
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'importador' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Database className={`w-4 h-4 shrink-0 ${activeMenu === 'importador' ? 'text-blue-400' : ''}`} />
-                    <span className={`truncate ${activeMenu === 'importador' ? 'font-bold' : ''}`}>Importador Inteligente</span>
-                  </div>
-                </button>
-                {isUserAdmin && (
-                  <>
-                    <button
-                      onClick={() => {
-                        handleMenuChange('config_filiais');
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_filiais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_filiais' ? 'text-blue-400' : ''}`} />
-                        <span className={`truncate ${activeMenu === 'config_filiais' ? 'font-bold' : ''}`}>Config. de Filiais</span>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleMenuChange('config_tarifas');
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_tarifas' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_tarifas' ? 'text-blue-400' : ''}`} />
-                        <span className={`truncate ${activeMenu === 'config_tarifas' ? 'font-bold' : ''}`}>Config. de Tarifas</span>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleMenuChange('gestao_usuarios');
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_usuarios' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Users className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_usuarios' ? 'text-blue-400' : ''}`} />
-                        <span className={`truncate ${activeMenu === 'gestao_usuarios' ? 'font-bold' : ''}`}>Gestão de Usuários</span>
-                      </div>
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </nav>
-      </aside>
+      <Sidebar 
+        isMobileMenuOpen={isMobileMenuOpen}
+        setIsMobileMenuOpen={setIsMobileMenuOpen}
+        isOpMode={isOpMode}
+        isImporter={isImporter}
+        isUserAdmin={isUserAdmin}
+        activeMenu={activeMenu}
+        handleMenuChange={handleMenuChange}
+        expandedMenus={expandedMenus}
+        toggleExpandedMenu={toggleExpandedMenu}
+      />
 
       {/* HEADER & MAIN */}
       <main className="flex-1 flex flex-col h-full relative overflow-hidden">
-        <header className="bg-white border-b border-slate-200 p-4 md:px-6 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 shrink-0 shadow-sm z-30">
-
-          <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 w-full xl:w-auto">
-            <div className="flex items-center gap-3 w-full sm:w-auto pb-2 sm:pb-0 border-b border-slate-100 sm:border-none">
-              <button
-                className="md:hidden p-2 -ml-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 transition-colors"
-                onClick={() => setIsMobileMenuOpen(true)}
-              >
-                <Menu className="w-5 h-5" />
-              </button>
-              <div className="flex items-center gap-2 text-slate-500">
-                <Filter className="w-4 h-4" />
-                <span className="text-xs font-bold uppercase tracking-wider">Filtros</span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-200">
-              <InverseMultiSelectDropdown label="Quinzena" options={quinzenasDisponiveis} excluded={filtroQuinzenas} onChange={setFiltroQuinzenas} />
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
-              <InverseMultiSelectDropdown label="Regional" options={regionaisDisponiveis} excluded={filtroRegionais} onChange={setFiltroRegionais} />
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
-              <InverseMultiSelectDropdown label="Supervisor" options={supervisoresDisponiveis} excluded={filtroSupervisores} onChange={setFiltroSupervisores} />
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
-              <InverseMultiSelectDropdown label="Filial" options={filiaisDisponiveis} excluded={filtroFiliais} onChange={setFiltroFiliais} />
-
-              {showInsucessosFilter && (
-                <>
-                  <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
-                  <InverseMultiSelectDropdown label="Dia da Semana" options={diasSemanaDisponiveis} excluded={filtroDiasSemana} onChange={setFiltroDiasSemana} />
-                  <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
-                  <InverseMultiSelectDropdown label="Motivos de Insucesso" options={insucessosDisponiveis} excluded={insucessosExcluidos} onChange={setInsucessosExcluidos} />
-                </>
-              )}
-
-              {hasActiveFilters && (
-                <>
-                  <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1"></div>
-                  <button onClick={clearAllFilters} className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-[10px] font-bold text-slate-500 hover:text-red-600 bg-white border border-slate-200 hover:border-red-200 hover:bg-red-50 rounded-xl transition-all shadow-sm" title="Restaurar todos os filtros">
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span className="hidden lg:inline uppercase tracking-wider">Restaurar</span>
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="flex shrink-0 w-full xl:w-auto mt-2 xl:mt-0 justify-end gap-3 items-center">
-            <button onClick={() => setActiveMenu('configuracoes')} className="flex items-center justify-center gap-2 bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
-              <Settings className="w-4 h-4" /> Configurações
-            </button>
-            <button onClick={() => supabase.auth.signOut()} className="flex items-center justify-center gap-2 bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
-              Sair
-            </button>
-            <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 transition-colors shadow-sm" title={isDarkMode ? 'Modo Claro' : 'Modo Escuro'}>
-              {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </button>
-          </div>
-        </header>
+      <Header
+        setIsMobileMenuOpen={setIsMobileMenuOpen}
+        quinzenasDisponiveis={quinzenasDisponiveis}
+        filtroQuinzenas={filtroQuinzenas}
+        setFiltroQuinzenas={setFiltroQuinzenas}
+        regionaisDisponiveis={regionaisDisponiveis}
+        filtroRegionais={filtroRegionais}
+        setFiltroRegionais={setFiltroRegionais}
+        supervisoresDisponiveis={supervisoresDisponiveis}
+        filtroSupervisores={filtroSupervisores}
+        setFiltroSupervisores={setFiltroSupervisores}
+        filiaisDisponiveis={filiaisDisponiveis}
+        filtroFiliais={filtroFiliais}
+        setFiltroFiliais={setFiltroFiliais}
+        showInsucessosFilter={showInsucessosFilter}
+        diasSemanaDisponiveis={diasSemanaDisponiveis}
+        filtroDiasSemana={filtroDiasSemana}
+        setFiltroDiasSemana={setFiltroDiasSemana}
+        insucessosDisponiveis={insucessosDisponiveis}
+        insucessosExcluidos={insucessosExcluidos}
+        setInsucessosExcluidos={setInsucessosExcluidos}
+        hasActiveFilters={hasActiveFilters}
+        clearAllFilters={clearAllFilters}
+        setActiveMenu={setActiveMenu}
+        isDarkMode={isDarkMode}
+        setIsDarkMode={setIsDarkMode}
+      />
 
         {error && (
           <div className="mx-4 md:mx-6 mt-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-3 shadow-sm z-40">
@@ -5188,6 +5063,20 @@ export default function App() {
               </div>
             )}
 
+            {/* BASE DE MOTORISTAS */}
+            {activeMenu === 'gestao_motoristas' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full overflow-y-auto">
+                <GestaoMotoristas />
+              </div>
+            )}
+
+            {/* EXPLORADOR DE DADOS */}
+            {activeMenu === 'explorador_dados' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full overflow-y-auto">
+                <DatabaseExplorer />
+              </div>
+            )}
+
             {/* PLANEJAMENTO SIMULADOR */}
             {activeMenu === 'planejamento' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -5225,127 +5114,172 @@ export default function App() {
 
             {/* GESTÃO FINANCEIRA (COM FATURAMENTO) */}
             {activeMenu === 'gestao_financeira' && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-
-
-
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
-                  <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
-                    <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+                className="h-full"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.1, duration: 0.4 }}
+                    className="md:col-span-2 bg-white dark:bg-slate-900 p-8 rounded-[2rem] shadow-sm border border-slate-200 dark:border-slate-800 relative overflow-hidden flex flex-col justify-between group hover:shadow-md transition-shadow"
+                  >
+                    <div className="absolute -right-8 -top-8 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity duration-500">
+                      <TrendingUp className="w-64 h-64 text-red-500" />
+                    </div>
                     <div>
-                      <h2 className="text-sm md:text-base font-bold text-blue-400 mb-2 z-10 tracking-widest uppercase">Penalidades vs Faturamento</h2>
-                      <div className="flex flex-col mb-8 z-10">
-                        <span className="text-5xl font-black leading-tight tracking-tight text-red-400 flex items-center gap-3">
+                      <h2 className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-2 z-10 uppercase tracking-widest flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-red-500" /> Penalidades vs Faturamento
+                      </h2>
+                      <div className="flex flex-col mb-6 z-10">
+                        <span className="text-4xl lg:text-5xl font-black leading-tight tracking-tight text-slate-800 dark:text-white flex items-center gap-3">
                           {formatCurrency(resumoMetrics.total)}
                         </span>
-                        <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Total Descontado ({formatQtd(resumoMetrics.qtdTotal)} infrações)</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-medium bg-slate-100 dark:bg-slate-800 self-start px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700">
+                          Total Descontado ({formatQtd(resumoMetrics.qtdTotal)} infrações)
+                        </span>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
-                      <div className="flex justify-between items-center"><span className="text-blue-400 font-bold">PNRs</span> <span>{formatCurrency(pnrTot.valor)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-orange-400 font-bold">Lost Packages</span> <span>{formatCurrency(lostTot.valor)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-slate-400 font-bold">Not Visited</span> <span>{formatCurrency(nvTot.valor)}</span></div>
-                      <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-700">
-                        <span className="text-emerald-400 font-bold">Faturamento Total</span>
-                        <div className="flex flex-col items-end">
-                          <span className="text-emerald-400 font-bold text-base">{formatCurrency(faturamentoTotalMetrics)}</span>
-                        </div>
+                    <div className="flex flex-col gap-3 text-sm z-10 pt-5 border-t border-slate-100 dark:border-slate-800/50">
+                      <div className="flex justify-between items-center"><span className="text-slate-500 dark:text-slate-400 font-semibold">PNRs</span> <span className="font-bold text-slate-700 dark:text-slate-300">{formatCurrency(pnrTot.valor)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-slate-500 dark:text-slate-400 font-semibold">Lost Packages</span> <span className="font-bold text-slate-700 dark:text-slate-300">{formatCurrency(lostTot.valor)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-slate-500 dark:text-slate-400 font-semibold">Not Visited</span> <span className="font-bold text-slate-700 dark:text-slate-300">{formatCurrency(nvTot.valor)}</span></div>
+                      <div className="flex justify-between items-center mt-2 pt-3 border-t border-slate-100 dark:border-slate-800/50">
+                        <span className="text-emerald-500 dark:text-emerald-400 font-bold">Faturamento Total</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold text-base">{formatCurrency(faturamentoTotalMetrics)}</span>
                       </div>
-                      <div className="flex justify-between items-center"><span className="text-violet-400 font-bold">% de Representatividade</span> <span className="text-white font-bold">{faturamentoTotalMetrics > 0 ? ((resumoMetrics.total / faturamentoTotalMetrics) * 100).toFixed(2) + '%' : '0%'}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-violet-500 dark:text-violet-400 font-bold">% de Representatividade</span> <span className="text-slate-800 dark:text-white font-bold">{faturamentoTotalMetrics > 0 ? ((resumoMetrics.total / faturamentoTotalMetrics) * 100).toFixed(2) + '%' : '0%'}</span></div>
                     </div>
-                  </div>
+                  </motion.div>
 
-                  <div className="bg-gradient-to-br from-emerald-900 to-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
-                    <div className="absolute -right-10 -top-10 opacity-5"><BadgeDollarSign className="w-64 h-64" /></div>
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.2, duration: 0.4 }}
+                    className="md:col-span-2 bg-gradient-to-br from-emerald-500 to-teal-600 dark:from-emerald-900 dark:to-teal-900 p-8 rounded-[2rem] shadow-md text-white relative overflow-hidden flex flex-col justify-between group hover:shadow-lg transition-shadow"
+                  >
+                    <div className="absolute -right-8 -top-8 opacity-10 group-hover:opacity-20 transition-opacity duration-500">
+                      <BadgeDollarSign className="w-64 h-64" />
+                    </div>
                     <div>
-                      <h2 className="text-sm md:text-base font-bold text-emerald-400 mb-2 z-10 tracking-widest uppercase">Resumo de Margem (Global)</h2>
-                      <div className="flex flex-col mb-8 z-10">
-                        <span className={`text-5xl font-black leading-tight tracking-tight ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemBrutaMetrics.margemRS)}</span>
-                        <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Rentabilidade: {margemBrutaMetrics.margemPct.toFixed(1)}%</span>
+                      <h2 className="text-sm font-bold text-emerald-100 mb-2 z-10 uppercase tracking-widest flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" /> Resumo de Margem (Global)
+                      </h2>
+                      <div className="flex flex-col mb-6 z-10">
+                        <span className={`text-4xl lg:text-5xl font-black leading-tight tracking-tight ${margemBrutaMetrics.margemRS >= 0 ? 'text-white' : 'text-red-200'}`}>
+                          {formatCurrency(margemBrutaMetrics.margemRS)}
+                        </span>
+                        <span className="text-xs text-emerald-100 mt-2 font-medium bg-white/10 self-start px-3 py-1 rounded-full border border-white/20 backdrop-blur-sm">
+                          Rentabilidade: {margemBrutaMetrics.margemPct.toFixed(1)}%
+                        </span>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
-                      <div className="flex justify-between items-center"><span className="text-slate-300 font-bold">Faturamento</span> <span>{formatCurrency(margemBrutaMetrics.faturamento)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-orange-400 font-bold">Custos Operacionais</span> <span>- {formatCurrency(margemBrutaMetrics.custos)}</span></div>
-                      <button onClick={() => setActiveMenu('gestao_margem')} className="mt-2 text-center text-xs font-bold text-emerald-300 bg-emerald-900/50 py-2 rounded-xl hover:bg-emerald-800/50 transition-colors">Ver Detalhamento Completo →</button>
+                    <div className="flex flex-col gap-3 text-sm z-10 pt-5 border-t border-white/10">
+                      <div className="flex justify-between items-center"><span className="text-emerald-100 font-semibold">Faturamento</span> <span className="font-bold">{formatCurrency(margemBrutaMetrics.faturamento)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-orange-200 font-semibold">Custos Operacionais</span> <span className="font-bold">- {formatCurrency(margemBrutaMetrics.custos)}</span></div>
+                      <button onClick={() => setActiveMenu('gestao_margem')} className="mt-3 text-center text-xs font-bold text-emerald-900 bg-emerald-100 py-2.5 rounded-xl hover:bg-white transition-colors w-full shadow-sm">
+                        Ver Detalhamento Completo →
+                      </button>
                     </div>
-                  </div>
+                  </motion.div>
                 </div>
 
                 {prevMargemBrutaMetrics && (
-                  <>
-                    <h3 className="text-lg font-bold text-blue-100 mb-4 mt-8">Comparativo: Quinzena Anterior ({prevQuinzenaName})</h3>
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
-                      <div className="bg-slate-800/50 p-8 md:p-10 rounded-3xl shadow-xl text-slate-300 relative overflow-hidden flex flex-col justify-between border border-slate-700/50">
-                        <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3, duration: 0.4 }}
+                  >
+                    <h3 className="text-lg font-bold text-slate-700 dark:text-blue-100 mb-4 mt-8 flex items-center gap-2">
+                      Comparativo: Quinzena Anterior ({prevQuinzenaName})
+                    </h3>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+                      <div className="bg-white dark:bg-slate-800/80 p-8 md:p-10 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow text-slate-700 dark:text-slate-300 relative overflow-hidden flex flex-col justify-between border border-slate-200 dark:border-slate-700/50 group">
+                        <div className="absolute -right-8 -top-8 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity duration-500"><TrendingUp className="w-64 h-64 text-slate-500" /></div>
                         <div>
-                          <h2 className="text-sm md:text-base font-bold text-blue-400/70 mb-2 z-10 tracking-widest uppercase">Penalidades vs Faturamento</h2>
+                          <h2 className="text-sm md:text-base font-bold text-slate-500 dark:text-blue-400/70 mb-2 z-10 tracking-widest uppercase">Penalidades vs Faturamento</h2>
                           <div className="flex flex-col z-10 h-full justify-between">
                             <div className="flex flex-col mb-4">
-                              <span className="text-4xl font-black leading-tight tracking-tight text-red-400/70 flex items-center gap-3">
+                              <span className="text-4xl font-black leading-tight tracking-tight text-slate-800 dark:text-red-400/70 flex items-center gap-3">
                                 {formatCurrency(prevMargemBrutaMetrics.penalidades)}
                               </span>
-                              <span className="text-sm text-slate-400/70 mt-2 font-medium bg-slate-800/50 self-start px-4 py-1.5 rounded-lg border border-slate-700/50">Penalidades na quinzena</span>
+                              <span className="text-xs text-slate-500 dark:text-slate-400/70 mt-2 font-medium bg-slate-100 dark:bg-slate-800/50 self-start px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700/50">Penalidades na quinzena</span>
                             </div>
-                            <div className="flex flex-col gap-2 text-sm pt-4 border-t border-slate-700/50">
-                              <div className="flex justify-between items-center"><span className="text-emerald-400/70 font-bold">Faturamento Total</span> <span className="text-emerald-400/70 font-bold">{formatCurrency(prevMargemBrutaMetrics.faturamento)}</span></div>
-                              <div className="flex justify-between items-center"><span className="text-violet-400/70 font-bold">% de Representatividade</span> <span className="text-slate-300 font-bold">{prevMargemBrutaMetrics.faturamento > 0 ? ((prevMargemBrutaMetrics.penalidades / prevMargemBrutaMetrics.faturamento) * 100).toFixed(2) + '%' : '0%'}</span></div>
+                            <div className="flex flex-col gap-2 text-sm pt-4 border-t border-slate-100 dark:border-slate-700/50">
+                              <div className="flex justify-between items-center"><span className="text-emerald-600 dark:text-emerald-400/70 font-bold">Faturamento Total</span> <span className="text-emerald-600 dark:text-emerald-400/70 font-bold">{formatCurrency(prevMargemBrutaMetrics.faturamento)}</span></div>
+                              <div className="flex justify-between items-center"><span className="text-violet-600 dark:text-violet-400/70 font-bold">% de Representatividade</span> <span className="text-slate-800 dark:text-slate-300 font-bold">{prevMargemBrutaMetrics.faturamento > 0 ? ((prevMargemBrutaMetrics.penalidades / prevMargemBrutaMetrics.faturamento) * 100).toFixed(2) + '%' : '0%'}</span></div>
                             </div>
                           </div>
                         </div>
                       </div>
 
-                      <div className="bg-slate-800/50 p-8 md:p-10 rounded-3xl shadow-xl text-slate-300 relative overflow-hidden flex flex-col justify-between border border-slate-700/50">
-                        <div className="absolute -right-10 -top-10 opacity-5"><TrendingUp className="w-64 h-64" /></div>
+                      <div className="bg-white dark:bg-slate-800/80 p-8 md:p-10 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow text-slate-700 dark:text-slate-300 relative overflow-hidden flex flex-col justify-between border border-slate-200 dark:border-slate-700/50 group">
+                        <div className="absolute -right-8 -top-8 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity duration-500"><TrendingUp className="w-64 h-64 text-slate-500" /></div>
                         <div>
-                          <h2 className="text-sm md:text-base font-bold text-emerald-400/70 mb-2 z-10 tracking-widest uppercase">Resumo de Margem (Global)</h2>
+                          <h2 className="text-sm md:text-base font-bold text-slate-500 dark:text-emerald-400/70 mb-2 z-10 tracking-widest uppercase">Resumo de Margem (Global)</h2>
                           <div className="flex flex-col mb-8 z-10">
-                            <span className={`text-4xl font-black leading-tight tracking-tight flex items-center gap-3 ${(prevMargemBrutaMetrics.margemRS || 0) >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                            <span className={`text-4xl font-black leading-tight tracking-tight flex items-center gap-3 ${(prevMargemBrutaMetrics.margemRS || 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400/70' : 'text-red-600 dark:text-red-400/70'}`}>
                               {formatCurrency(prevMargemBrutaMetrics.margemRS || 0)}
                             </span>
-                            <span className="text-sm text-slate-400/70 mt-2 font-medium bg-slate-800/50 self-start px-4 py-1.5 rounded-lg border border-slate-700/50">Rentabilidade: {(prevMargemBrutaMetrics.margemPct || 0).toFixed(1)}%</span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400/70 mt-2 font-medium bg-slate-100 dark:bg-slate-800/50 self-start px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700/50">Rentabilidade: {(prevMargemBrutaMetrics.margemPct || 0).toFixed(1)}%</span>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </>
+                  </motion.div>
                 )}
 
-                <div className="mb-8 relative">
+                <div className="mb-8 relative group">
                   {isLoadingDetalhes && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm rounded-3xl">
-                      <div className="flex flex-col items-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-2"></div><span className="text-sm font-bold text-white">Carregando detalhes...</span></div>
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60 dark:bg-slate-900/60 backdrop-blur-md rounded-[2rem] transition-all">
+                      <div className="flex flex-col items-center">
+                        <div className="relative mb-4">
+                          <Skeleton className="w-16 h-16 rounded-full" />
+                          <div className="absolute inset-0 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
+                        </div>
+                        <span className="text-sm font-bold text-slate-700 dark:text-slate-200 tracking-wide">Buscando detalhes da operação...</span>
+                      </div>
                     </div>
                   )}
                   <RunRateFinanceiroSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { handleOpenEvolutivo(f); }} />
                 </div>
 
-                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 mb-8">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4, duration: 0.4 }}
+                  className="bg-white dark:bg-slate-900 p-6 md:p-10 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow border border-slate-200 dark:border-slate-800 mb-8 group"
+                >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
-                      <Scale className="w-6 h-6 text-violet-500" />
-                      <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+                      <div className="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center border border-violet-100 dark:border-violet-500/20">
+                        <Scale className="w-5 h-5 text-violet-500" />
+                      </div>
+                      <h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
                         {selectedQuinzenaPareto ? `Detalhamento de Filiais Financeiro - ${selectedQuinzenaPareto}` : 'Evolução Financeira por Quinzena'}
                       </h2>
                     </div>
                     {selectedQuinzenaPareto && (
-                      <button onClick={() => setSelectedQuinzenaPareto(null)} className="text-xs md:text-sm font-bold text-violet-600 bg-violet-50 px-3 py-1.5 rounded-lg hover:bg-violet-100 transition-colors">
+                      <button onClick={() => setSelectedQuinzenaPareto(null)} className="text-xs md:text-sm font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-4 py-2 rounded-full border border-violet-200 dark:border-violet-500/30 hover:bg-violet-100 dark:hover:bg-violet-900/50 transition-all shadow-sm">
                         ← Voltar para Visão Geral
                       </button>
                     )}
                   </div>
-                  <p className="text-sm text-slate-500 font-medium mb-8">
+                  <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mb-8 pl-13">
                     {selectedQuinzenaPareto ? 'Detalhamento do período selecionado.' : 'Clique sobre a barra de uma quinzena para abrir o detalhamento das filiais que compõem o resultado financeiro (Drill-down).'}
                   </p>
-                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                  <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 rounded-2xl p-4">
                     {!selectedQuinzenaPareto ? (
                       <NativeComboChart data={paretoQuinzenaData} labelKey="quinzena" heightClass="h-[400px]" onBarClick={(q) => setSelectedQuinzenaPareto(q)} />
                     ) : (
                       <NativeComboChart data={paretoFilialDrilldownData} labelKey="filial" heightClass="h-[400px]" />
                     )}
                   </div>
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
             )}
 
             {/* GESTÃO DE MARGEM DE CONTRIBUIÇÃO */}
@@ -5399,37 +5333,49 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-8 mb-8">
-                  <div className="bg-gradient-to-br from-emerald-900 to-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
-                    <div className="absolute -right-10 -top-10 opacity-5"><BadgeDollarSign className="w-64 h-64" /></div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.1, duration: 0.4 }}
+                    className="md:col-span-2 lg:col-span-4 bg-gradient-to-br from-emerald-500 to-teal-600 dark:from-emerald-900 dark:to-teal-900 p-8 md:p-10 rounded-[2rem] shadow-md text-white relative overflow-hidden flex flex-col justify-between group hover:shadow-lg transition-shadow"
+                  >
+                    <div className="absolute -right-10 -top-10 opacity-10 group-hover:opacity-20 transition-opacity duration-500"><BadgeDollarSign className="w-64 h-64" /></div>
                     <div>
-                      <h2 className="text-sm md:text-base font-bold text-emerald-400 mb-2 z-10 tracking-widest uppercase">Margem de Contribuição</h2>
+                      <h2 className="text-sm md:text-base font-bold text-emerald-100 mb-2 z-10 tracking-widest uppercase flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" /> Margem de Contribuição
+                      </h2>
                       <div className="flex flex-col mb-8 z-10">
-                        <span className={`text-5xl font-black leading-tight tracking-tight flex items-center gap-3 ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <span className={`text-4xl lg:text-5xl font-black leading-tight tracking-tight flex items-center gap-3 ${margemBrutaMetrics.margemRS >= 0 ? 'text-white' : 'text-red-200'}`}>
                           {formatCurrency(margemBrutaMetrics.margemRS)}
                         </span>
-                        <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Margem global de {margemBrutaMetrics.margemPct.toFixed(1)}%</span>
+                        <span className="text-xs text-emerald-100 mt-2 font-medium bg-white/10 self-start px-4 py-1.5 rounded-full border border-white/20 backdrop-blur-sm">Margem global de {margemBrutaMetrics.margemPct.toFixed(1)}%</span>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
-                      <div className="flex justify-between items-center"><span className="text-emerald-300 font-bold">Faturamento Bruto</span> <span>{formatCurrency(margemBrutaMetrics.faturamento)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-rose-400 font-bold">Impostos ({percentualImpostoFinanceiro}%)</span> <span>- {formatCurrency(margemBrutaMetrics.imposto)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-orange-400 font-bold">Agregados + Frota</span> <span>- {formatCurrency(margemBrutaMetrics.custos)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-orange-500 font-bold">Margem de erro (±2,5%)</span> <span>± {formatCurrency(margemBrutaMetrics.margemErro)}</span></div>
-                      <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-700">
-                        <span className="text-white font-bold">Margem Líquida</span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 text-sm z-10 pt-6 border-t border-white/10">
+                      <div className="flex justify-between items-center"><span className="text-emerald-100 font-semibold">Faturamento Bruto</span> <span className="font-bold">{formatCurrency(margemBrutaMetrics.faturamento)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-rose-200 font-semibold">Impostos ({percentualImpostoFinanceiro}%)</span> <span className="font-bold">- {formatCurrency(margemBrutaMetrics.imposto)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-orange-200 font-semibold">Agregados + Frota</span> <span className="font-bold">- {formatCurrency(margemBrutaMetrics.custos)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-orange-300 font-semibold">Margem de erro (±2,5%)</span> <span className="font-bold">± {formatCurrency(margemBrutaMetrics.margemErro)}</span></div>
+                      <div className="flex justify-between items-center mt-2 pt-2 border-t border-white/10 md:col-span-2">
+                        <span className="text-white font-bold text-base">Margem Líquida</span>
                         <div className="flex flex-col items-end">
-                          <span className={`font-bold text-base ${margemBrutaMetrics.margemRS >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemBrutaMetrics.margemRS)}</span>
-                          <span className="text-[10px] text-slate-400 font-medium opacity-80 mt-0.5">({formatCurrency(margemBrutaMetrics.margemRS - margemBrutaMetrics.margemErro)} a {formatCurrency(margemBrutaMetrics.margemRS + margemBrutaMetrics.margemErro)})</span>
+                          <span className={`font-black text-xl ${margemBrutaMetrics.margemRS >= 0 ? 'text-white' : 'text-red-200'}`}>{formatCurrency(margemBrutaMetrics.margemRS)}</span>
+                          <span className="text-[10px] text-emerald-100 font-medium opacity-80 mt-0.5">({formatCurrency(margemBrutaMetrics.margemRS - margemBrutaMetrics.margemErro)} a {formatCurrency(margemBrutaMetrics.margemRS + margemBrutaMetrics.margemErro)})</span>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </motion.div>
                 </div>
 
-                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col mb-8">
-                  <div className="flex justify-between items-center mb-2 pt-2 px-2">
-                    <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2, duration: 0.4 }}
+                  className="bg-white dark:bg-slate-900 p-6 md:p-10 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow border border-slate-200 dark:border-slate-800 flex flex-col mb-8 group"
+                >
+                  <div className="flex justify-between items-center mb-6 px-2">
+                    <h3 className="text-lg md:text-xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
                       {selectedFilialForMargin
                         ? `Margem por Categoria (${selectedFilialForMargin})`
                         : selectedRegionalForMargin
@@ -5438,27 +5384,29 @@ export default function App() {
                     </h3>
                     <div className="flex gap-2">
                       {selectedFilialForMargin && (
-                        <button onClick={() => setSelectedFilialForMargin(null)} className="text-xs font-bold text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200 hover:bg-indigo-100 transition-colors flex items-center gap-1">
+                        <button onClick={() => setSelectedFilialForMargin(null)} className="text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-4 py-2 rounded-full border border-violet-200 dark:border-violet-500/30 hover:bg-violet-100 dark:hover:bg-violet-900/50 transition-all flex items-center gap-1 shadow-sm">
                           <ArrowUp className="w-3 h-3 -rotate-90" /> Voltar para Filiais
                         </button>
                       )}
                       {selectedRegionalForMargin && !selectedFilialForMargin && (
-                        <button onClick={() => setSelectedRegionalForMargin(null)} className="text-xs font-bold text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200 hover:bg-indigo-100 transition-colors flex items-center gap-1">
+                        <button onClick={() => setSelectedRegionalForMargin(null)} className="text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-4 py-2 rounded-full border border-violet-200 dark:border-violet-500/30 hover:bg-violet-100 dark:hover:bg-violet-900/50 transition-all flex items-center gap-1 shadow-sm">
                           <ArrowUp className="w-3 h-3 -rotate-90" /> Voltar para Regionais
                         </button>
                       )}
                     </div>
                   </div>
-                  {selectedFilialForMargin ? (
-                    <NativeComboChart data={margemCategoriaData.slice(0, 15)} labelKey="categoria" heightClass="h-[350px]" isMarginChart={true} />
-                  ) : selectedRegionalForMargin ? (
-                    <NativeComboChart data={margemFilialData.slice(0, 15)} labelKey="filial" onBarClick={(item) => setSelectedFilialForMargin(item)} heightClass="h-[350px]" isMarginChart={true} />
-                  ) : (
-                    <NativeComboChart data={margemRegionalDataGlobal} labelKey="regional" onBarClick={(item) => setSelectedRegionalForMargin(item.replace('Regional ', ''))} heightClass="h-[350px]" isMarginChart={true} />
-                  )}
-                  {!selectedFilialForMargin && !selectedRegionalForMargin && <p className="text-center text-[10px] text-slate-400 mt-2 italic flex items-center justify-center gap-1"><Check className="w-3 h-3" /> Dica: Clique na barra de uma regional para ver a margem detalhada por filial.</p>}
-                  {selectedRegionalForMargin && !selectedFilialForMargin && <p className="text-center text-[10px] text-slate-400 mt-2 italic flex items-center justify-center gap-1"><Check className="w-3 h-3" /> Dica: Clique na barra de uma filial para ver a margem detalhada por categoria de veículo.</p>}
-                </div>
+                  <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 rounded-2xl p-4">
+                    {selectedFilialForMargin ? (
+                      <NativeComboChart data={margemCategoriaData.slice(0, 15)} labelKey="categoria" heightClass="h-[350px]" isMarginChart={true} />
+                    ) : selectedRegionalForMargin ? (
+                      <NativeComboChart data={margemFilialData.slice(0, 15)} labelKey="filial" onBarClick={(item) => setSelectedFilialForMargin(item)} heightClass="h-[350px]" isMarginChart={true} />
+                    ) : (
+                      <NativeComboChart data={margemRegionalDataGlobal} labelKey="regional" onBarClick={(item) => setSelectedRegionalForMargin(item.replace('Regional ', ''))} heightClass="h-[350px]" isMarginChart={true} />
+                    )}
+                  </div>
+                  {!selectedFilialForMargin && !selectedRegionalForMargin && <p className="text-center text-[11px] text-slate-500 dark:text-slate-400 mt-4 italic flex items-center justify-center gap-1"><Check className="w-3 h-3 text-emerald-500" /> Dica: Clique na barra de uma regional para ver a margem detalhada por filial.</p>}
+                  {selectedRegionalForMargin && !selectedFilialForMargin && <p className="text-center text-[11px] text-slate-500 dark:text-slate-400 mt-4 italic flex items-center justify-center gap-1"><Check className="w-3 h-3 text-emerald-500" /> Dica: Clique na barra de uma filial para ver a margem detalhada por categoria de veículo.</p>}
+                </motion.div>
 
                 {/* CARDS DINÂMICOS */}
                 {(() => {
@@ -5526,60 +5474,87 @@ export default function App() {
 
             {/* GESTÃO DE PENALIDADES (SEM FATURAMENTO) */}
             {activeMenu === 'gestao_penalidades' && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="grid grid-cols-1 gap-8 mb-8">
-                  <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
-                    <div className="absolute -right-10 -top-10 opacity-5"><AlertCircle className="w-64 h-64" /></div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+                className="h-full"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.1, duration: 0.4 }}
+                    className="md:col-span-2 lg:col-span-4 bg-white dark:bg-slate-900 p-8 md:p-10 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow border border-slate-200 dark:border-slate-800 relative overflow-hidden flex flex-col justify-between group"
+                  >
+                    <div className="absolute -right-8 -top-8 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity duration-500"><AlertCircle className="w-64 h-64 text-red-500" /></div>
                     <div>
-                      <h2 className="text-sm md:text-base font-bold text-red-400 mb-2 z-10 tracking-widest uppercase">Penalidades Globais</h2>
+                      <h2 className="text-sm md:text-base font-bold text-slate-500 dark:text-slate-400 mb-2 z-10 tracking-widest uppercase flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-red-500" /> Penalidades Globais
+                      </h2>
                       <div className="flex flex-col mb-8 z-10">
-                        <span className="text-5xl font-black leading-tight tracking-tight text-red-400">{formatCurrency(resumoMetrics.total)}</span>
-                        <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Total Descontado ({formatQtd(resumoMetrics.qtdTotal)} infrações)</span>
+                        <span className="text-4xl lg:text-5xl font-black leading-tight tracking-tight text-slate-800 dark:text-white flex items-center gap-3">
+                          {formatCurrency(resumoMetrics.total)}
+                        </span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-medium bg-slate-100 dark:bg-slate-800 self-start px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700">Total Descontado ({formatQtd(resumoMetrics.qtdTotal)} infrações)</span>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
-                      <div className="flex justify-between items-center"><span className="text-blue-400 font-bold">PNRs</span> <span>{formatCurrency(pnrTot.valor)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-orange-400 font-bold">Lost Packages</span> <span>{formatCurrency(lostTot.valor)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-slate-400 font-bold">Not Visited</span> <span>{formatCurrency(nvTot.valor)}</span></div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm z-10 pt-6 border-t border-slate-100 dark:border-slate-800/50">
+                      <div className="flex justify-between md:flex-col md:justify-center md:items-start md:gap-1 items-center"><span className="text-slate-500 dark:text-slate-400 font-semibold">PNRs</span> <span className="font-bold text-slate-700 dark:text-slate-300 md:text-lg">{formatCurrency(pnrTot.valor)}</span></div>
+                      <div className="flex justify-between md:flex-col md:justify-center md:items-start md:gap-1 items-center"><span className="text-slate-500 dark:text-slate-400 font-semibold">Lost Packages</span> <span className="font-bold text-slate-700 dark:text-slate-300 md:text-lg">{formatCurrency(lostTot.valor)}</span></div>
+                      <div className="flex justify-between md:flex-col md:justify-center md:items-start md:gap-1 items-center"><span className="text-slate-500 dark:text-slate-400 font-semibold">Not Visited</span> <span className="font-bold text-slate-700 dark:text-slate-300 md:text-lg">{formatCurrency(nvTot.valor)}</span></div>
                     </div>
-                  </div>
+                  </motion.div>
                 </div>
 
-                <div className="relative">
+                <div className="relative group">
                   {isLoadingDetalhes && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm rounded-3xl">
-                      <div className="flex flex-col items-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-2"></div><span className="text-sm font-bold text-white">Carregando detalhes...</span></div>
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60 dark:bg-slate-900/60 backdrop-blur-md rounded-[2rem] transition-all">
+                      <div className="flex flex-col items-center">
+                        <div className="relative mb-4">
+                          <Skeleton className="w-16 h-16 rounded-full" />
+                          <div className="absolute inset-0 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
+                        </div>
+                        <span className="text-sm font-bold text-slate-700 dark:text-slate-200 tracking-wide">Buscando detalhes da operação...</span>
+                      </div>
                     </div>
                   )}
                   <RunRatePenalidadesSection baseData={baseRunRateData} targetQuinzena={targetQuinzenaRunRate} prevStats={prevQuinzenaStats} onDrilldown={(f) => { handleOpenEvolutivo(f); }} />
                 </div>
 
-                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200 mt-8">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2, duration: 0.4 }}
+                  className="bg-white dark:bg-slate-900 p-6 md:p-10 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow border border-slate-200 dark:border-slate-800 mt-8 group"
+                >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
-                      <Scale className="w-6 h-6 text-violet-500" />
-                      <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+                      <div className="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center border border-violet-100 dark:border-violet-500/20">
+                        <Scale className="w-5 h-5 text-violet-500" />
+                      </div>
+                      <h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
                         {selectedQuinzenaPareto ? `Detalhamento de Filiais - ${selectedQuinzenaPareto}` : 'Evolução de Penalidades por Quinzena'}
                       </h2>
                     </div>
                     {selectedQuinzenaPareto && (
-                      <button onClick={() => setSelectedQuinzenaPareto(null)} className="text-xs md:text-sm font-bold text-violet-600 bg-violet-50 px-3 py-1.5 rounded-lg hover:bg-violet-100 transition-colors">
+                      <button onClick={() => setSelectedQuinzenaPareto(null)} className="text-xs md:text-sm font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-4 py-2 rounded-full border border-violet-200 dark:border-violet-500/30 hover:bg-violet-100 dark:hover:bg-violet-900/50 transition-all shadow-sm">
                         ← Voltar para Visão Geral
                       </button>
                     )}
                   </div>
-                  <p className="text-sm text-slate-500 font-medium mb-8">
+                  <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mb-8 pl-13">
                     {selectedQuinzenaPareto ? 'Detalhamento das infrações no período selecionado.' : 'Clique sobre a barra de uma quinzena para abrir o detalhamento das filiais (Drill-down).'}
                   </p>
-                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                  <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 rounded-2xl p-4">
                     {!selectedQuinzenaPareto ? (
                       <NativeComboChart data={paretoQuinzenaData} labelKey="quinzena" heightClass="h-[400px]" onBarClick={(q) => setSelectedQuinzenaPareto(q)} showFaturamento={false} showTotalLine={true} />
                     ) : (
                       <NativeComboChart data={paretoFilialDrilldownData} labelKey="filial" heightClass="h-[400px]" showFaturamento={false} showTotalLine={true} />
                     )}
                   </div>
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
             )}
 
             {/* DETALHE FINANCEIRO */}
@@ -5613,68 +5588,89 @@ export default function App() {
 
             {/* GESTÃO OPERACIONAL E BSC (VISÃO UNIFICADA E DINÂMICA) */}
             {isOpOrBscView && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="grid grid-cols-1 gap-8 mb-8">
-                  <div className="bg-slate-900 p-8 md:p-10 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
-                    <div className="absolute -right-10 -top-10 opacity-5"><IconOverview className="w-64 h-64" /></div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+                className="h-full"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.1, duration: 0.4 }}
+                    className="md:col-span-2 lg:col-span-4 bg-white dark:bg-slate-900 p-8 md:p-10 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow border border-slate-200 dark:border-slate-800 relative overflow-hidden flex flex-col justify-between group"
+                  >
+                    <div className="absolute -right-8 -top-8 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity duration-500"><IconOverview className="w-64 h-64 text-emerald-500" /></div>
                     <div>
-                      <h2 className="text-sm md:text-base font-bold text-emerald-400 mb-2 z-10 tracking-widest uppercase">Overview {titlePrefix} (DS)</h2>
+                      <h2 className="text-sm md:text-base font-bold text-slate-500 dark:text-slate-400 mb-2 z-10 tracking-widest uppercase flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500" /> Overview {titlePrefix} (DS)
+                      </h2>
                       <div className="flex flex-col mb-8 z-10">
-                        <span className={`text-5xl font-black leading-tight tracking-tight ${currentDsGlobalAtual >= 98.5 ? 'text-emerald-400' : (currentDsGlobalAtual >= 95 ? 'text-orange-400' : 'text-red-400')}`}>{formatDS(currentDsGlobalAtual)}</span>
-                        <span className="text-sm text-slate-400 mt-2 font-medium bg-slate-800 self-start px-4 py-1.5 rounded-lg border border-slate-700">Delivery Success Atual (Meta: 98.5%)</span>
+                        <span className={`text-4xl lg:text-5xl font-black leading-tight tracking-tight ${currentDsGlobalAtual >= 98.5 ? 'text-emerald-600 dark:text-emerald-400' : (currentDsGlobalAtual >= 95 ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400')}`}>{formatDS(currentDsGlobalAtual)}</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-medium bg-slate-100 dark:bg-slate-800 self-start px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700">Delivery Success Atual (Meta: 98.5%)</span>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-4 text-sm z-10 pt-6 border-t border-slate-800">
-                      <div className="flex justify-between items-center"><span className="text-slate-400 font-bold">Total de Pacotes</span> <span className="font-mono">{formatQtd(currentGlobalSaldo)} un.</span></div>
-                      <div className="flex justify-between items-center"><span className="text-emerald-400 font-bold">Pacotes Entregues</span> <span className="font-mono text-emerald-400">{formatQtd(currentGlobalEntregues)} un.</span></div>
-                      <div className="flex justify-between items-center"><span className="text-red-400 font-bold">Total de Insucessos</span> <span className="font-mono text-red-400">{formatQtd(currentGlobalSaldo - currentGlobalEntregues)} un.</span></div>
-
-                      {globalInsucessosArray.length > 0 && (
-                        <div className="mt-2 pt-4 border-t border-slate-700/50">
-                          <span className="text-slate-400 font-bold text-[10px] uppercase tracking-wider mb-3 block">Detalhamento dos Insucessos Globais</span>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-                            {globalInsucessosArray.slice(0, 8).map(([motivo, qtd], idx) => (
-                              <div key={idx} className="flex justify-between items-center bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-700/50">
-                                <span className="text-red-300 text-[10px] font-medium truncate pr-2" title={motivo}>{motivo}</span>
-                                <span className="font-mono text-red-400 text-[10px] font-bold">{formatQtd(qtd)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm z-10 pt-6 border-t border-slate-100 dark:border-slate-800/50">
+                      <div className="flex justify-between md:flex-col md:justify-center md:items-start md:gap-1 items-center"><span className="text-slate-500 dark:text-slate-400 font-semibold">Total de Pacotes</span> <span className="font-mono font-bold text-slate-700 dark:text-slate-300 md:text-lg">{formatQtd(currentGlobalSaldo)} un.</span></div>
+                      <div className="flex justify-between md:flex-col md:justify-center md:items-start md:gap-1 items-center"><span className="text-emerald-600 dark:text-emerald-400 font-semibold">Pacotes Entregues</span> <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300 md:text-lg">{formatQtd(currentGlobalEntregues)} un.</span></div>
+                      <div className="flex justify-between md:flex-col md:justify-center md:items-start md:gap-1 items-center"><span className="text-red-600 dark:text-red-400 font-semibold">Total de Insucessos</span> <span className="font-mono font-bold text-red-700 dark:text-red-300 md:text-lg">{formatQtd(currentGlobalSaldo - currentGlobalEntregues)} un.</span></div>
                     </div>
-                  </div>
+
+                    {globalInsucessosArray.length > 0 && (
+                      <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800/50 relative z-10">
+                        <span className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider mb-4 block flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-slate-400" /> Detalhamento dos Insucessos Globais
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-3">
+                          {globalInsucessosArray.slice(0, 8).map(([motivo, qtd], idx) => (
+                            <div key={idx} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 px-3 py-2 rounded-xl border border-slate-100 dark:border-slate-700/50 hover:border-red-200 dark:hover:border-red-900/50 transition-colors group/item">
+                              <span className="text-slate-600 dark:text-slate-300 text-xs font-medium truncate pr-2 group-hover/item:text-red-600 dark:group-hover/item:text-red-400 transition-colors" title={motivo}>{motivo}</span>
+                              <span className="font-mono text-red-600 dark:text-red-400 text-xs font-bold bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-md">{formatQtd(qtd)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
                 </div>
 
                 <RunRateOperacionalSection baseData={currentOpRunRateData} targetQuinzena={targetQuinzenaRunRate} titlePrefix={titlePrefix} />
 
-                <div className="bg-white p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2, duration: 0.4 }}
+                  className="bg-white dark:bg-slate-900 p-6 md:p-10 rounded-[2rem] shadow-sm hover:shadow-md transition-shadow border border-slate-200 dark:border-slate-800 mt-8 group"
+                >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
-                      <IconOverview className="w-6 h-6 text-emerald-500" />
-                      <h2 className="text-xl md:text-2xl font-bold text-slate-800">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center border border-emerald-100 dark:border-emerald-500/20">
+                        <IconOverview className="w-5 h-5 text-emerald-500" />
+                      </div>
+                      <h2 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
                         {selectedQuinzenaDS ? `Detalhamento de Filiais ${titlePrefix} - ${selectedQuinzenaDS}` : `Evolução de DS ${titlePrefix} por Quinzena`}
                       </h2>
                     </div>
                     {selectedQuinzenaDS && (
-                      <button onClick={() => setSelectedQuinzenaDS(null)} className="text-xs md:text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors">
+                      <button onClick={() => setSelectedQuinzenaDS(null)} className="text-xs md:text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-4 py-2 rounded-full border border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all shadow-sm">
                         ← Voltar para Visão Geral
                       </button>
                     )}
                   </div>
-                  <p className="text-sm text-slate-500 font-medium mb-8">
+                  <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mb-8 pl-13">
                     {selectedQuinzenaDS ? 'Detalhamento operacional do período selecionado.' : 'Clique sobre a barra de uma quinzena para abrir o detalhamento das filiais (Drill-down).'}
                   </p>
 
-                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                  <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 rounded-2xl p-4">
                     {!selectedQuinzenaDS ? (
                       <NativeDSChart data={dsQuinzenaData} labelKey="quinzena" heightClass="h-[400px]" onBarClick={(q) => setSelectedQuinzenaDS(q)} />
                     ) : (
                       <NativeDSChart data={dsFilialDrilldownData} labelKey="filial" heightClass="h-[400px]" />
                     )}
                   </div>
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
             )}
           </div>
         </div>

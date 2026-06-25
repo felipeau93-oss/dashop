@@ -304,12 +304,31 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
       
       if (!isPartial) {
           setProgress(`Apagando dados antigos da quinzena ${q}...`);
-          const { error: deleteError } = await supabase
-            .from(tableName)
-            .delete()
-            .eq('quinzena', q);
-            
-          if (deleteError) throw deleteError;
+          
+          let hasMore = true;
+          while (hasMore) {
+             const { data: toDelete, error: selErr } = await supabase
+                .from(tableName)
+                .select('id')
+                .eq('quinzena', q)
+                .limit(5000);
+                
+             if (selErr) throw selErr;
+             
+             if (!toDelete || toDelete.length === 0) {
+                 hasMore = false;
+             } else {
+                 const ids = toDelete.map(d => d.id);
+                 for (let i = 0; i < ids.length; i += 100) {
+                     const chunkIds = ids.slice(i, i + 100);
+                     const { error: delErr } = await supabase
+                        .from(tableName)
+                        .delete()
+                        .in('id', chunkIds);
+                     if (delErr) throw delErr;
+                 }
+             }
+          }
       } else {
           setProgress(`Modo Parcial: Adicionando dados à quinzena ${q}...`);
       }
@@ -506,21 +525,14 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
              addLog(`Resolvendo ${resolvedRoutes.length} rotas que antes estavam N/A...`, 'info');
              const collectionsToFix = ['faturamento', 'penalidades'];
              for (const colName of collectionsToFix) {
-                const chunkDocs = await fetchAllFromSupabase(colName);
-                if (!chunkDocs || chunkDocs.length === 0) continue;
-                
-                for (const chunkDoc of chunkDocs) {
-                   let changed = false;
-                   const resolved = resolvedRoutes.find(r => r.id_rota === chunkDoc.id_rota);
-                   
-                   if (resolved && chunkDoc.filial === 'N/A') {
-                      changed = true;
-                      await supabase.from(colName).update({
-                        filial: resolved.filial,
-                        regional: resolved.regional,
-                        supervisor: resolved.supervisor
-                      }).eq('id', chunkDoc.id);
-                   }
+                // Ao invés de buscar a base inteira (causando timeout),
+                // vamos apenas disparar o update direto para cada rota resolvida.
+                for (const resolved of resolvedRoutes) {
+                   await supabase.from(colName).update({
+                     filial: resolved.filial,
+                     regional: resolved.regional,
+                     supervisor: resolved.supervisor
+                   }).eq('id_rota', resolved.id_rota).eq('filial', 'N/A');
                 }
              }
 
@@ -608,6 +620,27 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     setProgressBilling('Lendo arquivo...');
 
     const processData = async (dataArray) => {
+      // Validação do Número da Fatura
+      const invoiceNumber = numeroFaturaBilling.trim();
+      const inFileName = billingFile.name.includes(invoiceNumber);
+      
+      let inContent = false;
+      // Procura o número da fatura nas primeiras 50 linhas
+      for (let i = 0; i < Math.min(50, dataArray.length); i++) {
+         const rowStr = (dataArray[i] || []).join(' ');
+         if (rowStr.includes(invoiceNumber)) {
+             inContent = true;
+             break;
+         }
+      }
+
+      if (!inFileName && !inContent) {
+          alert(`O número da pré-fatura (${invoiceNumber}) não foi encontrado no nome do arquivo nem no conteúdo do documento. Verifique se o arquivo está correto e tente novamente.`);
+          setIsProcessingBilling(false);
+          setProgressBilling('');
+          return;
+      }
+
       const configMap = {};
       mapeamentoFiliais.forEach(m => configMap[String(m.filial).toUpperCase()] = m);
       const mapRotaFilial = {};
@@ -775,7 +808,9 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
             valor: Math.abs(valorTotal),
             quinzena: quinzenaStr,
             dados_originais,
-            ...routeObj
+            filial: routeObj.filial,
+            regional: routeObj.regional,
+            supervisor: routeObj.supervisor
           });
         }
       }
@@ -826,6 +861,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         if (onImportBilling) await onImportBilling(arrDiarias, arrayPenalidades);
 
         await registrarImportacao('Billing', quinzenaStr, arrDiarias.length + arrayPenalidades.length);
+        await supabase.rpc('rpc_refresh_materialized_views');
 
         addLog('Salvo no Supabase com sucesso!', 'success');
         setBillingFile(null);
@@ -974,6 +1010,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
         const qTotal = Object.keys(grouped).length > 0 ? Object.keys(grouped)[0] : 'GERAL';
         await registrarImportacao('CAP', qTotal, enrichedData.length);
+        await supabase.rpc('rpc_refresh_materialized_views');
 
         setCapcarFile(null);
         setProgressCapCar('Concluído!');
@@ -1006,50 +1043,22 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     setProgressBsc('Lendo arquivo...');
 
     const processData = async (dataArray) => {
-      let headerRowIdx = -1;
-      let idxQuinzena = -1, idxRegional = -1, idxSupervisor = -1, idxFilial = -1, idxCluster = -1;
-      let idxMotorista = -1, idxIdRota = -1, idxSaldo = -1, idxEntregues = -1, idxDiaSemana = -1, idxData = -1;
-
-      for (let i = 0; i < Math.min(15, dataArray.length); i++) {
-        const row = dataArray[i];
-        if (!row) continue;
-        const normalize = (c) => String(c || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-        
-        const q = row.findIndex(c => ['quinzena', 'periodo', 'mes', 'ciclo'].some(w => normalize(c).includes(w)) && !normalize(c).includes('data'));
-        const f = row.findIndex(c => ['filial', 'operacao', 'base', 'unidade', 'xpt'].some(w => normalize(c).includes(w)) || normalize(c) === 'xpt');
-        const s = row.findIndex(c => (normalize(c) === 'saldo' || normalize(c).includes('saldo') || normalize(c).includes('pacote') || normalize(c).includes('volume') || normalize(c).includes('envio')) && !normalize(c).includes('insucesso') && !normalize(c).includes('falha'));
-        const e = row.findIndex(c => (normalize(c) === 'entregues' || normalize(c).includes('entreg') || normalize(c).includes('sucesso') || normalize(c).includes('realizado')) && !normalize(c).includes('%') && !normalize(c).includes('taxa') && !normalize(c).includes('insucesso'));
-        
-        if (f !== -1 && s !== -1) {
-          headerRowIdx = i;
-          idxQuinzena = q !== -1 ? q : 0;
-          idxFilial = f;
-          idxSaldo = s;
-          idxEntregues = e;
-          
-          idxRegional = row.findIndex(c => normalize(c).includes('regional') || normalize(c) === 'regiao');
-          if(idxRegional === -1) idxRegional = 38;
-          
-          idxSupervisor = row.findIndex(c => normalize(c).includes('superv') || normalize(c).includes('gestor') || normalize(c).includes('coord'));
-          if(idxSupervisor === -1) idxSupervisor = 39;
-          
-          idxCluster = row.findIndex(c => normalize(c).includes('cluster'));
-          if(idxCluster === -1) idxCluster = 10;
-          
-          idxMotorista = row.findIndex(c => normalize(c).includes('motorista') || normalize(c).includes('nome') || normalize(c).includes('entregador'));
-          if(idxMotorista === -1) idxMotorista = 12;
-          
-          idxIdRota = row.findIndex(c => normalize(c).includes('rota') || normalize(c).includes('route'));
-          if(idxIdRota === -1) idxIdRota = 7;
-          
-          idxDiaSemana = 40;
-          
-          const dCol = row.findIndex(c => normalize(c) === 'data' || normalize(c).includes('data criacao'));
-          idxData = dCol !== -1 ? dCol : -1;
-          
-          break;
-        }
-      }
+      const headerRowIdx = 0;
+      const idxData = 0;         // A
+      const idxSvc = 2;          // C
+      const idxFilial = 3;       // D
+      const idxIdRota = 5;       // F
+      const idxQuinzena = 7;     // H
+      const idxCluster = 8;      // I
+      const idxDriverId = 9;     // J
+      
+      const idxSaldo = 22;       // W
+      const idxEntregues = 23;   // X
+      
+      const idxRegional = 38;
+      const idxSupervisor = 39;
+      const idxMotorista = 12;
+      const idxDiaSemana = 40;
 
       if (headerRowIdx === -1) {
         addLog('Erro: Cabeçalhos obrigatórios não encontrados no BSC.', 'error');
@@ -1059,10 +1068,9 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
       const row = dataArray[headerRowIdx];
       const insucessosHeaders = [];
-      for (let j = 29; j <= 37; j++) {
-        if (row[j] && String(row[j]).trim() !== '') {
-          insucessosHeaders.push({ index: j, name: String(row[j]).trim() });
-        }
+      for (let j = 27; j <= 34; j++) {
+        const headerName = (row && row[j] && String(row[j]).trim() !== '') ? String(row[j]).trim() : `Insucesso_${j}`;
+        insucessosHeaders.push({ index: j, name: headerName });
       }
 
       const parsedData = [];
@@ -1072,7 +1080,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
       mapeamentoFiliais.forEach(m => configMap[String(m.filial).toUpperCase()] = m);
 
       const parseDateInfo = (dateStr) => {
-        if (!dateStr) return { quinzena: null, dataPadrao: 'N/A' };
+        if (!dateStr) return { quinzena: null, dataPadrao: 'N/A', diaSemanaTexto: 'N/A' };
         let d;
         const txtMatch = String(dateStr).match(/^(\d{1,2})[\s\-de]+([a-zA-Z]{3,})/i);
         if (txtMatch) {
@@ -1100,7 +1108,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
            }
         }
 
-        if (!d || isNaN(d.getTime())) return { quinzena: null, dataPadrao: String(dateStr).trim() };
+        if (!d || isNaN(d.getTime())) return { quinzena: null, dataPadrao: String(dateStr).trim(), diaSemanaTexto: 'N/A' };
 
         const y = d.getFullYear();
         const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -1109,7 +1117,10 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         const dd = String(d.getDate()).padStart(2, '0');
         const dataPadrao = `${dd}/${m}/${y}`;
         
-        return { quinzena: `${y}${m}${q}`, dataPadrao };
+        const diasSemana = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        const diaSemanaTexto = diasSemana[d.getDay()];
+
+        return { quinzena: `${y}${m}${q}`, dataPadrao, diaSemanaTexto };
       };
 
       for (let i = headerRowIdx + 1; i < dataArray.length; i++) {
@@ -1122,11 +1133,13 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
         let quinzena = 'GERAL';
         let dataPadrao = 'N/A';
+        let parsedDiaSemana = 'N/A';
         
         if (idxData !== -1 && r[idxData]) {
            const info = parseDateInfo(String(r[idxData]).trim());
            if (info.quinzena) quinzena = info.quinzena;
            if (info.dataPadrao) dataPadrao = info.dataPadrao;
+           if (info.diaSemanaTexto) parsedDiaSemana = info.diaSemanaTexto;
         }
         
         if (quinzenaBsc.trim()) quinzena = quinzenaBsc.trim();
@@ -1136,8 +1149,17 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         
         const id_rota = idxIdRota !== -1 && r[idxIdRota] && String(r[idxIdRota]).trim() !== '' ? String(r[idxIdRota]).trim() : '-';
 
-        const fKey = filial.toUpperCase();
+        let fKey = filial.toUpperCase();
         let config = configMap[fKey];
+        
+        if (!config && idxSvc !== -1) {
+          const svcRaw = String(r[idxSvc] || '').trim();
+          if (svcRaw && svcRaw.toUpperCase() !== '#N/A' && svcRaw !== '') {
+            filial = svcRaw;
+            fKey = filial.toUpperCase();
+            config = configMap[fKey];
+          }
+        }
         
         let regional = config ? config.regional : (idxRegional !== -1 && r[idxRegional] ? String(r[idxRegional]).trim() : 'N/A');
         let supervisor = config ? config.supervisor : (idxSupervisor !== -1 && r[idxSupervisor] ? String(r[idxSupervisor]).trim() : 'N/A');
@@ -1154,7 +1176,15 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         const clusterRaw = idxCluster !== -1 && r[idxCluster] ? String(r[idxCluster]).trim() : '';
         const cluster = clusterRaw && clusterRaw !== '-' && clusterRaw.toUpperCase() !== 'N/A' ? clusterRaw : 'Ambulâncias';
         
-        const motorista = idxMotorista !== -1 && r[idxMotorista] && String(r[idxMotorista]).trim() !== '' ? String(r[idxMotorista]).trim() : 'N/A';
+        let motorista = idxMotorista !== -1 && r[idxMotorista] && String(r[idxMotorista]).trim() !== '' ? String(r[idxMotorista]).trim() : 'N/A';
+        const driverId = idxDriverId !== -1 && r[idxDriverId] ? String(r[idxDriverId]).trim() : '';
+
+        if (driverId && driverId !== '-' && driverId.toUpperCase() !== 'N/A') {
+          const opMatch = rawOperacionalData.find(op => String(op.driver_id).trim() === driverId);
+          if (opMatch && opMatch.motorista && opMatch.motorista !== 'N/A') {
+            motorista = opMatch.motorista;
+          }
+        }
 
         const parseNum = (val) => {
           if (!val) return 0;
@@ -1175,11 +1205,11 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         });
 
         let saldo = Math.max(0, saldoOriginal);
-        const dia_semana = idxDiaSemana !== -1 && r[idxDiaSemana] ? String(r[idxDiaSemana]).trim() : 'N/A';
+        const dia_semana = parsedDiaSemana !== 'N/A' ? parsedDiaSemana : (idxDiaSemana !== -1 && r[idxDiaSemana] ? String(r[idxDiaSemana]).trim() : 'N/A');
 
         const somaIns = Object.values(insucessosDetalhados).reduce((a, b) => a + b, 0);
         if (saldo > 0 || entregues > 0 || somaIns > 0) {
-          parsedData.push({ quinzena, dia_semana: dataPadrao, regional, supervisor, filial, motorista, id_rota, saldo, entregues, insucessosDetalhados });
+          parsedData.push({ quinzena, dia_semana, regional, supervisor, filial, motorista, id_rota, saldo, entregues, insucessosDetalhados });
         }
       }
 
@@ -1198,6 +1228,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
         const qTotal = Object.keys(grouped).length > 0 ? Object.keys(grouped)[0] : 'GERAL';
         await registrarImportacao('BSC', qTotal, parsedData.length);
+        await supabase.rpc('rpc_refresh_materialized_views');
 
         setBscFile(null);
         setProgressBsc('Concluído!');
@@ -1426,27 +1457,19 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
           )}
           <button onClick={() => setActiveStep(4)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 4 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>4. BSC</button>
           <button onClick={() => setActiveStep(7)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 7 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>7. Disponibilidade</button>
+          <button onClick={() => setActiveStep(5)} className={`px-4 py-2 text-sm font-bold rounded-xl flex items-center gap-2 ${activeStep === 5 ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+             Histórico
+          </button>
+          <button onClick={() => setActiveStep(6)} className={`px-4 py-2 text-sm font-bold rounded-xl flex items-center gap-2 ${activeStep === 6 ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+             <AlertTriangle className="w-4 h-4" /> Rotas Pendentes
+          </button>
           {isAdmin && (
-            <>
-              <button
-                onClick={() => setActiveStep(5)}
-                className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors ${activeStep === 5 ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
-              >
-                Histórico
-              </button>
-              <button
-                onClick={() => setActiveStep(6)}
-                className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeStep === 6 ? 'border-red-500 text-red-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
-              >
-                <AlertTriangle className="w-4 h-4" /> Rotas Pendentes
-              </button>
-              <button
-                onClick={() => setActiveStep(8)}
-                className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeStep === 8 ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
-              >
-                <Database className="w-4 h-4" /> Gestão de Dados
-              </button>
-            </>
+            <button
+              onClick={() => setActiveStep(8)}
+              className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeStep === 8 ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
+            >
+              <Database className="w-4 h-4" /> Gestão de Dados
+            </button>
           )}
         </div>
 
@@ -1487,7 +1510,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
                   </div>
-                  <input type="file" accept=".csv, .xlsx" onChange={e => setBaseFile(e.target.files[0])} className="hidden" />
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setBaseFile(e.target.files[0])} style={{ display: 'none' }} />
                 </label>
               ) : (
                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl">
@@ -1532,7 +1555,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                   </div>
                   <div className="flex-1">
                     <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Número da Fatura</label>
-                    <input type="text" placeholder="Ex: INV-001" value={numeroFaturaBilling} onChange={e => setNumeroFaturaBilling(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" />
+                    <input type="text" placeholder="Ex: 6288671" value={numeroFaturaBilling} onChange={e => setNumeroFaturaBilling(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" />
                   </div>
                 </div>
               </div>
@@ -1546,7 +1569,16 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
                   </div>
-                  <input type="file" accept=".csv, .xlsx" onChange={e => setBillingFile(e.target.files[0])} className="hidden" />
+                  <input type="file" accept=".csv, .xlsx" onChange={e => {
+                    const file = e.target.files[0];
+                    setBillingFile(file);
+                    if (file) {
+                      const match = file.name.match(/#(\d+)/);
+                      if (match) {
+                        setNumeroFaturaBilling(match[1]);
+                      }
+                    }
+                  }} style={{ display: 'none' }} />
                 </label>
               ) : (
                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
@@ -1615,7 +1647,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
                   </div>
-                  <input type="file" accept=".csv, .xlsx" onChange={e => setCapcarFile(e.target.files[0])} className="hidden" />
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setCapcarFile(e.target.files[0])} style={{ display: 'none' }} />
                 </label>
               ) : (
                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
@@ -1671,7 +1703,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
                   </div>
-                  <input type="file" accept=".csv, .xlsx" onChange={e => setBscFile(e.target.files[0])} className="hidden" />
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setBscFile(e.target.files[0])} style={{ display: 'none' }} />
                 </label>
               ) : (
                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
@@ -1719,7 +1751,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
                   </div>
-                  <input type="file" accept=".csv, .xlsx" onChange={e => setDispFile(e.target.files[0])} className="hidden" />
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setDispFile(e.target.files[0])} style={{ display: 'none' }} />
                 </label>
               ) : (
                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">

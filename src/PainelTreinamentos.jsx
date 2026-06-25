@@ -539,11 +539,25 @@ export default function PainelTreinamentos({ rawOperacionalData = [], mapeamento
         for (let i = 0; i < queryIds.length; i += chunkSize) {
           const chunk = queryIds.slice(i, i + chunkSize);
           promises.push(
-            supabase.from('operacional').select('driver_id, motorista, filial').in('driver_id', chunk).then(({ data, error }) => {
-              if (!error && data) {
-                data.forEach(r => {
+            Promise.all([
+              supabase.from('operacional').select('driver_id, motorista, filial').in('driver_id', chunk),
+              supabase.from('motoristas').select('driver_id, nome').in('driver_id', chunk)
+            ]).then(([opRes, motRes]) => {
+              const motMap = new Map();
+              if (!motRes.error && motRes.data) {
+                motRes.data.forEach(m => {
+                  if (m.driver_id && m.nome) {
+                    motMap.set(String(m.driver_id).trim().toUpperCase(), m.nome);
+                  }
+                });
+              }
+
+              if (!opRes.error && opRes.data) {
+                opRes.data.forEach(r => {
                   if (r.driver_id) {
-                     opMap.set(String(r.driver_id).trim().toUpperCase(), { nome: r.motorista, filial: r.filial });
+                     const did = String(r.driver_id).trim().toUpperCase();
+                     const officialName = motMap.get(did) || r.motorista;
+                     opMap.set(did, { nome: officialName, filial: r.filial });
                   }
                 });
               }
