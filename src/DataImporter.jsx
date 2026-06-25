@@ -304,12 +304,31 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
       
       if (!isPartial) {
           setProgress(`Apagando dados antigos da quinzena ${q}...`);
-          const { error: deleteError } = await supabase
-            .from(tableName)
-            .delete()
-            .eq('quinzena', q);
-            
-          if (deleteError) throw deleteError;
+          
+          let hasMore = true;
+          while (hasMore) {
+             const { data: toDelete, error: selErr } = await supabase
+                .from(tableName)
+                .select('id')
+                .eq('quinzena', q)
+                .limit(5000);
+                
+             if (selErr) throw selErr;
+             
+             if (!toDelete || toDelete.length === 0) {
+                 hasMore = false;
+             } else {
+                 const ids = toDelete.map(d => d.id);
+                 for (let i = 0; i < ids.length; i += 100) {
+                     const chunkIds = ids.slice(i, i + 100);
+                     const { error: delErr } = await supabase
+                        .from(tableName)
+                        .delete()
+                        .in('id', chunkIds);
+                     if (delErr) throw delErr;
+                 }
+             }
+          }
       } else {
           setProgress(`Modo Parcial: Adicionando dados à quinzena ${q}...`);
       }
@@ -506,21 +525,14 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
              addLog(`Resolvendo ${resolvedRoutes.length} rotas que antes estavam N/A...`, 'info');
              const collectionsToFix = ['faturamento', 'penalidades'];
              for (const colName of collectionsToFix) {
-                const chunkDocs = await fetchAllFromSupabase(colName);
-                if (!chunkDocs || chunkDocs.length === 0) continue;
-                
-                for (const chunkDoc of chunkDocs) {
-                   let changed = false;
-                   const resolved = resolvedRoutes.find(r => r.id_rota === chunkDoc.id_rota);
-                   
-                   if (resolved && chunkDoc.filial === 'N/A') {
-                      changed = true;
-                      await supabase.from(colName).update({
-                        filial: resolved.filial,
-                        regional: resolved.regional,
-                        supervisor: resolved.supervisor
-                      }).eq('id', chunkDoc.id);
-                   }
+                // Ao invés de buscar a base inteira (causando timeout),
+                // vamos apenas disparar o update direto para cada rota resolvida.
+                for (const resolved of resolvedRoutes) {
+                   await supabase.from(colName).update({
+                     filial: resolved.filial,
+                     regional: resolved.regional,
+                     supervisor: resolved.supervisor
+                   }).eq('id_rota', resolved.id_rota).eq('filial', 'N/A');
                 }
              }
 
@@ -608,6 +620,27 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     setProgressBilling('Lendo arquivo...');
 
     const processData = async (dataArray) => {
+      // Validação do Número da Fatura
+      const invoiceNumber = numeroFaturaBilling.trim();
+      const inFileName = billingFile.name.includes(invoiceNumber);
+      
+      let inContent = false;
+      // Procura o número da fatura nas primeiras 50 linhas
+      for (let i = 0; i < Math.min(50, dataArray.length); i++) {
+         const rowStr = (dataArray[i] || []).join(' ');
+         if (rowStr.includes(invoiceNumber)) {
+             inContent = true;
+             break;
+         }
+      }
+
+      if (!inFileName && !inContent) {
+          alert(`O número da pré-fatura (${invoiceNumber}) não foi encontrado no nome do arquivo nem no conteúdo do documento. Verifique se o arquivo está correto e tente novamente.`);
+          setIsProcessingBilling(false);
+          setProgressBilling('');
+          return;
+      }
+
       const configMap = {};
       mapeamentoFiliais.forEach(m => configMap[String(m.filial).toUpperCase()] = m);
       const mapRotaFilial = {};
@@ -775,7 +808,9 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
             valor: Math.abs(valorTotal),
             quinzena: quinzenaStr,
             dados_originais,
-            ...routeObj
+            filial: routeObj.filial,
+            regional: routeObj.regional,
+            supervisor: routeObj.supervisor
           });
         }
       }
@@ -1422,27 +1457,19 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
           )}
           <button onClick={() => setActiveStep(4)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 4 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>4. BSC</button>
           <button onClick={() => setActiveStep(7)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 7 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>7. Disponibilidade</button>
+          <button onClick={() => setActiveStep(5)} className={`px-4 py-2 text-sm font-bold rounded-xl flex items-center gap-2 ${activeStep === 5 ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+             Histórico
+          </button>
+          <button onClick={() => setActiveStep(6)} className={`px-4 py-2 text-sm font-bold rounded-xl flex items-center gap-2 ${activeStep === 6 ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+             <AlertTriangle className="w-4 h-4" /> Rotas Pendentes
+          </button>
           {isAdmin && (
-            <>
-              <button
-                onClick={() => setActiveStep(5)}
-                className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors ${activeStep === 5 ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
-              >
-                Histórico
-              </button>
-              <button
-                onClick={() => setActiveStep(6)}
-                className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeStep === 6 ? 'border-red-500 text-red-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
-              >
-                <AlertTriangle className="w-4 h-4" /> Rotas Pendentes
-              </button>
-              <button
-                onClick={() => setActiveStep(8)}
-                className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeStep === 8 ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
-              >
-                <Database className="w-4 h-4" /> Gestão de Dados
-              </button>
-            </>
+            <button
+              onClick={() => setActiveStep(8)}
+              className={`px-4 py-2 font-bold whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeStep === 8 ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-400 hover:text-slate-300'}`}
+            >
+              <Database className="w-4 h-4" /> Gestão de Dados
+            </button>
           )}
         </div>
 
@@ -1483,7 +1510,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
                   </div>
-                  <input type="file" accept=".csv, .xlsx" onChange={e => setBaseFile(e.target.files[0])} className="hidden" />
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setBaseFile(e.target.files[0])} style={{ display: 'none' }} />
                 </label>
               ) : (
                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl">
@@ -1528,7 +1555,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                   </div>
                   <div className="flex-1">
                     <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Número da Fatura</label>
-                    <input type="text" placeholder="Ex: INV-001" value={numeroFaturaBilling} onChange={e => setNumeroFaturaBilling(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" />
+                    <input type="text" placeholder="Ex: 6288671" value={numeroFaturaBilling} onChange={e => setNumeroFaturaBilling(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" />
                   </div>
                 </div>
               </div>
@@ -1542,7 +1569,16 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
                   </div>
-                  <input type="file" accept=".csv, .xlsx" onChange={e => setBillingFile(e.target.files[0])} className="hidden" />
+                  <input type="file" accept=".csv, .xlsx" onChange={e => {
+                    const file = e.target.files[0];
+                    setBillingFile(file);
+                    if (file) {
+                      const match = file.name.match(/#(\d+)/);
+                      if (match) {
+                        setNumeroFaturaBilling(match[1]);
+                      }
+                    }
+                  }} style={{ display: 'none' }} />
                 </label>
               ) : (
                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
@@ -1611,7 +1647,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
                   </div>
-                  <input type="file" accept=".csv, .xlsx" onChange={e => setCapcarFile(e.target.files[0])} className="hidden" />
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setCapcarFile(e.target.files[0])} style={{ display: 'none' }} />
                 </label>
               ) : (
                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
@@ -1667,7 +1703,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
                   </div>
-                  <input type="file" accept=".csv, .xlsx" onChange={e => setBscFile(e.target.files[0])} className="hidden" />
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setBscFile(e.target.files[0])} style={{ display: 'none' }} />
                 </label>
               ) : (
                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
@@ -1715,7 +1751,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
                   </div>
-                  <input type="file" accept=".csv, .xlsx" onChange={e => setDispFile(e.target.files[0])} className="hidden" />
+                  <input type="file" accept=".csv, .xlsx" onChange={e => setDispFile(e.target.files[0])} style={{ display: 'none' }} />
                 </label>
               ) : (
                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">

@@ -90,7 +90,6 @@ pen_agg AS (
          SUM(CASE WHEN tipo NOT ILIKE '%Not Visited%' AND tipo NOT ILIKE '%PNR%' AND tipo NOT ILIKE '%Lost%' THEN COALESCE(valor, 0) ELSE 0 END) as valor_outros,
          SUM(COALESCE(valor, 0)) as total_desconto_penalidades
   FROM pen_op
-  WHERE motorista IS NOT NULL AND motorista != 'N/A'
   GROUP BY quinzena, filial, motorista
 ),
 bsc_agg AS (
@@ -99,7 +98,6 @@ bsc_agg AS (
          SUM(COALESCE(b.saldo, 0)) as pacotes_saldo,
          0 as nota_bsc
   FROM bsc b
-  WHERE b.motorista IS NOT NULL AND b.motorista != 'N/A'
   GROUP BY b.quinzena, b.filial, b.motorista
 )
 SELECT 

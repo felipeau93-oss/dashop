@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import { Truck, Search, Loader2, AlertCircle, FileSpreadsheet, X, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { TurnoverMotoristas } from './components/ui/TurnoverMotoristas';
 
 export default function GestaoMotoristas() {
   const [motoristas, setMotoristas] = useState([]);
@@ -317,6 +318,8 @@ export default function GestaoMotoristas() {
           <strong>Raio-X Completo:</strong> Cada motorista é listado apenas uma vez. Clique em "Ver Detalhes" para analisar todas as rotas e placas vinculadas a ele.
         </div>
       </div>
+
+      <TurnoverMotoristas />
 
       {loading ? (
         <div className="flex flex-col items-center justify-center p-20 gap-4">
