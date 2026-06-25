@@ -1,61 +1,34 @@
 import { Resend } from 'resend';
+import { createClient } from '@supabase/supabase-js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Funções utilitárias idênticas ao front-end para descobrir a quinzena atual
-const parseDate = (dateStr) => {
-  if (!dateStr) return new Date(0);
-  const str = String(dateStr).trim();
-  const dateMatchBR = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-  if (dateMatchBR) {
-    let year = parseInt(dateMatchBR[3], 10);
-    if (year < 100) year += 2000;
-    return new Date(year, parseInt(dateMatchBR[2], 10) - 1, parseInt(dateMatchBR[1], 10));
-  }
-  const dateMatchUS = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (dateMatchUS) {
-    return new Date(parseInt(dateMatchUS[1], 10), parseInt(dateMatchUS[2], 10) - 1, parseInt(dateMatchUS[3], 10));
-  }
-  return new Date(0);
-};
+// Supabase Connection
+// Tenta usar VITE_SUPABASE_URL ou fallback para outras vars de ambiente
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+// Tenta pegar a service_role_key para o cron (se existir), senão a anon_key
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
-const getQuinzena = (dateStr) => {
-  if (!dateStr || dateStr === 'N/A') return 'N/A';
-  const str = String(dateStr).trim();
-  const dateMatchBR = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-  if (dateMatchBR) {
-    let year = parseInt(dateMatchBR[3], 10);
-    if (year < 100) year += 2000;
-    return `${year}${dateMatchBR[2].padStart(2, '0')}${parseInt(dateMatchBR[1], 10) <= 15 ? 'Q1' : 'Q2'}`;
-  }
-  const dateMatchUS = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (dateMatchUS) {
-    const year = parseInt(dateMatchUS[1], 10);
-    const month = parseInt(dateMatchUS[2], 10).toString().padStart(2, '0');
-    return `${year}${month}${parseInt(dateMatchUS[3], 10) <= 15 ? 'Q1' : 'Q2'}`;
-  }
-  return 'N/A';
-};
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
 export default async function handler(req, res) {
   try {
     // BLOQUEIO TEMPORÁRIO A PEDIDO DO USUÁRIO
-    // O envio automático só deve começar oficialmente a partir de 26/06/2026.
+    // O envio automático só deve começar oficialmente a partir de segunda-feira, 29/06/2026.
     // Ignoramos a requisição se a data atual for anterior a isso.
     const now = new Date();
-    const startDate = new Date('2026-06-26T00:00:00Z');
+    const startDate = new Date('2026-06-29T00:00:00Z');
     
     // O parâmetro force=true na URL permite disparar o e-mail manualmente para testes
     if (now < startDate && req.query.force !== 'true') {
       return res.status(200).json({ 
-        message: 'Envio ignorado: O envio automático oficial só começa no dia 26/06/2026.' 
+        message: 'Envio ignorado: O envio automático oficial só começa no dia 29/06/2026.' 
       });
     }
 
     // 1. Validar token de autorização cron (A Vercel envia um Bearer token seguro em Cron Jobs)
-    // Para simplificar a execução manual durante testes, ignoramos a validação se não houver CRON_SECRET configurado
     if (process.env.CRON_SECRET) {
       const authHeader = req.headers.authorization;
       if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -63,74 +36,45 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2. Buscar dados da API REST do Firestore com paginação
-    let documents = [];
-    let pageToken = '';
-    let hasMore = true;
-
-    while (hasMore) {
-      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/dashop-1291f/databases/(default)/documents/app_dados_comprimidos?pageSize=100${pageToken ? '&pageToken=' + pageToken : ''}`;
-      const dbResponse = await fetch(firestoreUrl);
-      
-      if (!dbResponse.ok) {
-        throw new Error(`Erro ao conectar com Firebase: ${dbResponse.statusText}`);
-      }
-
-      const data = await dbResponse.json();
-      if (data.documents) {
-        documents = documents.concat(data.documents);
-      }
-      
-      if (data.nextPageToken) {
-        pageToken = data.nextPageToken;
-      } else {
-        hasMore = false;
-      }
-    }
-    
-    // 3. Remontar os chunks das penalidades
-    const penalidadesChunks = [];
-    if (documents.length > 0) {
-      documents.forEach(doc => {
-        const idPath = doc.name.split('/');
-        const id = idPath[idPath.length - 1]; // ex: penalidades_chunk_0
-        
-        if (id.startsWith('penalidades_chunk_')) {
-          const index = parseInt(id.split('_chunk_')[1], 10);
-          if (doc.fields && doc.fields.payload && doc.fields.payload.stringValue) {
-            penalidadesChunks[index] = doc.fields.payload.stringValue;
-          }
-        }
-      });
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: 'Credenciais do Supabase não configuradas no ambiente da Vercel.' });
     }
 
-    if (penalidadesChunks.length === 0) {
-      return res.status(404).json({ message: 'Nenhum dado de penalidades encontrado no banco.' });
+    // 2. Identificar a quinzena mais recente que possui dados na tabela 'penalidades'
+    const { data: quinzenasData, error: qError } = await supabase
+      .from('penalidades')
+      .select('quinzena')
+      .not('quinzena', 'is', null)
+      .order('quinzena', { ascending: false })
+      .limit(1);
+
+    if (qError) {
+      console.error("Erro ao buscar a última quinzena:", qError);
+      return res.status(500).json({ error: 'Erro ao buscar quinzena no Supabase.' });
     }
 
-    const penalidadesJSON = penalidadesChunks.join('');
-    const penalidades = JSON.parse(penalidadesJSON);
-
-    // 4. Identificar a quinzena mais recente que possui dados
-    let targetQuinzena = null;
-    
-    const validPenalidades = penalidades.filter(p => p.valor && p.quinzena);
-    
-    const quinzenasEncontradas = [...new Set(validPenalidades.map(p => p.quinzena))];
-    if (quinzenasEncontradas.length > 0) {
-      targetQuinzena = quinzenasEncontradas.sort().pop(); // '202604Q2' > '202604Q1'
+    if (!quinzenasData || quinzenasData.length === 0) {
+      return res.status(404).json({ message: 'Nenhuma quinzena válida encontrada no Supabase.' });
     }
 
-    if (!targetQuinzena) {
-      return res.status(404).json({ message: 'Nenhuma quinzena válida encontrada.' });
+    const targetQuinzena = quinzenasData[0].quinzena;
+
+    // 3. Buscar todos os dados para montar o Gráfico de Evolução Quinzenal
+    const { data: dadosGrafico, error: chartError } = await supabase
+      .from('penalidades')
+      .select('quinzena, valor')
+      .not('quinzena', 'is', null);
+
+    if (chartError) {
+      console.error("Erro ao buscar dados do gráfico:", chartError);
+      return res.status(500).json({ error: 'Erro ao buscar dados do gráfico no Supabase.' });
     }
 
-    // 4.5. Gráfico de Evolução Quinzenal via QuickChart
     const quinzenasAgrupadas = {};
-    validPenalidades.forEach(p => {
+    dadosGrafico.forEach(p => {
       const q = p.quinzena;
       if (!quinzenasAgrupadas[q]) quinzenasAgrupadas[q] = 0;
-      quinzenasAgrupadas[q] += (p.valor || 0);
+      quinzenasAgrupadas[q] += (Number(p.valor) || 0);
     });
 
     const quinzenasOrdenadas = Object.keys(quinzenasAgrupadas).sort();
@@ -196,9 +140,17 @@ export default async function handler(req, res) {
 
     const encodedChartUrl = `https://quickchart.io/chart?w=800&h=400&devicePixelRatio=2&c=${encodeURIComponent(chartConfigStr)}`;
 
-    // 5. Agregar os Dados da Quinzena Atual
-    const casosDaQuinzena = validPenalidades.filter(p => p.quinzena === targetQuinzena);
-    
+    // 4. Buscar os Dados da Quinzena Atual
+    const { data: casosDaQuinzena, error: casosError } = await supabase
+      .from('penalidades')
+      .select('*')
+      .eq('quinzena', targetQuinzena);
+
+    if (casosError) {
+      console.error("Erro ao buscar casos da quinzena:", casosError);
+      return res.status(500).json({ error: 'Erro ao buscar casos da quinzena no Supabase.' });
+    }
+
     let totalPenalidades = 0;
     const filiaisMap = {};
     const tiposMap = {};
@@ -207,7 +159,7 @@ export default async function handler(req, res) {
 
     casosDaQuinzena.forEach(p => {
       const isNotVisited = p.tipo === 'Not Visited';
-      const valor = p.valor || 0; // O Not Visited volta a somar o seu valor em R$
+      const valor = Number(p.valor) || 0; // O Not Visited volta a somar o seu valor em R$
       
       totalPenalidades += valor;
 
@@ -246,7 +198,7 @@ export default async function handler(req, res) {
       tiposMap[tipo].qtd += 1;
 
       // Agrega Motorista
-      const motorista = p.motorista || 'Sem Motorista';
+      const motorista = p.motorista || (p.dados_originais && p.dados_originais.Motorista) || 'Sem Motorista';
       const mKey = `${filial}:::${motorista}`;
       if (!motoristasMap[mKey]) motoristasMap[mKey] = { filial, regional, supervisor, motorista, valor: 0, qtd: 0, pnrValor: 0, lostValor: 0, pnrQtd: 0, lostQtd: 0 };
       motoristasMap[mKey].valor += valor;
@@ -287,9 +239,10 @@ export default async function handler(req, res) {
       const r = `"${p.regional || 'N/A'}"`;
       const s = `"${p.supervisor || 'N/A'}"`;
       const f = `"${p.filial || '-'}"`;
-      const m = `"${p.motorista || '-'}"`;
+      const motoristaStr = p.motorista || (p.dados_originais && p.dados_originais.Motorista) || '-';
+      const m = `"${motoristaStr}"`;
       const t = `"${p.tipo || '-'}"`;
-      const v = isNV ? '-' : (p.valor || 0).toFixed(2);
+      const v = isNV ? '-' : (Number(p.valor) || 0).toFixed(2);
       const ip = p.id_pacote || '-';
       const ir = p.id_rota || '-';
       return `${q},${r},${s},${f},${m},${t},${v},${ip},${ir}`;
@@ -297,7 +250,7 @@ export default async function handler(req, res) {
     
     const csvContent = Buffer.from('\uFEFF' + csvHeader + csvRows, 'utf-8');
 
-    // 6. Montar Template HTML
+    // 5. Montar Template HTML
     const thStyle = "padding: 5px; text-align: left; border-bottom: 2px solid #cbd5e1; font-size: 10px; text-transform: uppercase; color: #475569;";
     const tdStyle = "padding: 6px; border-bottom: 1px solid #e2e8f0; font-size: 10px; color: #1e293b;";
     
@@ -462,16 +415,13 @@ export default async function handler(req, res) {
           </tr>
         </table>
 
-        
-
         <p style="font-size: 10px; color: #94a3b8; text-align: center; margin-top: 15px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
           Este é um e-mail automático gerado pelo sistema DashOp. O detalhamento linha a linha consta no anexo deste e-mail.
         </p>
       </div>
     `;
 
-    // 7. Disparar o e-mail via Resend
-    // Nota: O e-mail do remetente e do destinatário devem ser configurados no painel da Vercel.
+    // 6. Disparar o e-mail via Resend
     const sender = process.env.REPORT_SENDER || 'relatorios@espindolalog.com';
     const recipient = process.env.REPORT_RECIPIENT || 'felipe.augusto@espindolalog.com';
     
