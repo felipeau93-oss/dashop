@@ -581,6 +581,7 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
   baseData.forEach(d => { globalPen += d.penalidades; globalPnr += d.pnr; globalLost += d.lost; globalNv += d.notVisited; });
 
   const projFilialData = baseData.map(d => {
+    const mult = 1;
     const pPen = d.penalidades * mult;
     let penAnterior = undefined;
     if (prevStats && prevStats.filiaisMap) {
@@ -958,6 +959,7 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrill
   baseData.forEach(d => { globalFat += d.faturamento; globalPen += d.penalidades; globalPnr += d.pnr; globalLost += d.lost; globalNv += d.notVisited; });
 
   const projFilialData = baseData.map(d => {
+    const mult = 1;
     const pFat = d.faturamento * mult;
     const pPen = d.penalidades * mult;
     return { ...d, faturamento: pFat, penalidades: pPen, pnr: d.pnr * mult, lost: d.lost * mult, notVisited: d.notVisited * mult, representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0) };
@@ -974,6 +976,7 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrill
   });
 
   const projRegionalData = Object.values(regionalMap).map(r => {
+    const mult = 1;
     const pFat = r.faturamento * mult; const pPen = r.penalidades * mult;
     return { ...r, faturamento: pFat, penalidades: pPen, pnr: r.pnr * mult, lost: r.lost * mult, notVisited: r.notVisited * mult, representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0) };
   }).sort((a, b) => b.penalidades - a.penalidades);
@@ -1278,6 +1281,7 @@ const RunRateOperacionalSection = ({ baseData, targetQuinzena, titlePrefix = "Op
   baseData.forEach(d => { globalSaldo += d.saldo; globalEntregues += d.entregues; });
 
   const projFilialData = baseData.map(d => {
+    const mult = 1;
     const pSaldo = d.saldo * mult; const pEntregues = d.entregues * mult;
     const pIns = {}; if (d.insucessosDetalhados) { Object.entries(d.insucessosDetalhados).forEach(([k, v]) => pIns[k] = v * mult); }
     return { ...d, saldo: pSaldo, entregues: pEntregues, ds: Math.min(100, pSaldo > 0 ? (pEntregues / pSaldo) * 100 : 0), insucessosDetalhados: pIns };
@@ -1294,6 +1298,7 @@ const RunRateOperacionalSection = ({ baseData, targetQuinzena, titlePrefix = "Op
   });
 
   const projRegionalData = Object.values(regionalMap).map(r => {
+    const mult = 1;
     const pSaldo = r.saldo * mult; const pEntregues = r.entregues * mult;
     const pIns = {}; if (r.insucessosDetalhados) { Object.entries(r.insucessosDetalhados).forEach(([k, v]) => pIns[k] = v * mult); }
     return { ...r, saldo: pSaldo, entregues: pEntregues, ds: Math.min(100, pSaldo > 0 ? (pEntregues / pSaldo) * 100 : 0), insucessosDetalhados: pIns };
