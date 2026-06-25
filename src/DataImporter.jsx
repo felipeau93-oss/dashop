@@ -826,6 +826,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         if (onImportBilling) await onImportBilling(arrDiarias, arrayPenalidades);
 
         await registrarImportacao('Billing', quinzenaStr, arrDiarias.length + arrayPenalidades.length);
+        await supabase.rpc('rpc_refresh_materialized_views');
 
         addLog('Salvo no Supabase com sucesso!', 'success');
         setBillingFile(null);
@@ -974,6 +975,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
         const qTotal = Object.keys(grouped).length > 0 ? Object.keys(grouped)[0] : 'GERAL';
         await registrarImportacao('CAP', qTotal, enrichedData.length);
+        await supabase.rpc('rpc_refresh_materialized_views');
 
         setCapcarFile(null);
         setProgressCapCar('Concluído!');
@@ -1006,50 +1008,22 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     setProgressBsc('Lendo arquivo...');
 
     const processData = async (dataArray) => {
-      let headerRowIdx = -1;
-      let idxQuinzena = -1, idxRegional = -1, idxSupervisor = -1, idxFilial = -1, idxCluster = -1;
-      let idxMotorista = -1, idxIdRota = -1, idxSaldo = -1, idxEntregues = -1, idxDiaSemana = -1, idxData = -1;
-
-      for (let i = 0; i < Math.min(15, dataArray.length); i++) {
-        const row = dataArray[i];
-        if (!row) continue;
-        const normalize = (c) => String(c || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-        
-        const q = row.findIndex(c => ['quinzena', 'periodo', 'mes', 'ciclo'].some(w => normalize(c).includes(w)) && !normalize(c).includes('data'));
-        const f = row.findIndex(c => ['filial', 'operacao', 'base', 'unidade', 'xpt'].some(w => normalize(c).includes(w)) || normalize(c) === 'xpt');
-        const s = row.findIndex(c => (normalize(c) === 'saldo' || normalize(c).includes('saldo') || normalize(c).includes('pacote') || normalize(c).includes('volume') || normalize(c).includes('envio')) && !normalize(c).includes('insucesso') && !normalize(c).includes('falha'));
-        const e = row.findIndex(c => (normalize(c) === 'entregues' || normalize(c).includes('entreg') || normalize(c).includes('sucesso') || normalize(c).includes('realizado')) && !normalize(c).includes('%') && !normalize(c).includes('taxa') && !normalize(c).includes('insucesso'));
-        
-        if (f !== -1 && s !== -1) {
-          headerRowIdx = i;
-          idxQuinzena = q !== -1 ? q : 0;
-          idxFilial = f;
-          idxSaldo = s;
-          idxEntregues = e;
-          
-          idxRegional = row.findIndex(c => normalize(c).includes('regional') || normalize(c) === 'regiao');
-          if(idxRegional === -1) idxRegional = 38;
-          
-          idxSupervisor = row.findIndex(c => normalize(c).includes('superv') || normalize(c).includes('gestor') || normalize(c).includes('coord'));
-          if(idxSupervisor === -1) idxSupervisor = 39;
-          
-          idxCluster = row.findIndex(c => normalize(c).includes('cluster'));
-          if(idxCluster === -1) idxCluster = 10;
-          
-          idxMotorista = row.findIndex(c => normalize(c).includes('motorista') || normalize(c).includes('nome') || normalize(c).includes('entregador'));
-          if(idxMotorista === -1) idxMotorista = 12;
-          
-          idxIdRota = row.findIndex(c => normalize(c).includes('rota') || normalize(c).includes('route'));
-          if(idxIdRota === -1) idxIdRota = 7;
-          
-          idxDiaSemana = 40;
-          
-          const dCol = row.findIndex(c => normalize(c) === 'data' || normalize(c).includes('data criacao'));
-          idxData = dCol !== -1 ? dCol : -1;
-          
-          break;
-        }
-      }
+      const headerRowIdx = 0;
+      const idxData = 0;         // A
+      const idxSvc = 2;          // C
+      const idxFilial = 3;       // D
+      const idxIdRota = 5;       // F
+      const idxQuinzena = 7;     // H
+      const idxCluster = 8;      // I
+      const idxDriverId = 9;     // J
+      
+      const idxSaldo = 22;       // W
+      const idxEntregues = 23;   // X
+      
+      const idxRegional = 38;
+      const idxSupervisor = 39;
+      const idxMotorista = 12;
+      const idxDiaSemana = 40;
 
       if (headerRowIdx === -1) {
         addLog('Erro: Cabeçalhos obrigatórios não encontrados no BSC.', 'error');
@@ -1059,10 +1033,9 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
       const row = dataArray[headerRowIdx];
       const insucessosHeaders = [];
-      for (let j = 29; j <= 37; j++) {
-        if (row[j] && String(row[j]).trim() !== '') {
-          insucessosHeaders.push({ index: j, name: String(row[j]).trim() });
-        }
+      for (let j = 27; j <= 34; j++) {
+        const headerName = (row && row[j] && String(row[j]).trim() !== '') ? String(row[j]).trim() : `Insucesso_${j}`;
+        insucessosHeaders.push({ index: j, name: headerName });
       }
 
       const parsedData = [];
@@ -1072,7 +1045,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
       mapeamentoFiliais.forEach(m => configMap[String(m.filial).toUpperCase()] = m);
 
       const parseDateInfo = (dateStr) => {
-        if (!dateStr) return { quinzena: null, dataPadrao: 'N/A' };
+        if (!dateStr) return { quinzena: null, dataPadrao: 'N/A', diaSemanaTexto: 'N/A' };
         let d;
         const txtMatch = String(dateStr).match(/^(\d{1,2})[\s\-de]+([a-zA-Z]{3,})/i);
         if (txtMatch) {
@@ -1100,7 +1073,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
            }
         }
 
-        if (!d || isNaN(d.getTime())) return { quinzena: null, dataPadrao: String(dateStr).trim() };
+        if (!d || isNaN(d.getTime())) return { quinzena: null, dataPadrao: String(dateStr).trim(), diaSemanaTexto: 'N/A' };
 
         const y = d.getFullYear();
         const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -1109,7 +1082,10 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         const dd = String(d.getDate()).padStart(2, '0');
         const dataPadrao = `${dd}/${m}/${y}`;
         
-        return { quinzena: `${y}${m}${q}`, dataPadrao };
+        const diasSemana = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        const diaSemanaTexto = diasSemana[d.getDay()];
+
+        return { quinzena: `${y}${m}${q}`, dataPadrao, diaSemanaTexto };
       };
 
       for (let i = headerRowIdx + 1; i < dataArray.length; i++) {
@@ -1122,11 +1098,13 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
         let quinzena = 'GERAL';
         let dataPadrao = 'N/A';
+        let parsedDiaSemana = 'N/A';
         
         if (idxData !== -1 && r[idxData]) {
            const info = parseDateInfo(String(r[idxData]).trim());
            if (info.quinzena) quinzena = info.quinzena;
            if (info.dataPadrao) dataPadrao = info.dataPadrao;
+           if (info.diaSemanaTexto) parsedDiaSemana = info.diaSemanaTexto;
         }
         
         if (quinzenaBsc.trim()) quinzena = quinzenaBsc.trim();
@@ -1136,8 +1114,17 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         
         const id_rota = idxIdRota !== -1 && r[idxIdRota] && String(r[idxIdRota]).trim() !== '' ? String(r[idxIdRota]).trim() : '-';
 
-        const fKey = filial.toUpperCase();
+        let fKey = filial.toUpperCase();
         let config = configMap[fKey];
+        
+        if (!config && idxSvc !== -1) {
+          const svcRaw = String(r[idxSvc] || '').trim();
+          if (svcRaw && svcRaw.toUpperCase() !== '#N/A' && svcRaw !== '') {
+            filial = svcRaw;
+            fKey = filial.toUpperCase();
+            config = configMap[fKey];
+          }
+        }
         
         let regional = config ? config.regional : (idxRegional !== -1 && r[idxRegional] ? String(r[idxRegional]).trim() : 'N/A');
         let supervisor = config ? config.supervisor : (idxSupervisor !== -1 && r[idxSupervisor] ? String(r[idxSupervisor]).trim() : 'N/A');
@@ -1154,7 +1141,15 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         const clusterRaw = idxCluster !== -1 && r[idxCluster] ? String(r[idxCluster]).trim() : '';
         const cluster = clusterRaw && clusterRaw !== '-' && clusterRaw.toUpperCase() !== 'N/A' ? clusterRaw : 'Ambulâncias';
         
-        const motorista = idxMotorista !== -1 && r[idxMotorista] && String(r[idxMotorista]).trim() !== '' ? String(r[idxMotorista]).trim() : 'N/A';
+        let motorista = idxMotorista !== -1 && r[idxMotorista] && String(r[idxMotorista]).trim() !== '' ? String(r[idxMotorista]).trim() : 'N/A';
+        const driverId = idxDriverId !== -1 && r[idxDriverId] ? String(r[idxDriverId]).trim() : '';
+
+        if (driverId && driverId !== '-' && driverId.toUpperCase() !== 'N/A') {
+          const opMatch = rawOperacionalData.find(op => String(op.driver_id).trim() === driverId);
+          if (opMatch && opMatch.motorista && opMatch.motorista !== 'N/A') {
+            motorista = opMatch.motorista;
+          }
+        }
 
         const parseNum = (val) => {
           if (!val) return 0;
@@ -1175,11 +1170,11 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
         });
 
         let saldo = Math.max(0, saldoOriginal);
-        const dia_semana = idxDiaSemana !== -1 && r[idxDiaSemana] ? String(r[idxDiaSemana]).trim() : 'N/A';
+        const dia_semana = parsedDiaSemana !== 'N/A' ? parsedDiaSemana : (idxDiaSemana !== -1 && r[idxDiaSemana] ? String(r[idxDiaSemana]).trim() : 'N/A');
 
         const somaIns = Object.values(insucessosDetalhados).reduce((a, b) => a + b, 0);
         if (saldo > 0 || entregues > 0 || somaIns > 0) {
-          parsedData.push({ quinzena, dia_semana: dataPadrao, regional, supervisor, filial, motorista, id_rota, saldo, entregues, insucessosDetalhados });
+          parsedData.push({ quinzena, dia_semana, regional, supervisor, filial, motorista, id_rota, saldo, entregues, insucessosDetalhados });
         }
       }
 
@@ -1198,6 +1193,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
         const qTotal = Object.keys(grouped).length > 0 ? Object.keys(grouped)[0] : 'GERAL';
         await registrarImportacao('BSC', qTotal, parsedData.length);
+        await supabase.rpc('rpc_refresh_materialized_views');
 
         setBscFile(null);
         setProgressBsc('Concluído!');

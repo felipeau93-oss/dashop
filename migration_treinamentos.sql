@@ -55,3 +55,5 @@ CREATE POLICY "Enable all for authenticated" ON public.motoristas_manuais_treina
 
 -- Opcional: deletar as entradas antigas da tabela 'treinamentos' para limpar, mas apenas se desejar.
 -- DELETE FROM public.treinamentos WHERE id LIKE 'treinamentos_base_%' OR id = 'motoristas_manuais_treinamentos';
+
+NOTIFY pgrst, 'reload schema';

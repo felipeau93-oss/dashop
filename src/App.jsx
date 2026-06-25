@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, Fragment, useRef, Suspense, lazy } from 'react';
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 
 const Simulador = lazy(() => import('./Simulador'));
 const DreAnaliseCusto = lazy(() => import('./DreAnaliseCusto'));
@@ -11,6 +12,7 @@ const PainelTreinamentos = lazy(() => import('./PainelTreinamentos'));
 const PainelDisponibilidade = lazy(() => import('./PainelDisponibilidade'));
 const GestaoUsuarios = lazy(() => import('./GestaoUsuarios'));
 const Configuracoes = lazy(() => import('./Configuracoes'));
+const GestaoMotoristas = lazy(() => import('./GestaoMotoristas'));
 import { supabase, isInitialRecoveryUrl } from './supabase';
 import {
   Calculator,
@@ -2339,6 +2341,8 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
   );
 };
 export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const urlIsOpMode = new URLSearchParams(window.location.search).get('view') === 'operacao';
   const [currentUser, setCurrentUser] = useState(null);
   const [userRole, setUserRole] = useState(null); // 'admin', 'importer', 'operacao'
@@ -2394,6 +2398,36 @@ export default function App() {
   });
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Logout automático por inatividade
+  useEffect(() => {
+    if (isAuthenticated !== true) return;
+
+    let inactivityTimer;
+    const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // 1 hora
+
+    const resetTimer = () => {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(async () => {
+        try {
+          console.log('Sessão encerrada por inatividade.');
+          await supabase.auth.signOut();
+        } catch (e) {
+          console.error('Logout error:', e);
+        }
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    events.forEach(event => window.addEventListener(event, resetTimer));
+
+    resetTimer();
+
+    return () => {
+      clearTimeout(inactivityTimer);
+      events.forEach(event => window.removeEventListener(event, resetTimer));
+    };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const styleId = 'dark-mode-injector';
@@ -2776,15 +2810,38 @@ export default function App() {
   const [filtroDiasSemana, setFiltroDiasSemana] = useSessionStorage('dashop_filtroDiasSemana', []);
   const [insucessosExcluidos, setInsucessosExcluidos] = useSessionStorage('dashop_insucessosExcluidos', []);
 
-  const [activeMenu, setActiveMenu] = useSessionStorage('dashop_activeMenu', isOpMode ? 'gestao_penalidades' : 'gestao_financeira');
+  const activeMenu = useMemo(() => {
+    const p = location.pathname;
+    if (p.startsWith('/financeiro/detalhes')) return 'detalhe_financeiro';
+    if (p.startsWith('/financeiro/margem')) return 'gestao_margem';
+    if (p.startsWith('/financeiro')) return 'gestao_financeira';
+    if (p.startsWith('/operacional/penalidades')) return 'gestao_penalidades';
+    if (p.startsWith('/operacional/bsc/comparativo')) return 'comparativo_bsc';
+    if (p.startsWith('/operacional/bsc')) return 'gestao_bsc';
+    if (p.startsWith('/operacional/gaps')) return 'gaps_operacionais';
+    if (p.startsWith('/operacional')) return 'gestao_operacional';
+    if (p.startsWith('/treinamentos')) return 'painel_treinamentos';
+    if (p.startsWith('/frota')) return 'disponibilidade_frota';
+    if (p.startsWith('/motoristas')) return 'gestao_motoristas';
+    if (p.startsWith('/planejamento')) return 'planejamento';
+    if (p.startsWith('/dre/custos')) return 'dre_custos';
+    if (p.startsWith('/dre/leves')) return 'dre_leves';
+    if (p.startsWith('/dre/viabilidade')) return 'dre_viabilidade';
+    if (p.startsWith('/importador')) return 'importador';
+    if (p.startsWith('/configuracoes/filiais')) return 'config_filiais';
+    if (p.startsWith('/configuracoes/tarifas')) return 'config_tarifas';
+    if (p.startsWith('/usuarios')) return 'gestao_usuarios';
+    if (p.startsWith('/configuracoes')) return 'configuracoes';
+    return isOpMode ? 'gestao_penalidades' : 'gestao_financeira';
+  }, [location.pathname, isOpMode]);
 
   useEffect(() => {
     if (isImporter && activeMenu !== 'importador') {
-      setActiveMenu('importador');
+      navigate('/importador', { replace: true });
     } else if (isOpMode && (activeMenu === 'gestao_financeira' || activeMenu === 'detalhe_financeiro' || activeMenu === 'gestao_margem' || activeMenu === 'planejamento' || activeMenu === 'dre_custos' || activeMenu === 'dre_leves' || activeMenu === 'dre_viabilidade')) {
-      setActiveMenu('gestao_penalidades');
+      navigate('/operacional/penalidades', { replace: true });
     }
-  }, [isImporter, isOpMode]);
+  }, [isImporter, isOpMode, activeMenu, navigate]);
   const mainScrollRef = useRef(null);
   useEffect(() => { if (mainScrollRef.current) mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' }); }, [activeMenu]);
   const [expandedMenus, setExpandedMenus] = useSessionStorage('dashop_expandedMenus', { financeiro: true, operacional: true, planejamento: false });
@@ -2818,7 +2875,29 @@ export default function App() {
   }, [filtroSupervisores]);
 
   const handleMenuChange = (menu) => {
-    setActiveMenu(menu);
+    let path = '/financeiro';
+    if (menu === 'detalhe_financeiro') path = '/financeiro/detalhes';
+    else if (menu === 'gestao_margem') path = '/financeiro/margem';
+    else if (menu === 'gestao_financeira') path = '/financeiro';
+    else if (menu === 'gestao_penalidades') path = '/operacional/penalidades';
+    else if (menu === 'comparativo_bsc') path = '/operacional/bsc/comparativo';
+    else if (menu === 'gestao_bsc') path = '/operacional/bsc';
+    else if (menu === 'gaps_operacionais') path = '/operacional/gaps';
+    else if (menu === 'gestao_operacional') path = '/operacional';
+    else if (menu === 'painel_treinamentos') path = '/treinamentos';
+    else if (menu === 'disponibilidade_frota') path = '/frota';
+    else if (menu === 'gestao_motoristas') path = '/motoristas';
+    else if (menu === 'planejamento') path = '/planejamento';
+    else if (menu === 'dre_custos') path = '/dre/custos';
+    else if (menu === 'dre_leves') path = '/dre/leves';
+    else if (menu === 'dre_viabilidade') path = '/dre/viabilidade';
+    else if (menu === 'importador') path = '/importador';
+    else if (menu === 'config_filiais') path = '/configuracoes/filiais';
+    else if (menu === 'config_tarifas') path = '/configuracoes/tarifas';
+    else if (menu === 'gestao_usuarios') path = '/usuarios';
+    else if (menu === 'configuracoes') path = '/configuracoes';
+
+    navigate(path);
     setSortConfig({ key: null, direction: 'desc' });
     setIsMobileMenuOpen(false);
   };
@@ -4402,12 +4481,20 @@ export default function App() {
     // IA Removida a pedido do usuário
   }, [targetQuinzenaRunRate, activeMenu, isUserAdmin, margemBrutaMetrics, prevMargemBrutaMetrics, prevQuinzenaName, prevPrevMargemBrutaMetrics, prevPrevQuinzenaName]);
 
+  // Se logado e tentar ir pro login, redireciona pro inicio
+  if (isAuthenticated === true && location.pathname === '/login') {
+    return <Navigate to="/" replace />;
+  }
+
   // TELA DE LOGIN
   if (isAuthenticated === null) {
     return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div></div>;
   }
 
   if (isAuthenticated === false) {
+    if (location.pathname !== '/login') {
+      return <Navigate to="/login" replace />;
+    }
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4 font-sans text-slate-800">
         <div className="absolute top-6 right-6">
@@ -4844,7 +4931,7 @@ export default function App() {
                   handleMenuChange('gestao_operacional');
                   if (!expandedMenus.operacional) toggleExpandedMenu('operacional', { stopPropagation: () => { } });
                 }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_operacional', 'gestao_penalidades', 'gestao_bsc', 'comparativo_bsc', 'gaps_operacionais', 'painel_treinamentos', 'disponibilidade_frota'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['gestao_operacional', 'gestao_penalidades', 'gestao_bsc', 'comparativo_bsc', 'gaps_operacionais', 'painel_treinamentos', 'disponibilidade_frota', 'gestao_motoristas'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
               >
                 <div className="flex items-center gap-3">
                   <Box className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_operacional' ? 'text-blue-400' : ''}`} />
@@ -4855,7 +4942,7 @@ export default function App() {
                 </div>
               </button>
 
-              <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.operacional ? 'max-h-60 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
+              <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.operacional ? 'max-h-[500px] mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
                 <button onClick={() => handleMenuChange('gestao_penalidades')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_penalidades' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                   <span className="truncate">Penalidades (Operação)</span>
                 </button>
@@ -4873,6 +4960,9 @@ export default function App() {
                   </button>
                   <button onClick={() => handleMenuChange('disponibilidade_frota')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'disponibilidade_frota' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
                     <span className="truncate">Disponibilidade de Frota</span>
+                  </button>
+                  <button onClick={() => handleMenuChange('gestao_motoristas')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_motoristas' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                    <span className="truncate">Base de Motoristas</span>
                   </button>
                 </div>
               </div>
@@ -5185,6 +5275,13 @@ export default function App() {
             {activeMenu === 'disponibilidade_frota' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
                 <PainelDisponibilidade rawOperacionalData={rawOperacionalData} mapeamentoFiliais={mapeamentoFiliais} />
+              </div>
+            )}
+
+            {/* BASE DE MOTORISTAS */}
+            {activeMenu === 'gestao_motoristas' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full overflow-y-auto">
+                <GestaoMotoristas />
               </div>
             )}
 

@@ -1,0 +1,589 @@
+1: import React, { useState, useEffect } from 'react';
+2: import Papa from 'papaparse';
+3: import * as XLSX from 'xlsx';
+4: import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Database, Box, DollarSign, History, Calendar, LayoutList, Trash2, EyeOff, Copy, Truck } from 'lucide-react';
+5: import { supabase } from './supabase';
+6: 
+7: const ANO_REFERENCIA = 2026;
+8: 
+9: const getInicioDaSemana = (dataString) => {
+10:   const [dia, mes] = dataString.split('/');
+11:   const data = new Date(ANO_REFERENCIA, parseInt(mes) - 1, parseInt(dia));
+12:   const diaDaSemana = data.getDay(); 
+13:   const domingo = new Date(data);
+14:   domingo.setDate(data.getDate() - diaDaSemana);
+15:   return `${domingo.getDate().toString().padStart(2, '0')}/${(domingo.getMonth() + 1).toString().padStart(2, '0')}`;
+16: };
+17: 
+18: 
+19: 
+20: export default function DataImporter({ onImportOperacional, onImportBilling, onImportCapCar, onImportOperacionalBSC, rawFaturamentoData = [], rawOperacionalData = [], mapeamentoFiliais = [] }) {
+21:   const [logs, setLogs] = useState([]);
+22:   const [activeStep, setActiveStep] = useState(1);
+23: 
+24:   const [baseFile, setBaseFile] = useState(null);
+25:   const [quinzenaOp, setQuinzenaOp] = useState('');
+26:   const [isOpMulti, setIsOpMulti] = useState(false);
+27:   const [isOpPartial, setIsOpPartial] = useState(false);
+28:   const [isProcessingOp, setIsProcessingOp] = useState(false);
+29:   const [progressOp, setProgressOp] = useState('');
+30: 
+31:   const [billingFile, setBillingFile] = useState(null);
+32:   const [quinzenaBilling, setQuinzenaBilling] = useState('');
+33:   const [numeroFaturaBilling, setNumeroFaturaBilling] = useState('');
+34:   const [isProcessingBilling, setIsProcessingBilling] = useState(false);
+35:   const [progressBilling, setProgressBilling] = useState('');
+36:   const [isLoadingPendentes, setIsLoadingPendentes] = useState(false);
+37: 
+38:   const [selectedPendentes, setSelectedPendentes] = useState(new Set());
+39:   const [currentPagePendentes, setCurrentPagePendentes] = useState(1);
+40:   const itemsPerPage = 100;
+41: 
+42:   const fetchAllFromSupabase = async (tableName, orderBy) => {
+43:     const { count, error: countError } = await supabase.from(tableName).select('*', { count: 'exact', head: true });
+44:     if (countError || !count) return [];
+45:     const limit = 1000;
+46:     let allData = [];
+47:     
+48:     for (let start = 0; start < count; start += (limit * 3)) {
+49:         const promises = [];
+50:         for (let i = 0; i < 3; i++) {
+51:             const currentStart = start + (i * limit);
+52:             if (currentStart >= count) break;
+53:             let query = supabase.from(tableName).select('*').range(currentStart, currentStart + limit - 1);
+54:             if (orderBy) query = query.order(orderBy, { ascending: false });
+55:             promises.push(query);
+56:         }
+57:         const results = await Promise.all(promises);
+58:         for (const res of results) {
+59:             if (res.data) allData = allData.concat(res.data);
+60:         }
+146:       addLog(`${selectedPendentes.size} alertas excluídos com sucesso.`, 'success');
+147:     } catch (e) {
+148:       console.error("Erro ao excluir alertas em massa", e);
+149:       addLog(`Erro ao excluir alertas em massa: ${e.message}`, 'error');
+150:     }
+151:   };
+152: 
+153:   const toggleSelectAllPendentes = () => {
+154:     if (selectedPendentes.size === rotasPendentes.length) {
+155:       setSelectedPendentes(new Set());
+156:     } else {
+157:       setSelectedPendentes(new Set(rotasPendentes.map(r => r.id_rota)));
+158:     }
+159:   };
+160: 
+161:   const toggleSelectPendente = (idRota) => {
+162:     setSelectedPendentes(prev => {
+163:       const next = new Set(prev);
+164:       if (next.has(idRota)) next.delete(idRota);
+165:       else next.add(idRota);
+166:       return next;
+167:     });
+168:   };
+169: 
+170:   const fetchHistorico = async () => {
+171:     setIsLoadingHistory(true);
+172:     try {
+173:       const data = await fetchAllFromSupabase('importacoes_history', 'data_importacao');
+174:       setHistorico(data || []);
+175:       setCurrentPageHistorico(1);
+176:     } catch(err) {
+177:       console.error(err);
+178:     } finally {
+179:       setIsLoadingHistory(false);
+180:     }
+181:   };
+182: 
+183:   useEffect(() => {
+184:     if (activeStep === 5) {
+185:       fetchHistorico();
+186:     } else if (activeStep === 6) {
+187:       loadPendentes();
+188:     }
+189:   }, [activeStep]);
+190:     } catch(err) {
+191:       console.error(err);
+192:     } finally {
+193:       setIsLoadingHistory(false);
+194:     }
+195:   };
+196: 
+197:   useEffect(() => {
+198:     if (activeStep === 5) {
+199:       fetchHistorico();
+200:     } else if (activeStep === 6) {
+201:       loadPendentes();
+202:     }
+203:   }, [activeStep]);
+204: 
+205:   const addLog = (msg, type = 'info') => {
+300:         }
+301:       }
+302: 
+303:       if (headerRowIdx === -1) {
+304:         addLog('Erro: Colunas ROTA e FILIAL não encontradas.', 'error');
+305:         setIsProcessingOp(false);
+306:         return;
+307:       }
+308:       if (isOpMulti && quinzenaColIdx === -1) {
+309:         addLog('Erro: Coluna QUINZENA não encontrada no modo Multi-Quinzena.', 'error');
+310:         setIsProcessingOp(false);
+311:         return;
+312:       }
+313: 
+314:       const configMap = {};
+315:       mapeamentoFiliais.forEach(m => configMap[String(m.filial).toUpperCase()] = m);
+316: 
+317:       const mapInsucessosOp = {
+318:         'QTD BLOQUEADO': 'Bloqueado', 'QTD BLOQUEADO POR PALAVRA': 'Palavra Chave', 'QTD CANCELADO': 'Cancelado',
+319:         'QTD COLETADO': 'Coleta', 'QTD COMÉRCIO FECHADO': 'Comercial', 'QTD COMPRADOR REJEITOU': 'Recusa',
+320:         'QTD DANIFICADO': 'Avaria', 'QTD DESTINATÁRIO MUDOU': 'Mudou Endereco', 'QTD ENDEREÇO INACESSÍVEL': 'Area Inacessivel',
+321:         'QTD ENDEREÇO NÃO VISITADO': 'Nao Visitado', 'QTD ENDEREÇO RUIM': 'Nao Localizado', 'QTD FALTANDO': 'Faltante',
+322:         'QTD FORA DE ROTA': 'Fora de Rota', 'QTD NINGUÉM PRA RECEBER': 'Cliente Ausente', 'QTD TENTATIVA DE ROUBO': 'Tentativa Roubo',
+323:         'BLOQUEADO': 'Bloqueado', 'PALAVRA CHAVE': 'Palavra Chave', 'CANCELADO': 'Cancelado', 'COLETA': 'Coleta',
+324:         'COMERCIAL': 'Comercial', 'RECUSA': 'Recusa', 'AVARIA': 'Avaria', 'MUDOU ENDERECO': 'Mudou Endereco',
+325:         'AREA INACESSIVEL': 'Area Inacessivel', 'NAO VISITADO': 'Nao Visitado', 'NAO LOCALIZADO': 'Nao Localizado',
+326:         'FALTANTE': 'Faltante', 'FORA DE ROTA': 'Fora de Rota', 'CLIENTE AUSENTE': 'Cliente Ausente', 'TENTATIVA ROUBO': 'Tentativa Roubo'
+327:       };
+328: 
+329:       const row = dataArray[headerRowIdx];
+330:       const rawHeadersOp = row.map(h => String(h || '').trim());
+331:       let insucessosHeaders = [];
+332:       const normalizeText = (text) => String(text).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+333: 
+334:       for (let j = 0; j < row.length; j++) {
+335:         const colName = normalizeText(row[j]);
+336:         if (mapInsucessosOp[colName]) insucessosHeaders.push({ index: j, name: mapInsucessosOp[colName] });
+337:       }
+338: 
+339:       if (insucessosHeaders.length === 0 && insucessosColIdx !== -1) {
+340:         for (let j = insucessosColIdx + 1; j < row.length; j++) {
+341:           if (row[j] && String(row[j]).trim() !== '') insucessosHeaders.push({ index: j, name: String(row[j]).trim() });
+342:         }
+343:       }
+344: 
+345:       const invalidOpKeys = ['% evid micro', '% evid distância', 'não rateadas', 'contar % entregue', '% evidenciado', '% entregue', 'km percorrido', 'paradas com adicional', 'total da taxa de entrega', 'volume'];
+346:       insucessosHeaders = insucessosHeaders.filter(h => !invalidOpKeys.some(inv => h.name.toLowerCase().includes(inv)));
+347: 
+348:       const newOperacionalData = [];
+349:       setProgressOp('Compilando registros...');
+350: 
+351:       for (let i = headerRowIdx + 1; i < dataArray.length; i++) {
+352:         const r = dataArray[i];
+353:         if (!r) continue;
+354:         const rota = String(r[rotaColIdx] || '').trim();
+355:         const filial = String(r[xptColIdx] || '').trim();
+356: 
+357:         if (rota && filial && filial !== 'N/A') {
+358:           const fKey = filial.toUpperCase();
+359:           const config = configMap[fKey] || {};
+360:           
+361:           const saldo = saldoColIdx !== -1 ? (parseFloat(r[saldoColIdx]) || 0) : 0;
+362:           const entregues = entreguesColIdx !== -1 ? (parseFloat(r[entreguesColIdx]) || 0) : 0;
+363:           const driverId = driverIdColIdx !== -1 ? String(r[driverIdColIdx]).trim() : '';
+364:           const motorista = motoristaColIdx !== -1 ? String(r[motoristaColIdx]).trim() : 'N/A';
+365: 
+366:           const dados_originais = {};
+367:           rawHeadersOp.forEach((h, idx) => { if (h) dados_originais[h] = r[idx]; });
+368: 
+369:           const insucessosDetalhados = {};
+370:           insucessosHeaders.forEach(h => {
+371:             const v = parseFloat(r[h.index]) || 0;
+372:             if (v > 0) insucessosDetalhados[h.name] = v;
+373:           });
+374: 
+375:           const rawQuinzena = isOpMulti && quinzenaColIdx !== -1 ? String(r[quinzenaColIdx] || '').trim().toUpperCase() : quinzenaOp.trim();
+376:           if (isOpMulti && !rawQuinzena) continue;
+377: 
+378:           newOperacionalData.push({
+379:             id_rota: rota,
+380:             filial,
+381:             regional: config.regional |
+414:           await supabase.rpc('rpc_refresh_materialized_views');
+415:         } catch(e) { console.error("Aviso: Falha ao atualizar Materialized Views.", e); }
+416: 
+417:         if (onImportOperacional) await onImportOperacional(newOperacionalData); // Optional trigger refresh
+418: 
+419:         const qTotal = Object.keys(grouped).length > 0 ? Object.keys(grouped)[0] : 'GERAL';
+420:         await registrarImportacao('Operacional', isOpMulti ? 'Multi-Quinzena' : quinzenaOp.trim(), newOperacionalData.length);
+421: 
+422:         addLog('Salvo no Supabase com sucesso!', 'success');
+423:         setBaseFile(null);
+424:         setQuinzenaOp('');
+425:         setIsOpMulti(false);
+426:         setProgressOp('Concluído!');
+427:         setTimeout(() => setIsProcessingOp(false), 2000);
+428:       } catch (err) {
+429:         addLog(`Erro ao salvar dados: ${err.message}`, 'error');
+430:         setProgressOp(`Erro: ${err.message}`);
+431:         setIsProcessingOp(false);
+432:       }
+433:     };
+434: 
+435:     if (baseFile.name.toLowerCase().endsWith('.csv')) {
+436:       Papa.parse(baseFile, {
+437:         skipEmptyLines: true,
+438:         worker: true,
+439:         complete: (results) => processData(results.data),
+440:         error: (err) => { addLog(err.message, 'error'); setIsProcessingOp(false); }
+441:       });
+442:     } else {
+443:       const reader = new FileReader();
+444:       reader.onload = (e) => {
+445:         try {
+446:           const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+447:           const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+448:           processData(jsonData);
+449:         } catch (err) {
+450:           addLog(err.message, 'error');
+757:           range: row[36] ? String(row[36]).trim() : 'SEM FAIXA',
+758:           tarifaBase: parseValor(row[37]),
+759:           valorPago,
+760:           receitaBaseRecebido: receitaBase,
+761:           receitaBaseAReceber: valorDevidoBase,
+762:           receitaParadas,
+763:           receitaTotal: receitaBase + receitaParadas,
+764:           valorDevido: valorDevidoBase + receitaParadas
+765:         });
+766:       }
+767: 
+768:       // Group by quinzena
+769:       const grouped = {};
+770:       enrichedData.forEach(d => {
+771:         if (!grouped[d.quinzena]) grouped[d.quinzena] = [];
+772:         grouped[d.quinzena].push(d);
+773:       });
+774: 
+775:       try {
+776:         for (const [q, items] of Object.entries(grouped)) {
+777:           await saveToSupabase('capcar', q, items, setProgressCapCar);
+778:         }
+779: 
+780:         try {
+781:           setProgressCapCar('Atualizando Views de Alta Performance (Materialized Views)...');
+782:           await supabase.rpc('rpc_refresh_materialized_views');
+783:         } catch(e) { console.error("Aviso: Falha ao atualizar Materialized Views.", e); }
+784:         
+785:         if (onImportCapCar) await onImportCapCar(enrichedData);
+786: 
+787:         const qTotal = Object.keys(grouped).length > 0 ? Object.keys(grouped)[0] : 'GERAL';
+788:         await registrarImportacao('CAP', qTotal, enrichedData.length);
+789: 
+790:         setCapcarFile(null);
+791:         setProgressCapCar('Concluído!');
+792:         setTimeout(() => setIsProcessingCapCar(false), 2000);
+793:       } catch (err) {
+794:         console.error("Erro ao processar CAP:", err);
+795:         setProgressCapCar(`Erro: ${err.message}`);
+796:         setIsProcessingCapCar(false);
+797:       }
+798:     };
+799: 
+800:       const grouped = {};
+801:       enrichedData.forEach(d => {
+802:         if (!grouped[d.quinzena]) grouped[d.quinzena] = [];
+803:         grouped[d.quinzena].push(d);
+804:       });
+805: 
+806:       try {
+807:         for (const [q, items] of Object.entries(grouped)) {
+808:           await saveToSupabase('capcar', q, items, setProgressCapCar);
+809:         }
+810:         
+811:         if (onImportCapCar) await onImportCapCar(enrichedData);
+812: 
+813:         const qTotal = Object.keys(grouped).length > 0 ? Object.keys(grouped)[0] : 'GERAL';
+814:         await registrarImportacao('CAP', qTotal, enrichedData.length);
+815: 
+816:         setCapcarFile(null);
+817:         setProgressCapCar('Concluído!');
+818:         setTimeout(() => setIsProcessingCapCar(false), 2000);
+819:       } catch (err) {
+820:         console.error("Erro ao processar CAP:", err);
+821:         setProgressCapCar(`Erro: ${err.message}`);
+822:         setIsProcessingCapCar(false);
+823:       }
+824:     };
+825: 
+826:     if (capcarFile.name.toLowerCase().endsWith('.csv')) {
+827:       Papa.parse(capcarFile, { skipEmptyLines: true, worker: true, complete: (res) => processData(res.data) });
+828:     } else {
+829:       const r = new FileReader();
+830:       r.onload = (e) => {
+831:         const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+832:         processData(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 }));
+833:       };
+834:       r.readAsArrayBuffer(capcarFile);
+835:     }
+836:   };
+837: 
+838:   // ============================================================================
+839:   // ETAPA 4: BSC
+840:   // ============================================================================
+841: 
+842:   const handleProcessDispFile = () => {
+843:     if (!dispFile) return;
+844:     setIsProcessingDisp(true);
+845:     setProgressDisp('Lendo arquivo...');
+846:     addLog(`Iniciando processamento da planilha de disponibilidade: ${dispFile.name}`, 'info');
+847: 
+848:     const processData = async (dataArray) => {
+849:         try {
+850:       r.onload = (e) => {
+851:         const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+852:         processData(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 }));
+853:       };
+854:       r.readAsArrayBuffer(capcarFile);
+855:     }
+856:   };
+857: 
+858:   // ============================================================================
+859:   // ETAPA 4: BSC
+860:   // ============================================================================
+861: 
+862:   const handleProcessDispFile = () => {
+863:     if (!dispFile) return;
+864:     setIsProcessingDisp(true);
+865:     setProgressDisp('Lendo arquivo...');
+866:     addLog(`Iniciando processamento da planilha de disponibilidade: ${dispFile.name}`, 'info');
+867: 
+868:     const processData = async (dataArray) => {
+869:         try {
+870:           let headerRowIdx = -1;
+871:           for (let i = 0; i < Math.min(15, dataArray.length); i++) {
+872:             if (dataArray[i] && dataArray[i].some(c => String(c).toUpperCase() === 'PLACA' || String(c).toUpperCase() === 'MODAL')) {
+873:               headerRowIdx = i; break;
+874:             }
+875:           }
+876: 
+877:           if (headerRowIdx === -1) {
+878:             addLog("Cabeçalho não encontrado na planilha de disponibilidade.", 'error');
+879:             setIsProcessingDisp(false);
+880:             return;
+881:           }
+882: 
+883:           const rawHeaders = dataArray[headerRowIdx].map(h => {
+884:             let text = String(h || '').trim();
+885:             if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(text)) return text.substring(0, 5);
+886:             return text;
+887:           });
+888:           const dates = rawHeaders.filter(h => /^\d{1,2}\/\d{1,2}$/.test(h));
+889: 
+890:           const wMap = new Map();
+891:           dates.forEach(d => {
+892:             const weekStart = getInicioDaSemana(d);
+893:             if (!wMap.has(weekStart)) wMap.set(weekStart, []);
+894:             wMap.get(weekStart).push(d);
+895:           });
+896:           const weeksArray = Array.from(wMap.entries()).map(([inicio, dias]) => ({ inicio, dias }));
+897: 
+898:           const idxPlaca = rawHeaders.findIndex(h => h.toUpperCase() === 'PLACA');
+899:           const idxModal = rawHeaders.findIndex(h => h.toUpperCase() === 'MODAL');
+900:           const idxXPT = rawHeaders.findIndex(h => h.toUpperCase() === 'XPT' || h.toUpperCase() === 'FILIAL');
+901: 
+902:           const parsed = [];
+903: 
+904:           for (let i = headerRowIdx + 1; i < dataArray.length; i++) {
+905:             const row = dataArray[i];
+906:             if (!row || row.length === 0) continue;
+907:             const placa = row[idxPlaca] ? String(row[idxPlaca]).trim() : '';
+908:             if (!placa) continue;
+909: 
+910:             const modal = row[idxModal] ? String(row[idxModal]).trim() : 'N/A';
+911:             const filial = row[idxXPT] ? String(row[idxXPT]).tr
+912:               const valor = String(row[colIdx] || '').trim();
+913:               const rodou = valor !== '' && valor.toUpperCase() !== '-NÃO INFORMADO-' && valor.toUpperCase() !== '-NAO INFORMADO-' && valor !== '0';
+914:               
+915:               if (!rodou) ociosoConsecutivo++; else ociosoConsecutivo = 0;
+916: 
+917:               return { data: date, rodou, ociosoConsecutivo, valorOriginal: valor };
+918:             });
+919: 
+920:             const metasSemana = weeksArray.map(w => {
+967:             });
+968:           });
+969: 
+970:           parsed.forEach(p => {
+971:             if (mergedMap.has(p.placa)) {
+972:                const existing = mergedMap.get(p.placa);
+973:                if (p.filial && p.filial !== 'N/A') existing.filial = p.filial;
+974:                if (p.modal && p.modal !== 'N/A') existing.modal = p.modal;
+975:                p.timeline.forEach(t => existing.timelineMap.set(t.data, { data: t.data, rodou: t.rodou, valorOriginal: t.valorOriginal }));
+976:             } else {
+977:                mergedMap.set(p.placa, { ...p, timelineMap: new Map(p.timeline.map(t => [t.data, { data: t.data, rodou: t.rodou, valorOriginal: t.valorOriginal }])) });
+978:             }
+979:           });
+980: 
+981:           const allDatesSet = new Set();
+982:           mergedMap.forEach(v => v.timelineMap.forEach((_, dateStr) => allDatesSet.add(dateStr)));
+983:           const allDatesArray = Array.from(allDatesSet).sort((a, b) => {
+984:              const [d1, m1] = a.split('/'); const [d2, m2] = b.split('/');
+985:              const currentYear = new Date().getFullYear();
+986:              return new Date(currentYear, parseInt(m1)-1, parseInt(d1)) - new Date(currentYear, parseInt(m2)-1, parseInt(d2));
+987:           });
+988: 
+989:           const wMapGlobal = new Map();
+990:           allDatesArray.forEach(d => {
+991:             const weekStart = getInicioDaSemana(d);
+992:             if (!wMapGlobal.has(weekStart)) wMapGlobal.set(weekStart, []);
+993:             wMapGlobal.get(weekStart).push(d);
+994:           });
+995:           const globalWeeksArray = Array.from(wMapGlobal.entries()).map(([inicio, dias]) => ({ inicio, dias }));
+996: 
+997:           const finalDataToSave = [];
+998: 
+999:           mergedMap.forEach(v => {
+1000:              let ocioso = 0;
+1001:              const newTimeline = allDatesArray.map(date => {
+1002:                 const t = v.timelineMap.get(date);
+1003:                 if (t) {
+1004:                    if (!t.rodou) ocioso++; else ocioso = 0;
+1005:                    return { ...t, ociosoConsecutivo: ocioso };
+1006:                 } else {
+1007:                    ocioso++;
+1008:                    return { data: date, rodou: false, ociosoConsecutivo: ocioso, valorOriginal: '' };
+1009:                 }
+1010:              });
+1011: 
+1012:              const newMetas = globalWeeksArray.map(w => {
+1013:                let diasRodados = 0;
+1014:                w.dias.forEach(d => {
+1015:                  const info = newTimeline.find(t => t.data === d);
+1016:                  if (info && info.rodou) diasRodados++;
+1017:                });
+1018:                return { semanaInicio: w.inicio, diasRodados, totalDiasAmostra: w.dias.length, bateuMeta: diasRodados >= 6 };
+1019:              });
+1020: 
+1021:              finalDataToSave.push({
+1022:                placa: v.placa,
+1023:                modal: v.modal,
+1024:                filial: v.filial,
+1025:                timeline: newTimeline,
+1026:                metas_semana: newMetas,
+1027:                dias_parado_atual: ocioso,
+1028:                bateu_todas_metas: newMetas.every(m => m.bateuMeta),
+1029:                referencia: refName
+1030:              });
+1031:           });
+1032: 
+1033:           setProgressDisp('Salvando no banco de dados...');
+1034:           addLog
+1035:           for (let i = 0; i < finalDataToSave.length; i += CHUNK_SIZE) {
+1036:             const chunk = finalDataToSave.slice(i, i + CHUNK_SIZE);
+1037:             await supabase.from('disponibilidade_frota').insert(chunk);
+1038:           }
+1039: 
+1040:           addLog('Registrando no histórico de importações...', 'info');
+1041:           await registrarImportacao('Disponibilidade de Frota', refName, finalDataToSave.length);
+1042:           }
+1043: 
+1044:           addLog('Registrando no histórico de importações...', 'info');
+1045:           await registrarImportacao('Disponibilidade de Frota', refName, finalDataToSave.length);
+1046:           addLog('Processamento da disponibilidade de frota concluído com sucesso!', 'success');
+1047:           
+1048:           setDispFile(null);
+1049:         } catch (err) {
+1050:           console.error("Erro ao salvar no Supabase", err);
+1051:           addLog(`Erro crítico ao processar: ${err.message}`, 'error');
+1052:         } finally {
+1053:           setIsProcessingDisp(false);
+1054:           setProgressDisp('');
+1055:         }
+1056:     };
+1057: 
+1058:     if (dispFile.name.toLowerCase().endsWith('.csv')) {
+1059:       Papa.parse(dispFile, { skipEmptyLines: true, worker: true, complete: (res) => processData(res.data), error: (err) => { addLog(err.message, 'error'); setIsProcessingDisp(false); } });
+1060:     } else {
+1061:       const reader = new FileReader();
+1062:       reader.onload = (e) => {
+1063:         try {
+1064:           const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+1065:           const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, raw: false, dateNF: 'dd/mm' });
+1066:           processData(jsonData);
+1067:         } catch (err) { addLog(err.message, 'error'); setIsProcessingDisp(false); }
+1068:       };
+1069:       reader.readAsArrayBuffer(dispFile);
+1070:     }
+1071:   };
+1072: 
+1073: 
+1074:   const handleProcessBsc = () => {
+1075:     if (!bscFile) return;
+1076:     setIsProcessingBsc(true);
+1077:     setProgressBsc('Lendo arquivo...');
+1078: 
+1079:     const processData = async (dataArray) => {
+1080:       let headerRowIdx = -1;
+1180:                       <UploadCloud className="w-8 h-8 text-emerald-400" />
+1181:                     </div>
+1182:                     <p className="mb-2 text-sm text-slate-300"><span className="font-bold text-white">Clique para fazer upload</span> ou arraste e solte</p>
+1183:                     <p className="text-xs text-slate-500 font-medium">CSV ou XLSX (Max. 50MB)</p>
+1184:                   </div>
+1185:                   <input type="file" accept=".csv, .xlsx" onChange={e => setBillingFile(e.target.files[0])} className="hidden" />
+1186:                 </label>
+1187:               ) : (
+1188:                 <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
+1189:                   <div className="flex items-center justify-between">
+1190:                     <div className="flex items-center gap-4">
+1191:                       <div className="bg-emerald-500/20 p-3 rounded-xl">
+1192:                         <FileSpreadsheet className="w-6 h-6 text-emerald-400" />
+1193:                       </div>
+1194:                       <div>
+1195:                         <p className="text-white font-bold">{billingFile.name}</p>
+1196:                         <p className="text-slate-400 text-xs mt-1">Pronto para processar</p>
+1197:                       </div>
+1198:                     </div>
+1199:                     <button onClick={() => setBillingFile(null)} className="p-2 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors">
+1200:                
+1250:           const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+1251:           const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+1252:           processData(jsonData);
+1253:         } catch (err) { alert(err.message); setIsProcessingDisp(false); }
+1254:       };
+1255:       reader.readAsArrayBuffer(dispFile);
+1256:     }
+1257:   };
+1258: 
+1259:   const handleProcessBsc = () => {
+1260:     if (!bscFile) return;
+1261:     setIsProcessingBsc(true);
+1262:     setProgressBsc('Lendo arquivo...');
+1263: 
+1264:     const processData = async (dataArray) => {
+1265:       let headerRowIdx = -1;
+1266:       let idxQuinzena = -1, idxRegional = -1, idxSupervisor = -1, idxFilial = -1, idxCluster = -1;
+1267:       let idxMotorista = -1, idxIdRota = -1, idxSaldo = -1, idxEntregues = -1, idxDiaSemana = -1, idxData = -1;
+1268: 
+1269:       for (let i = 0; i < Math.min(15, dataArray.length); i++) {
+1270:         const row = dataArray[i];
+1271:         if (!row) continue;
+1272:         const normalize = (c) => String(c || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+1273:         
+1274:         const q = row.findIndex(c => ['quinzena', 'periodo', 'mes', 'ciclo'].some(w => normalize(c).includes(w)) && !normalize(c).includes('data'));
+1275:         const f = row.findIndex(c => ['filial', 'operacao', 'base', 'unidade', 'xpt'].some(w => normalize(c).includes(w)) || normalize(c) === 'xpt');
+1276:         const s = row.findIndex(c => (normalize(c) === 'saldo' || normalize(c).includes('saldo') || normalize(c).includes('pacote') || normalize(c).includes('volume') || normalize(c).includes('envio')) && !normalize(c).includes('insucesso') && !normalize(c).includes('falha'));
+1277:         const e = row.findIndex(c => (normalize(c) === 'entregues' || normalize(c).includes('entreg') || normalize(c).includes('sucesso') || normalize(c).includes('realizado')) && !normalize(c).includes('%') && !normalize(c).includes('taxa') && !normalize(c).includes('insucesso'));
+1278:         
+1279:                       {isProcessingCapCar && <Loader2 className="w-4 h-4 animate-spin" />}
+1280:                       <span className="text-sm font-medium">{progressCapCar}</span>
+1281:                     </div>
+1282:                   )}
+1283:                 </div>
+1284:               )}
+1285:             </div>
+1286:           )}
+1287:           {activeStep === 4 && (
+1288:             <div className="space-y-6">
+1289:               <div className="flex items-center justify-between">
+1290:                 <h2 className="text-2xl font-black text-white flex items-center gap-3"><Box className="w-6 h-6 text-orange-400" /> BSC</h2>
+1291:               </div>
+1292:               
+1293:               <div className="bg-slate-900/50 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+1294:                 <div className="w-full md:w-1/2">
+1295:                   <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Quinzena (Opcional)</label>
+1296:                   <input type="text" placeholder="Deixe em branco para extrair da coluna Data" value={quinzenaBsc} onChange={e => setQuinzenaBsc(e.target.value)} className="bg-slate-800 border border-slate-600 text-white rounded-xl px-4 py-3 w-full focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none transition-all placeholder:text-slate-500" />
+1297:                   <p className="text-[10px] text-slate-500 mt-2 font-medium">Se houver uma coluna "Data", o sistema dividirá automaticamente o arquivo em YYYYMMQ1 e YYYYMMQ2. Preencha apenas se quiser forçar uma quinzena específica para todas as rotas do arquivo.</p>
+1298:                 </div>
+1299:               </div>
+1300: 
