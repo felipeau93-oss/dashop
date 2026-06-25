@@ -184,7 +184,7 @@ const useSessionStorage = (key, initialValue) => {
 // ============================================================================
 
 
-const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = showFaturamento, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false, showDSLine = false, dsKey = 'ds', dsLabel = 'DS', showTotalLine = false, showForecastLine = false, forecastKey = 'forecastPenalidades' }) => {
+const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[400px]", showFaturamento = true, isMarginChart = false, showLine = showFaturamento, tooltipSecondaryLabel, showMargemErro, legendSecondaryLabel, hideFaturamentoTooltip = false, showDSLine = false, dsKey = 'ds', dsLabel = 'DS', showTotalLine = false }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   useEffect(() => setHoveredIndex(null), [data]);
   const safeData = data ? data.filter(d => d !== undefined && d !== null) : [];
@@ -798,7 +798,7 @@ const RunRatePenalidadesSection = ({ baseData, targetQuinzena, prevStats, onDril
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
           <div className="flex items-center justify-between mb-4 px-2 pt-2"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">{selectedRegional ? `Filiais: ${selectedRegional}` : `Penalidades por Regional`}</h3>{selectedRegional && (<button onClick={() => setSelectedRegional(null)} className="text-[10px] sm:text-xs font-bold text-blue-500 bg-blue-50/50 px-2 py-1 rounded hover:bg-blue-100 transition-colors">← Voltar</button>)}</div>
-          {!selectedRegional ? <NativeComboChart data={projRegionalData} showForecastLine={!isClosed} forecastKey="forecastPenalidades" labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} showFaturamento={false} showTotalLine={true} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" showFaturamento={false} showTotalLine={true} />}
+          {!selectedRegional ? <NativeComboChart data={projRegionalData} labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} showFaturamento={false} showTotalLine={true} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" showFaturamento={false} showTotalLine={true} />}
         </div>
         <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col"><h3 className="text-sm font-bold text-slate-500 text-center mb-2 pt-2 uppercase tracking-wider">Penalidades por Filial</h3><NativeComboChart data={projFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" showFaturamento={false} showTotalLine={true} /></div>
       </div>
@@ -1125,7 +1125,7 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrill
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col">
           <div className="flex items-center justify-between mb-4 px-2 pt-2"><h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">{selectedRegional ? `Filiais: ${selectedRegional}` : `Resultado por Regional`}</h3>{selectedRegional && (<button onClick={() => setSelectedRegional(null)} className="text-[10px] sm:text-xs font-bold text-blue-500 bg-blue-50/50 px-2 py-1 rounded hover:bg-blue-100 transition-colors">← Voltar</button>)}</div>
-          {!selectedRegional ? <NativeComboChart data={projRegionalData} showForecastLine={!isClosed} forecastKey="forecastPenalidades" labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" />}
+          {!selectedRegional ? <NativeComboChart data={projRegionalData} labelKey="name" heightClass="h-[350px]" onBarClick={(r) => setSelectedRegional(r)} /> : <NativeComboChart data={regionalDrilldownData} labelKey="filial" heightClass="h-[350px]" />}
         </div>
         <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col"><h3 className="text-sm font-bold text-slate-500 text-center mb-2 pt-2 uppercase tracking-wider">Descontos por Filial</h3><NativeComboChart data={projFilialData.slice(0, 15)} labelKey="filial" heightClass="h-[350px]" /></div>
       </div>
