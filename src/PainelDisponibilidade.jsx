@@ -313,6 +313,7 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
             if (dia.rodou && dia.valorOriginal) routeSet.add(String(dia.valorOriginal).trim());
           });
         });
+        const uniqueRoutes = Array.from(routeSet);
         const chunkSize = 150; // Use 150 to keep URL safe but reduce request count
         let routeData = [];
         const promises = [];
@@ -504,6 +505,22 @@ return filtered;
             <div>
               <h1 className="text-2xl font-black text-slate-800 tracking-tight">Disponibilidade de Frota</h1>
               <p className="text-slate-500 font-medium">Análise de ociosidade e ofensores (Meta Operacional: 6 Dias).</p>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 shadow-sm">
+              <History className="w-5 h-5 text-indigo-500" />
+              <select 
+                value={selectedRef} 
+                onChange={e => setSelectedRef(e.target.value)}
+                className="bg-transparent text-sm font-bold text-slate-700 focus:outline-none cursor-pointer outline-none w-auto min-w-[150px]"
+              >
+                <option value="LATEST_3" className="bg-[#1e1e24] text-white">Últimos 3 Períodos</option>
+                {historyList.length === 0 && <option value="" className="bg-[#1e1e24] text-white">Sem Histórico</option>}
+                {historyList.map(h => (
+                  <option key={h.id || h.quinzena} value={h.quinzena} className="bg-[#1e1e24] text-white">{h.quinzena}</option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
