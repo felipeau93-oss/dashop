@@ -173,6 +173,24 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Erro ao buscar casos da quinzena no Supabase.' });
     }
 
+    // 4.5. Buscar Configuração Atualizada de Filiais (para garantir que filiais novas não fiquem como N/A)
+    let configFiliais = [];
+    try {
+      configFiliais = await fetchAllSupabase(() => supabase.from('config_filiais').select('*'));
+    } catch (err) {
+      console.error("Erro ao buscar config_filiais:", err);
+    }
+
+    const configMap = {};
+    configFiliais.forEach(c => {
+      if (c.filial) {
+        configMap[c.filial.trim().toUpperCase()] = {
+          regional: c.regional || 'N/A',
+          supervisor: c.supervisor || 'N/A'
+        };
+      }
+    });
+
     let totalPenalidades = 0;
     const filiaisMap = {};
     const tiposMap = {};
@@ -187,8 +205,16 @@ export default async function handler(req, res) {
 
       // Metadados
       const filial = p.filial || 'Sem Filial';
-      const regional = p.regional || 'N/A';
-      const supervisor = p.supervisor || 'N/A';
+      const filialKey = filial.trim().toUpperCase();
+      
+      let regional = p.regional || 'N/A';
+      let supervisor = p.supervisor || 'N/A';
+
+      // Usar a configuração atualizada caso exista (resolve filiais novas marcadas como N/A)
+      if (configMap[filialKey]) {
+        regional = configMap[filialKey].regional;
+        supervisor = configMap[filialKey].supervisor;
+      }
 
       // Agrega Regional + Supervisor
       const rsKey = `${regional}:::${supervisor}`;
