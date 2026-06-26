@@ -256,8 +256,7 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
                return w1 - w2;
             });
 
-            const metasAtivas = metasSemana.filter(m => m.diasRodados > 0);
-            const bateuTodas = metasAtivas.length > 0 ? metasAtivas.every(m => m.bateuMeta) : false;
+            const bateuTodas = metasSemana.length > 0 ? metasSemana.every(m => m.bateuMeta) : false;
 
             return {
               placa: existing.placa,
