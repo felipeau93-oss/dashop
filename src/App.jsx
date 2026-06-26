@@ -288,21 +288,21 @@ const NativeComboChart = ({ data, labelKey = "name", onBarClick, heightClass = "
                   </div>
                 </div>
                 {showFaturamento && (
-                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-violet-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${repPct}% - 4px)` }}>
+                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-violet-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all hover:scale-150 flex justify-center" style={{ bottom: `calc(${repPct}% - 4px)` }}>
                     <span className={`absolute ${i % 2 === 0 ? 'bottom-full mb-1' : 'top-full mt-1'} text-[9px] font-bold text-violet-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none`}>
                       {d[labelKey] && d[labelKey].length > 25 ? d[labelKey].substring(0, 25) + '...' : d[labelKey]}
                     </span>
                   </div>
                 )}
                 {showDSLine && (
-                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-yellow-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${Math.min(Math.max((d[dsKey] || 0), 0), 100)}% - 4px)` }}>
+                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-yellow-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all hover:scale-150 flex justify-center" style={{ bottom: `calc(${Math.min(Math.max((d[dsKey] || 0), 0), 100)}% - 4px)` }}>
                     <span className={`absolute ${i % 2 === 0 ? 'bottom-full mb-1' : 'top-full mt-1'} text-[9px] font-bold text-yellow-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none`}>
                       {d[labelKey] && d[labelKey].length > 25 ? d[labelKey].substring(0, 25) + '...' : d[labelKey]}
                     </span>
                   </div>
                 )}
                 {showTotalLine && (
-                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-violet-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center" style={{ bottom: `calc(${Math.min(Math.max(d.penAnterior !== undefined ? (isMarginChart ? (Math.max(0, d.penAnterior) / maxFat) * 100 : (log10(Math.max(0, d.penAnterior)) / logMaxFat) * 100) : penPct, 0), 100)}% - 4px)` }}>
+                  <div className="absolute w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-900 rounded-full border-2 border-violet-500 shadow-sm left-1/2 -translate-x-1/2 z-30 transition-all hover:scale-150 flex justify-center" style={{ bottom: `calc(${Math.min(Math.max(d.penAnterior !== undefined ? (isMarginChart ? (Math.max(0, d.penAnterior) / maxFat) * 100 : (log10(Math.max(0, d.penAnterior)) / logMaxFat) * 100) : penPct, 0), 100)}% - 4px)` }}>
                     <span className={`absolute ${i % 2 === 0 ? 'bottom-full mb-1' : 'top-full mt-1'} text-[9px] font-bold text-violet-300 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap pointer-events-none`}>
                       {d[labelKey] && d[labelKey].length > 25 ? d[labelKey].substring(0, 25) + '...' : d[labelKey]}
                     </span>
@@ -421,7 +421,7 @@ const NativeDSChart = ({ data, labelKey = "name", onBarClick, heightClass = "h-[
                     {entreguesRatio > 0 && <div className="bg-emerald-500 w-full" style={{ height: `${entreguesRatio}%` }}></div>}
                   </div>
                 </div>
-                <div className={`absolute w-3 h-3 sm:w-3.5 sm:h-3.5 bg-slate-900 rounded-full border-[3px] shadow-md left-1/2 -translate-x-1/2 z-30 transition-all group-hover:scale-150 flex justify-center ${dotColor}`} style={{ bottom: `calc(${dsDisplayPct}% - 6px)` }}>
+                <div className={`absolute w-3 h-3 sm:w-3.5 sm:h-3.5 bg-slate-900 rounded-full border-[3px] shadow-md left-1/2 -translate-x-1/2 z-30 transition-all hover:scale-150 flex justify-center ${dotColor}`} style={{ bottom: `calc(${dsDisplayPct}% - 6px)` }}>
                   <span className="absolute bottom-full mb-1 text-[9px] font-bold text-slate-200 bg-slate-800 px-1 py-0.5 rounded shadow-sm border border-slate-700 pointer-events-none">{formatDS(d.ds)}</span>
                 </div>
                 <div className="absolute top-full mt-3 w-full text-center opacity-100 transition-opacity">
@@ -512,7 +512,7 @@ const NativeRunRateChart = ({ diasOperados, totalDias, currentSaldo, currentEntr
                   {insucessosRatio > 0 && <div className="bg-red-500 w-full" style={{ height: `${insucessosRatio}%` }}></div>}
                   {entreguesRatio > 0 && <div className="bg-emerald-500 w-full" style={{ height: `${entreguesRatio}%` }}></div>}
                 </div>
-                <div className={`absolute w-4 h-4 bg-slate-900 rounded-full border-[4px] shadow-lg left-1/2 -translate-x-1/2 z-30 transition-transform group-hover:scale-125 flex justify-center ${dotColor}`} style={{ bottom: `calc(${dsToY(d.ds)}% - 8px)` }}>
+                <div className={`absolute w-4 h-4 bg-slate-900 rounded-full border-[4px] shadow-lg left-1/2 -translate-x-1/2 z-30 transition-transform hover:scale-125 flex justify-center ${dotColor}`} style={{ bottom: `calc(${dsToY(d.ds)}% - 8px)` }}>
                   <span className="absolute bottom-full mb-1 text-[10px] font-bold text-slate-200 bg-slate-800 px-1.5 py-0.5 rounded shadow-sm border border-slate-700 pointer-events-none">{formatDS(d.ds)}</span>
                 </div>
                 <div className="absolute top-full mt-4 w-full text-center"><p className="text-[10px] sm:text-xs text-slate-400 font-bold truncate">{d.label}</p></div>
