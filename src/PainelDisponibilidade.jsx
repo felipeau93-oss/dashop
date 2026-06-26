@@ -313,15 +313,17 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
             if (dia.rodou && dia.valorOriginal) routeSet.add(String(dia.valorOriginal).trim());
           });
         });
-        const uniqueRoutes = Array.from(routeSet);
-        if (uniqueRoutes.length === 0) return;
-        const chunkSize = 50; // Reduced chunk size to prevent HTTP 414 URI Too Long errors in browser
+        const chunkSize = 150; // Use 150 to keep URL safe but reduce request count
         let routeData = [];
+        const promises = [];
         for (let i = 0; i < uniqueRoutes.length; i += chunkSize) {
           const chunk = uniqueRoutes.slice(i, i + chunkSize);
-          const { data, error } = await supabase.from('operacional').select('id_rota, filial').in('id_rota', chunk);
-          if (!error && data) routeData = routeData.concat(data);
+          promises.push(supabase.from('operacional').select('id_rota, filial').in('id_rota', chunk));
         }
+        const results = await Promise.all(promises);
+        results.forEach(({ data, error }) => {
+          if (!error && data) routeData = routeData.concat(data);
+        });
         const newRotaMap = new Map();
         routeData.forEach(row => {
           if (row.id_rota) {
@@ -461,14 +463,18 @@ return filtered;
       }
     });
     
-    const total = base.length;
+    const totalAtivos = base.filter(d => {
+        const weekMeta = selectedWeek !== 'ALL' ? d.metasSemana.find(m => m.semanaInicio === selectedWeek) : null;
+        return selectedWeek !== 'ALL' ? (weekMeta && weekMeta.totalDiasAmostra > 0) : d.metasSemana.some(m => m.totalDiasAmostra > 0);
+    }).length;
+    
     const metaBatida = base.filter(d => {
         const weekMeta = selectedWeek !== 'ALL' ? d.metasSemana.find(m => m.semanaInicio === selectedWeek) : null;
         return selectedWeek !== 'ALL' ? (weekMeta && weekMeta.bateuMeta) : d.bateuTodasMetas;
     }).length;
     const mediaUtilizacao = totalDiasPossiveis > 0 ? (totalDiasRodados / totalDiasPossiveis) * 100 : 0;
     
-    return { total, criticos, ociososHoje, metaBatida, mediaUtilizacao };
+    return { total: base.length, totalAtivos, criticos, ociososHoje, metaBatida, mediaUtilizacao };
   }, [enrichedFleetData, selectedWeek, weeksData]);
 
   const dateHeaders = useMemo(() => {
@@ -530,7 +536,7 @@ return filtered;
                   <p className="text-sm font-bold text-slate-500 mb-1">Frota Compliance</p>
                   <div className="flex items-end gap-2">
                     <h3 className="text-3xl font-black text-slate-800 group-hover:text-emerald-600 transition-colors">
-                      {kpis.total > 0 ? ((kpis.metaBatida / kpis.total) * 100).toFixed(1) : 0}%
+                      {kpis.totalAtivos > 0 ? ((kpis.metaBatida / kpis.totalAtivos) * 100).toFixed(1) : 0}%
                     </h3>
                   </div>
                 </div>
