@@ -380,7 +380,7 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
        filtered = filtered.filter(d => (viewMode === 'REGIONAL' ? d.regional === chartSelectedFilial : d.filial === chartSelectedFilial));
     }
 return filtered;
-  }, [enrichedFleetData, searchTerm, chartSelectedFilial, viewMode]);
+  }, [enrichedFleetData, searchTerm, chartSelectedFilial, viewMode, showOnlyDivergent]);
 
   const chartData = useMemo(() => {
     const evolMap = new Map();
