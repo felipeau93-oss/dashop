@@ -283,8 +283,8 @@ export function TurnoverMotoristas() {
             <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f1f5f9', opacity: 0.5 }} />
             <Legend wrapperStyle={{ paddingTop: '20px', fontWeight: 600, fontSize: '12px', color: '#64748b' }} />
             
-            <Bar yAxisId="left" dataKey="veteranos" name="Motoristas Veteranos" fill="#3b82f6" stackId="a" maxBarSize={50} />
-            <Bar yAxisId="left" dataKey="novos" name="Novos Entrantes" fill="#10b981" stackId="a" radius={[4, 4, 0, 0]} maxBarSize={50} />
+            <Bar yAxisId="left" dataKey="veteranos" name="Motoristas Veteranos" fill="#3b82f6" stackId="a" maxBarSize={50} isAnimationActive={true} animationDuration={1500} />
+            <Bar yAxisId="left" dataKey="novos" name="Novos Entrantes" fill="#10b981" stackId="a" radius={[4, 4, 0, 0]} maxBarSize={50} isAnimationActive={true} animationDuration={1500} />
             <Line 
               yAxisId="right" 
               type="monotone" 
@@ -294,6 +294,8 @@ export function TurnoverMotoristas() {
               strokeWidth={3}
               dot={{ r: 4, fill: '#ef4444', strokeWidth: 2, stroke: '#fff' }} 
               activeDot={{ r: 6, fill: '#ef4444', stroke: '#fff' }} 
+              isAnimationActive={true}
+              animationDuration={1500}
             />
           </ComposedChart>
         </ResponsiveContainer>
@@ -338,8 +340,8 @@ export function TurnoverMotoristas() {
             <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f1f5f9', opacity: 0.5 }} />
             <Legend wrapperStyle={{ paddingTop: '10px', fontWeight: 600, fontSize: '12px', color: '#64748b' }} />
             
-            <Bar yAxisId="left" dataKey="churn" name="Evadidos (Churn)" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={40} />
-            <Bar yAxisId="left" dataKey="novos" name="Novos Entrantes" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
+            <Bar yAxisId="left" dataKey="churn" name="Evadidos (Churn)" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={true} animationDuration={1500} />
+            <Bar yAxisId="left" dataKey="novos" name="Novos Entrantes" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={true} animationDuration={1500} />
             <Line 
               yAxisId="right" 
               type="monotone" 
@@ -348,6 +350,8 @@ export function TurnoverMotoristas() {
               stroke="#f59e0b" 
               strokeWidth={2}
               dot={{ r: 3, fill: '#f59e0b', strokeWidth: 2, stroke: '#fff' }} 
+              isAnimationActive={true}
+              animationDuration={1500}
             />
           </ComposedChart>
         </ResponsiveContainer>
