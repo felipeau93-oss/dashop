@@ -24,5 +24,11 @@
       "path": "/api/cron-report",
       "schedule": "0 11 * * 1,3,5"
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }
