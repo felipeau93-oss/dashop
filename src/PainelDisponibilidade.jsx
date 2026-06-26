@@ -315,7 +315,7 @@ export default function PainelDisponibilidade({ rawOperacionalData = [], mapeame
         });
         const uniqueRoutes = Array.from(routeSet);
         if (uniqueRoutes.length === 0) return;
-        const chunkSize = 200;
+        const chunkSize = 50; // Reduced chunk size to prevent HTTP 414 URI Too Long errors in browser
         let routeData = [];
         for (let i = 0; i < uniqueRoutes.length; i += chunkSize) {
           const chunk = uniqueRoutes.slice(i, i + chunkSize);
