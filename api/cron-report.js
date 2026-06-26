@@ -176,9 +176,9 @@ export default async function handler(req, res) {
     // 4.5. Buscar Configuração Atualizada de Filiais (para garantir que filiais novas não fiquem como N/A)
     let configFiliais = [];
     try {
-      configFiliais = await fetchAllSupabase(() => supabase.from('config_filiais').select('*'));
+      configFiliais = await fetchAllSupabase(() => supabase.from('mapeamento_filiais').select('*'));
     } catch (err) {
-      console.error("Erro ao buscar config_filiais:", err);
+      console.error("Erro ao buscar mapeamento_filiais:", err);
     }
 
     const configMap = {};
