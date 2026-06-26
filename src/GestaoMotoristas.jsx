@@ -47,6 +47,37 @@ export default function GestaoMotoristas() {
     setLoading(false);
   };
 
+  const handleEditDriver = (driver) => {
+    setEditingDriver(driver);
+    setEditForm({ nome: driver.nome || '', cpf_cnpj: driver.cpf_cnpj || '' });
+  };
+
+  const handleSaveDriver = async () => {
+    if (!editingDriver) return;
+    setSavingDriver(true);
+    
+    const { error } = await supabase
+      .from('motoristas')
+      .update({ 
+        nome: editForm.nome, 
+        cpf_cnpj: editForm.cpf_cnpj 
+      })
+      .eq('driver_id', editingDriver.driver_id);
+      
+    if (!error) {
+      setMotoristas(prev => prev.map(m => 
+        m.driver_id === editingDriver.driver_id 
+          ? { ...m, nome: editForm.nome, cpf_cnpj: editForm.cpf_cnpj } 
+          : m
+      ));
+      setEditingDriver(null);
+    } else {
+      console.error('Error saving driver:', error);
+      alert('Erro ao salvar os dados do motorista.');
+    }
+    setSavingDriver(false);
+  };
+
   const handleVerDetalhes = async (driver) => {
     setSelectedDriver(driver);
     setDetailsPage(1);
@@ -285,6 +316,64 @@ export default function GestaoMotoristas() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingDriver && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-xl font-black text-slate-800">Editar Motorista</h3>
+              <button onClick={() => setEditingDriver(null)} className="p-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-500 hover:text-slate-700 transition-colors shadow-sm">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Driver ID</label>
+                <input 
+                  type="text" 
+                  value={editingDriver.driver_id} 
+                  disabled 
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nome Completo</label>
+                <input 
+                  type="text" 
+                  value={editForm.nome} 
+                  onChange={e => setEditForm({...editForm, nome: e.target.value})}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">CPF / CNPJ</label>
+                <input 
+                  type="text" 
+                  value={editForm.cpf_cnpj} 
+                  onChange={e => setEditForm({...editForm, cpf_cnpj: e.target.value})}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+              <button 
+                onClick={() => setEditingDriver(null)} 
+                className="px-5 py-2.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold rounded-xl transition-colors shadow-sm"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleSaveDriver} 
+                disabled={savingDriver}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                {savingDriver && <Loader2 className="w-4 h-4 animate-spin" />}
+                Salvar Alterações
+              </button>
             </div>
           </div>
         </div>

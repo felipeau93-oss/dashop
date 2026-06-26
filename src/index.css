@@ -1,5 +1,5 @@
 @import "tailwindcss";
-
+@plugin "tailwindcss-animate";
 @theme {
   --font-sans: "Inter", "sans-serif";
   --color-border: var(--border);
