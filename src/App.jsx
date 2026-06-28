@@ -5,6 +5,7 @@ const Simulador = lazy(() => import('./Simulador'));
 const DreAnaliseCusto = lazy(() => import('./DreAnaliseCusto'));
 const DreCustoLeve = lazy(() => import('./DreCustoLeve'));
 const DreViabilidade = lazy(() => import('./DreViabilidade'));
+const DreGerencial = lazy(() => import('./DreGerencial'));
 const DataImporter = lazy(() => import('./DataImporter'));
 const ConfigFiliais = lazy(() => import('./ConfigFiliais'));
 const ConfigTarifas = lazy(() => import('./ConfigTarifas'));
@@ -994,12 +995,12 @@ const RunRateFinanceiroSection = ({ baseData, targetQuinzena, prevStats, onDrill
     return { ...r, faturamento: pFat, penalidades: pPen, forecastFaturamento, forecastPenalidades, pnr: r.pnr * mult, lost: r.lost * mult, notVisited: r.notVisited * mult, representatividade: pFat > 0 ? (pPen / pFat) * 100 : (pPen > 0 ? Infinity : 0) };
   }).sort((a, b) => b.penalidades - a.penalidades);
 
-  const topOfensores = [...projFilialData].filter(d => d.penalidades > 0).sort((a, b) => b.representatividade - a.representatividade).slice(0, 6);
+  const topOfensores = [...projFilialData].filter(d => d.penalidades > 0).sort((a, b) => (b.representatividade === Infinity ? 999999 : b.representatividade) - (a.representatividade === Infinity ? 999999 : a.representatividade)).slice(0, 6);
   const regionalDrilldownData = selectedRegional ? projFilialData.filter(d => {
     const regName = d.regional && d.regional !== 'N/A' ? `Regional ${d.regional}` : 'Sem Regional';
     const supName = d.supervisor && d.supervisor !== 'N/A' ? d.supervisor : '';
     return (supName && regName !== 'Sem Regional' ? `${regName} - ${supName}` : regName) === selectedRegional;
-  }).sort((a, b) => b.representatividade - a.representatividade) : [];
+  }).sort((a, b) => (b.representatividade === Infinity ? 999999 : b.representatividade) - (a.representatividade === Infinity ? 999999 : a.representatividade)) : [];
 
   const getInsightTag = (variacao, isExpense = false) => {
     if (variacao === 0) return <span className="text-slate-400 font-bold">0.00%</span>;
@@ -2370,6 +2371,8 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isForecastMode, setIsForecastMode] = useState(false);
   const [userRole, setUserRole] = useState(null); // 'admin', 'importer', 'operacao'
+  const [userPermissions, setUserPermissions] = useState([]);
+  const [isUrlOpMode, setIsUrlOpMode] = useState(false);
 
   const isUserAdmin = userRole === 'admin';
   const isImporter = userRole === 'importer';
@@ -2566,6 +2569,7 @@ export default function App() {
         
       if (data && data.role && data.role !== 'pending') {
         setUserRole(data.role);
+        setUserPermissions(data.permissoes || []);
         
         // Define o menu ativo de forma síncrona para evitar que o dashboard completo "pisque" na tela
         const isOp = new URLSearchParams(window.location.search).get('view') === 'operacao' || data.role === 'operacao';
@@ -2578,6 +2582,7 @@ export default function App() {
         setIsAuthenticated(true);
       } else {
         setUserRole(null);
+        setUserPermissions([]);
         setIsAuthenticated(false);
         if (data && data.role === 'pending') {
           setErroLoginMsg('Sua conta está em análise pelo Administrador.');
@@ -2607,6 +2612,7 @@ export default function App() {
         } else {
           setIsAuthenticated(false);
           setUserRole(null);
+          setUserPermissions([]);
         }
       }
     );
@@ -2851,6 +2857,7 @@ export default function App() {
     if (p.startsWith('/dre/custos')) return 'dre_custos';
     if (p.startsWith('/dre/leves')) return 'dre_leves';
     if (p.startsWith('/dre/viabilidade')) return 'dre_viabilidade';
+    if (p.startsWith('/dre/gerencial')) return 'dre_gerencial';
     if (p.startsWith('/importador')) return 'importador';
     if (p.startsWith('/configuracoes/filiais')) return 'config_filiais';
     if (p.startsWith('/configuracoes/tarifas')) return 'config_tarifas';
@@ -2861,12 +2868,23 @@ export default function App() {
   }, [location.pathname, isOpMode]);
 
   useEffect(() => {
-    if (isImporter && activeMenu !== 'importador') {
+    const hasFinanceiro = isUserAdmin || (!isOpMode && !isImporter) || userPermissions?.includes('gestao_financeira');
+    const hasPlanejamento = isUserAdmin || (!isOpMode && !isImporter) || userPermissions?.includes('planejamento');
+    const hasOperacional = isUserAdmin || !isImporter || userPermissions?.includes('gestao_operacional');
+    const hasImportador = isUserAdmin || isImporter || userPermissions?.includes('importador');
+    const hasConfig = isUserAdmin || userPermissions?.includes('configuracoes');
+
+    const financeiroMenus = ['gestao_financeira', 'detalhe_financeiro', 'gestao_margem'];
+    const planejamentoMenus = ['planejamento', 'dre_custos', 'dre_leves', 'dre_viabilidade', 'dre_gerencial'];
+    
+    if (isImporter && !hasFinanceiro && !hasPlanejamento && !hasOperacional && !hasConfig && activeMenu !== 'importador') {
       navigate('/importador', { replace: true });
-    } else if (isOpMode && (activeMenu === 'gestao_financeira' || activeMenu === 'detalhe_financeiro' || activeMenu === 'gestao_margem' || activeMenu === 'planejamento' || activeMenu === 'dre_custos' || activeMenu === 'dre_leves' || activeMenu === 'dre_viabilidade')) {
+    } else if (!hasFinanceiro && financeiroMenus.includes(activeMenu)) {
+      navigate('/operacional/penalidades', { replace: true });
+    } else if (!hasPlanejamento && planejamentoMenus.includes(activeMenu)) {
       navigate('/operacional/penalidades', { replace: true });
     }
-  }, [isImporter, isOpMode, activeMenu, navigate]);
+  }, [isImporter, isOpMode, isUserAdmin, userPermissions, activeMenu, navigate]);
   const mainScrollRef = useRef(null);
   useEffect(() => { if (mainScrollRef.current) mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' }); }, [activeMenu]);
   const [expandedMenus, setExpandedMenus] = useSessionStorage('dashop_expandedMenus', { financeiro: true, operacional: true, planejamento: false });
@@ -2916,6 +2934,7 @@ export default function App() {
     else if (menu === 'dre_custos') path = '/dre/custos';
     else if (menu === 'dre_leves') path = '/dre/leves';
     else if (menu === 'dre_viabilidade') path = '/dre/viabilidade';
+    else if (menu === 'dre_gerencial') path = '/dre/gerencial';
     else if (menu === 'importador') path = '/importador';
     else if (menu === 'config_filiais') path = '/configuracoes/filiais';
     else if (menu === 'config_tarifas') path = '/configuracoes/tarifas';
@@ -3249,12 +3268,19 @@ export default function App() {
   const clearCache = async () => {
     try {
       const db = await idbPromise;
-      return new Promise((resolve) => {
+      await new Promise((resolve) => {
         const tx = db.transaction('cache', 'readwrite');
         tx.objectStore('cache').clear();
         tx.oncomplete = () => resolve();
       });
-    } catch {}
+      const { data: files } = await supabase.storage.from('dados_json').list();
+      if (files && files.length > 0) {
+        await supabase.storage.from('dados_json').remove(files.map(f => f.name));
+        console.log('[Storage] JSON cache cleared from Supabase.');
+      }
+    } catch (e) {
+      console.error('Error clearing cache:', e);
+    }
   };
 
   const fetchFromSupabase = useCallback(async (forceRefresh = false) => {
@@ -3399,7 +3425,14 @@ export default function App() {
 
       setDreData((viewDreDataRaw || []).map(d => ({ 
         ...d, 
-        faturamento: d.faturamento_total || 0, // Compatibilidade com código legado!
+        faturamento_total: Number(d.faturamento_total) || 0,
+        faturamento_base: Number(d.faturamento_base) || 0,
+        faturamento_paradas: Number(d.faturamento_paradas) || 0,
+        penalidades: Number(d.penalidades) || 0,
+        custo_capcar_pago: Number(d.custo_capcar_pago) || 0,
+        custo_capcar_devido: Number(d.custo_capcar_devido) || 0,
+        receita_capcar: Number(d.receita_capcar) || 0,
+        faturamento: Number(d.faturamento_total) || 0, // Compatibilidade com código legado!
         ...getRegSup(d.filial, d) 
       })));
       setGapsData((viewGapsDataRaw || []).map(d => ({ ...d, ...getRegSup(d.filial, d) })));
@@ -3466,7 +3499,7 @@ export default function App() {
   useEffect(() => {
     if (isAuthenticated && !hasInitialSynced) {
       if (dataSource === 'supabase') {
-        fetchFromSupabase(true);
+        fetchFromSupabase(false);
       } else {
         fetchFromGoogleSheets();
       }
@@ -4898,6 +4931,7 @@ export default function App() {
         isOpMode={isOpMode}
         isImporter={isImporter}
         isUserAdmin={isUserAdmin}
+        userPermissions={userPermissions}
         activeMenu={activeMenu}
         handleMenuChange={handleMenuChange}
         expandedMenus={expandedMenus}
@@ -4965,9 +4999,14 @@ export default function App() {
                     setRawOperacionalData(finalOperacional);
                     if (rawOperacionalDataRef) rawOperacionalDataRef.current = finalOperacional;
                     
-                    await supabase.rpc('rpc_refresh_materialized_views');
-                    await clearCache();
-                    await fetchFromSupabase(true);
+                    try {
+                      await supabase.rpc('rpc_refresh_materialized_views');
+                    } catch (e) {
+                      console.warn('Timeout ou erro no refresh das views (Operacional). O cache será limpo de qualquer forma.', e);
+                    } finally {
+                      await clearCache();
+                      await fetchFromSupabase(true);
+                    }
                   }}
                   onImportBilling={async (diarias, penalidades) => {
                     const importedQuinzena = diarias.length > 0 ? diarias[0].quinzena : (penalidades.length > 0 ? penalidades[0].quinzena : null);
@@ -4993,19 +5032,34 @@ export default function App() {
                     if (importedQuinzena && importedQuinzena !== 'N/A') {
                        await supabase.rpc('rpc_sincronizar_faturamento_operacional', { p_quinzena: importedQuinzena });
                     }
-                    await supabase.rpc('rpc_refresh_materialized_views');
-                    await clearCache(); // Limpa o cache para carregar os novos dados na próxima
-                    await fetchFromSupabase(true);
+                    try {
+                      await supabase.rpc('rpc_refresh_materialized_views');
+                    } catch (e) {
+                      console.warn('Timeout ou erro no refresh das views (Billing). O cache será limpo de qualquer forma.', e);
+                    } finally {
+                      await clearCache(); // Limpa o cache para carregar os novos dados na próxima
+                      await fetchFromSupabase(true);
+                    }
                   }}
                   onImportCapCar={async (dadosCapCar) => {
-                    await supabase.rpc('rpc_refresh_materialized_views');
-                    await clearCache();
-                    await fetchFromSupabase(true);
+                    try {
+                      await supabase.rpc('rpc_refresh_materialized_views');
+                    } catch (e) {
+                      console.warn('Timeout na view CapCar', e);
+                    } finally {
+                      await clearCache();
+                      await fetchFromSupabase(true);
+                    }
                   }}
                   onImportOperacionalBSC={async (dadosBSC) => {
-                    await supabase.rpc('rpc_refresh_materialized_views');
-                    await clearCache();
-                    await fetchFromSupabase(true);
+                    try {
+                      await supabase.rpc('rpc_refresh_materialized_views');
+                    } catch (e) {
+                      console.warn('Timeout na view BSC', e);
+                    } finally {
+                      await clearCache();
+                      await fetchFromSupabase(true);
+                    }
                   }}
                 />
               </div>
@@ -5026,9 +5080,14 @@ export default function App() {
                       if (delErr) throw delErr;
                       const { error: insErr } = await supabase.from('mapeamento_filiais').insert(cleanMap);
                       if (insErr) throw insErr;
-                      await supabase.rpc('rpc_refresh_materialized_views');
-                      await clearCache();
-                      await fetchFromSupabase(true);
+                      try {
+                        await supabase.rpc('rpc_refresh_materialized_views');
+                      } catch (e) {
+                        console.warn('Timeout na view', e);
+                      } finally {
+                        await clearCache();
+                        await fetchFromSupabase(true);
+                      }
                     } catch (err) {
                       console.error(err);
                       alert("Erro ao salvar configurações de filiais: " + (err.message || JSON.stringify(err)));
@@ -5050,9 +5109,14 @@ export default function App() {
                       if (delErr) throw delErr;
                       const { error: insErr } = await supabase.from('tarifas').insert(cleanMap);
                       if (insErr) throw insErr;
-                      await supabase.rpc('rpc_refresh_materialized_views');
-                      await clearCache();
-                      await fetchFromSupabase(true);
+                      try {
+                        await supabase.rpc('rpc_refresh_materialized_views');
+                      } catch (e) {
+                        console.warn('Timeout na view', e);
+                      } finally {
+                        await clearCache();
+                        await fetchFromSupabase(true);
+                      }
                     } catch (err) {
                       console.error(err);
                       alert("Erro ao salvar tarifas: " + (err.message || JSON.stringify(err)));
@@ -5122,6 +5186,13 @@ export default function App() {
             {activeMenu === 'dre_viabilidade' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
                 <DreViabilidade setAgentContext={setAgentContext} />
+              </div>
+            )}
+
+            {/* DRE GERENCIAL */}
+            {activeMenu === 'dre_gerencial' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                <DreGerencial setAgentContext={setAgentContext} />
               </div>
             )}
 
