@@ -19,6 +19,7 @@ export default function GestaoUsuarios() {
   const [activeTab, setActiveTab] = useState('ativos'); // 'ativos' | 'pendentes'
   const [editingPermissions, setEditingPermissions] = useState(null);
   const [currentPerms, setCurrentPerms] = useState([]);
+  const [currentRole, setCurrentRole] = useState('operacao');
 
   const formatName = (str) => {
     return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
@@ -151,7 +152,7 @@ export default function GestaoUsuarios() {
     try {
       const { error } = await supabase
         .from('user_roles')
-        .update({ permissoes: currentPerms })
+        .update({ permissoes: currentPerms, role: currentRole })
         .eq('id', userId);
       if (error) throw error;
       setEditingPermissions(null);
@@ -313,6 +314,7 @@ export default function GestaoUsuarios() {
                             const defaultOpPerms = ['gestao_penalidades', 'gestao_bsc', 'comparativo_bsc', 'gaps_operacionais', 'painel_treinamentos', 'disponibilidade_frota', 'gestao_motoristas'];
                             const defaultImpPerms = ['importador'];
                             setCurrentPerms(user.permissoes || (user.role === 'operacao' ? defaultOpPerms : user.role === 'importer' ? defaultImpPerms : []));
+                            setCurrentRole(user.role || 'operacao');
                           }}
                           className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
                           title="Gerenciar Permissões Extras"
@@ -332,14 +334,30 @@ export default function GestaoUsuarios() {
                       <tr>
                         <td colSpan="4" className="bg-slate-50 p-4 border-b border-slate-200">
                           <div className="flex flex-col gap-4 mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 max-w-3xl">
-                             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                             <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-3">
                                <h4 className="font-bold text-slate-700 text-sm flex items-center gap-2">
-                                 <Settings className="w-4 h-4 text-blue-500" /> Permissões Extras para {user.nome?.split(' ')[0]}
+                                 <Settings className="w-4 h-4 text-blue-500" /> Configurações de Acesso para {user.nome?.split(' ')[0]}
                                </h4>
                                <button onClick={() => setEditingPermissions(null)} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4"/></button>
                              </div>
                              
-                             {user.role === 'admin' ? (
+                             <div className="mb-4 px-2">
+                               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Papel (Role)</label>
+                               <select
+                                 value={currentRole}
+                                 onChange={(e) => setCurrentRole(e.target.value)}
+                                 className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                               >
+                                 <option value="operacao">Operação (Apenas Ops)</option>
+                                 <option value="importer">Importer (Apenas Importador)</option>
+                                 <option value="gestao">Gestão (Total exceto Usuários)</option>
+                                 <option value="admin">Administrador (Total)</option>
+                               </select>
+                             </div>
+
+                             <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 px-2">Permissões Específicas</h5>
+                             
+                             {currentRole === 'admin' ? (
                                <p className="text-sm text-slate-500 italic px-2">Administradores possuem todas as permissões por padrão.</p>
                              ) : (
                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 px-2 max-h-[300px] overflow-y-auto">
@@ -423,7 +441,7 @@ export default function GestaoUsuarios() {
                              
                              <div className="flex gap-2 justify-end mt-2">
                                <button onClick={() => setEditingPermissions(null)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">Cancelar</button>
-                               <button onClick={() => savePermissions(user.id)} className="px-4 py-2 text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-2"><Save className="w-4 h-4"/> Salvar Permissões</button>
+                               <button onClick={() => savePermissions(user.id)} className="px-4 py-2 text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-2"><Save className="w-4 h-4"/> Salvar Configurações</button>
                              </div>
                           </div>
                         </td>
