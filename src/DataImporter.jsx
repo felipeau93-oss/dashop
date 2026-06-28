@@ -312,19 +312,40 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
   const saveToSupabase = async (tableName, quinzena, dataArray, setProgress, isPartial = false) => {
     try {
       const q = quinzena || 'GERAL';
-      setProgress(`Enviando dados da quinzena ${q} para o servidor em lote único...`);
       
       const payload = dataArray.map(cleanUndefined);
+      const CHUNK_SIZE = 2000;
       
-      const { error } = await supabase.rpc('rpc_import_dados', {
-        p_table: tableName,
-        p_quinzena: q,
-        p_payload: payload,
-        p_is_partial: isPartial
-      });
+      if (payload.length <= CHUNK_SIZE) {
+        setProgress(`Enviando dados da quinzena ${q} para o servidor em lote único...`);
+        const { error } = await supabase.rpc('rpc_import_dados', {
+          p_table: tableName,
+          p_quinzena: q,
+          p_payload: payload,
+          p_is_partial: isPartial
+        });
+        if (error) throw error;
+      } else {
+        const totalChunks = Math.ceil(payload.length / CHUNK_SIZE);
+        for (let i = 0; i < totalChunks; i++) {
+          setProgress(`Enviando dados da quinzena ${q} (${i + 1}/${totalChunks})...`);
+          const chunk = payload.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          
+          // O primeiro chunk apaga a quinzena (se isPartial = false).
+          // Os demais apenas inserem.
+          const isChunkPartial = isPartial || i > 0;
+          
+          const { error } = await supabase.rpc('rpc_import_dados', {
+            p_table: tableName,
+            p_quinzena: q,
+            p_payload: chunk,
+            p_is_partial: isChunkPartial
+          });
+          if (error) throw error;
+        }
+      }
       
-      if (error) throw error;
-      setProgress(`Dados inseridos e visualizações atualizadas com sucesso!`);
+      setProgress(`Dados da quinzena ${q} inseridos com sucesso!`);
     } catch (err) {
       console.error(`Erro em saveToSupabase (${tableName}):`, err);
       throw err;
