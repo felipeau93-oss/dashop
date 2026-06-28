@@ -2375,6 +2375,7 @@ export default function App() {
   const [isUrlOpMode, setIsUrlOpMode] = useState(false);
 
   const isUserAdmin = userRole === 'admin';
+  const isUserGestao = userRole === 'gestao';
   const isImporter = userRole === 'importer';
   const isOpMode = urlIsOpMode || userRole === 'operacao';
   
@@ -2569,7 +2570,9 @@ export default function App() {
         
       if (data && data.role && data.role !== 'pending') {
         setUserRole(data.role);
-        setUserPermissions(data.permissoes || []);
+        const defaultOpPerms = ['gestao_penalidades', 'gestao_bsc', 'comparativo_bsc', 'gaps_operacionais', 'painel_treinamentos', 'disponibilidade_frota', 'gestao_motoristas'];
+        const defaultImpPerms = ['importador'];
+        setUserPermissions(data.permissoes || (data.role === 'operacao' ? defaultOpPerms : data.role === 'importer' ? defaultImpPerms : []));
         
         // Define o menu ativo de forma síncrona para evitar que o dashboard completo "pisque" na tela
         const isOp = new URLSearchParams(window.location.search).get('view') === 'operacao' || data.role === 'operacao';
@@ -4931,6 +4934,7 @@ export default function App() {
         isOpMode={isOpMode}
         isImporter={isImporter}
         isUserAdmin={isUserAdmin}
+        isUserGestao={isUserGestao}
         userPermissions={userPermissions}
         activeMenu={activeMenu}
         handleMenuChange={handleMenuChange}

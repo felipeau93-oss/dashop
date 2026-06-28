@@ -17,11 +17,21 @@ export default function Sidebar({
   isOpMode,
   isImporter,
   isUserAdmin,
+  isUserGestao,
   activeMenu,
   handleMenuChange,
   expandedMenus,
-  toggleExpandedMenu
+  toggleExpandedMenu,
+  userPermissions = []
 }) {
+  const hasMenuPerm = (menuKey) => isUserAdmin || isUserGestao || userPermissions.includes(menuKey);
+
+  const hasFinanceiro = hasMenuPerm('detalhe_financeiro') || hasMenuPerm('gestao_margem');
+  const hasOperacional = hasMenuPerm('gestao_penalidades') || hasMenuPerm('gestao_bsc') || hasMenuPerm('comparativo_bsc') || hasMenuPerm('gaps_operacionais') || hasMenuPerm('painel_treinamentos') || hasMenuPerm('disponibilidade_frota') || hasMenuPerm('gestao_motoristas');
+  const hasPlanejamento = hasMenuPerm('dre_pesados') || hasMenuPerm('dre_leves') || hasMenuPerm('dre_viabilidade') || hasMenuPerm('dre_gerencial');
+  const hasImportador = hasMenuPerm('importador');
+  const hasConfig = hasMenuPerm('config_filiais') || hasMenuPerm('config_tarifas') || hasMenuPerm('configuracoes');
+
   return (
     <aside className={`fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 md:relative md:translate-x-0 w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] border-r border-slate-800 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="p-6 bg-slate-950 border-b border-slate-800 sticky top-0 z-10 flex justify-between items-center">
@@ -50,7 +60,7 @@ export default function Sidebar({
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 px-3">Módulos</p>
 
           {/* Accordion Gestão Financeira */}
-          {!isOpMode && !isImporter && (
+          {hasFinanceiro && (
             <div className="flex flex-col mb-2">
               <button
                 onClick={() => {
@@ -70,19 +80,23 @@ export default function Sidebar({
               </button>
 
               <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.financeiro ? 'max-h-40 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
-                <button onClick={() => handleMenuChange('detalhe_financeiro')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'detalhe_financeiro' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Penalidades Detalhadas</span>
-                </button>
-                <button onClick={() => handleMenuChange('gestao_margem')} className={`w-full flex items-center justify-between text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_margem' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Margem de Contribuição</span>
-                  <span className="text-[9px] font-black bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2 shrink-0">Dev</span>
-                </button>
+                {hasMenuPerm('detalhe_financeiro') && (
+                  <button onClick={() => handleMenuChange('detalhe_financeiro')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'detalhe_financeiro' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">Penalidades Detalhadas</span>
+                                  </button>
+                )}
+                {hasMenuPerm('gestao_margem') && (
+                  <button onClick={() => handleMenuChange('gestao_margem')} className={`w-full flex items-center justify-between text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_margem' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">Margem de Contribuição</span>
+                                    <span className="text-[9px] font-black bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2 shrink-0">Dev</span>
+                                  </button>
+                )}
               </div>
             </div>
           )}
 
           {/* Accordion Gestão Operacional */}
-          {!isImporter && (
+          {hasOperacional && (
             <div className="flex flex-col">
               <button
                 onClick={() => {
@@ -101,39 +115,56 @@ export default function Sidebar({
               </button>
 
               <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.operacional ? 'max-h-[500px] mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
-                <button onClick={() => handleMenuChange('gestao_penalidades')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_penalidades' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Penalidades (Operação)</span>
-                </button>
-                <button onClick={() => handleMenuChange('gestao_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Visão BSC</span>
-                </button>
-                <button onClick={() => handleMenuChange('comparativo_bsc')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'comparativo_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Comparativo BSC</span>
-                </button>
-                <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Gaps Operacionais</span>
-                </button>
-                <button onClick={() => handleMenuChange('painel_treinamentos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'painel_treinamentos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Treinamentos</span>
-                </button>
-                <button onClick={() => handleMenuChange('disponibilidade_frota')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'disponibilidade_frota' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Disponibilidade de Frota</span>
-                </button>
-                <button onClick={() => handleMenuChange('gestao_motoristas')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_motoristas' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">Base de Motoristas</span>
-                </button>
+                {hasMenuPerm('gestao_penalidades') && (
+                  <button onClick={() => handleMenuChange('gestao_penalidades')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_penalidades' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">Penalidades (Operação)</span>
+                                  </button>
+                )}
+                {hasMenuPerm('gestao_bsc') && (
+                  <button onClick={() => handleMenuChange('gestao_bsc')} className={`w-full flex items-center justify-between text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">Visão BSC</span>
+                                    <span className="text-[9px] font-black bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2 shrink-0">Dev</span>
+                                  </button>
+                )}
+                {hasMenuPerm('comparativo_bsc') && (
+                  <button onClick={() => handleMenuChange('comparativo_bsc')} className={`w-full flex items-center justify-between text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'comparativo_bsc' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">Comparativo BSC</span>
+                                    <span className="text-[9px] font-black bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2 shrink-0">Dev</span>
+                                  </button>
+                )}
+                {hasMenuPerm('gaps_operacionais') && (
+                  <button onClick={() => handleMenuChange('gaps_operacionais')} className={`w-full flex items-center justify-between text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gaps_operacionais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">Gaps Operacionais</span>
+                                    <span className="text-[9px] font-black bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2 shrink-0">Dev</span>
+                                  </button>
+                )}
+                {hasMenuPerm('painel_treinamentos') && (
+                  <button onClick={() => handleMenuChange('painel_treinamentos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'painel_treinamentos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">Treinamentos</span>
+                                  </button>
+                )}
+                {hasMenuPerm('disponibilidade_frota') && (
+                  <button onClick={() => handleMenuChange('disponibilidade_frota')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'disponibilidade_frota' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">Disponibilidade de Frota</span>
+                                  </button>
+                )}
+                {hasMenuPerm('gestao_motoristas') && (
+                  <button onClick={() => handleMenuChange('gestao_motoristas')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'gestao_motoristas' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">Base de Motoristas</span>
+                                  </button>
+                )}
               </div>
             </div>
           )}
           {/* Accordion Planejamento */}
-          {!isOpMode && !isImporter && (
+          {hasPlanejamento && (
             <div className="flex flex-col">
               <button
                 onClick={() => {
                   handleMenuChange('planejamento');
                   if (!expandedMenus.planejamento) toggleExpandedMenu('planejamento', { stopPropagation: () => { } });
                 }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['planejamento', 'dre_custos', 'dre_leves', 'dre_viabilidade'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${['planejamento', 'dre_custos', 'dre_leves', 'dre_viabilidade', 'dre_gerencial'].includes(activeMenu) ? 'bg-slate-800/50 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}`}
               >
                 <div className="flex items-center gap-3">
                   <Calculator className={`w-4 h-4 shrink-0 ${activeMenu === 'planejamento' ? 'text-blue-400' : ''}`} />
@@ -145,21 +176,32 @@ export default function Sidebar({
               </button>
 
               <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${expandedMenus.planejamento ? 'max-h-60 mt-1 opacity-100' : 'max-h-0 opacity-0'}`}>
-                <button onClick={() => handleMenuChange('dre_custos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_custos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">DRE Custo Pesados</span>
-                </button>
-                <button onClick={() => handleMenuChange('dre_leves')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_leves' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">DRE Custo Leves</span>
-                </button>
-                <button onClick={() => handleMenuChange('dre_viabilidade')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_viabilidade' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                  <span className="truncate">DRE Viabilidade</span>
-                </button>
+                {hasMenuPerm('dre_custos') && (
+                  <button onClick={() => handleMenuChange('dre_custos')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_custos' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">DRE Custo Pesados</span>
+                                  </button>
+                )}
+                {hasMenuPerm('dre_leves') && (
+                  <button onClick={() => handleMenuChange('dre_leves')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_leves' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">DRE Custo Leves</span>
+                                  </button>
+                )}
+                {hasMenuPerm('dre_viabilidade') && (
+                  <button onClick={() => handleMenuChange('dre_viabilidade')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_viabilidade' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">DRE Viabilidade</span>
+                                  </button>
+                )}
+                {hasMenuPerm('dre_gerencial') && (
+                  <button onClick={() => handleMenuChange('dre_gerencial')} className={`w-full flex items-center justify-start text-left pl-10 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeMenu === 'dre_gerencial' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                                    <span className="truncate">DRE Gerencial</span>
+                                  </button>
+                )}
               </div>
             </div>
           )}
 
           {/* Importador Inteligente */}
-          {(isUserAdmin || isImporter) && (
+          {hasImportador && (
             <div className="flex flex-col mt-4 pt-4 border-t border-slate-800">
               <button
                 onClick={() => {
@@ -173,56 +215,64 @@ export default function Sidebar({
                   <span className={`truncate ${activeMenu === 'importador' ? 'font-bold' : ''}`}>Importador Inteligente</span>
                 </div>
               </button>
-              {isUserAdmin && (
+              {hasConfig && (
                 <>
+                  {hasMenuPerm('config_filiais') && (
                   <button
-                    onClick={() => {
-                      handleMenuChange('config_filiais');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_filiais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_filiais' ? 'text-blue-400' : ''}`} />
-                      <span className={`truncate ${activeMenu === 'config_filiais' ? 'font-bold' : ''}`}>Config. de Filiais</span>
-                    </div>
-                  </button>
+                                      onClick={() => {
+                                        handleMenuChange('config_filiais');
+                                        setIsMobileMenuOpen(false);
+                                      }}
+                                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_filiais' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_filiais' ? 'text-blue-400' : ''}`} />
+                                        <span className={`truncate ${activeMenu === 'config_filiais' ? 'font-bold' : ''}`}>Config. de Filiais</span>
+                                      </div>
+                                    </button>
+                )}
+                  {hasMenuPerm('config_tarifas') && (
                   <button
-                    onClick={() => {
-                      handleMenuChange('config_tarifas');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_tarifas' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_tarifas' ? 'text-blue-400' : ''}`} />
-                      <span className={`truncate ${activeMenu === 'config_tarifas' ? 'font-bold' : ''}`}>Config. de Tarifas</span>
-                    </div>
-                  </button>
+                                      onClick={() => {
+                                        handleMenuChange('config_tarifas');
+                                        setIsMobileMenuOpen(false);
+                                      }}
+                                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'config_tarifas' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <Settings className={`w-4 h-4 shrink-0 ${activeMenu === 'config_tarifas' ? 'text-blue-400' : ''}`} />
+                                        <span className={`truncate ${activeMenu === 'config_tarifas' ? 'font-bold' : ''}`}>Config. de Tarifas</span>
+                                      </div>
+                                    </button>
+                )}
+                  {isUserAdmin && (
                   <button
-                    onClick={() => {
-                      handleMenuChange('gestao_usuarios');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_usuarios' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Users className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_usuarios' ? 'text-blue-400' : ''}`} />
-                      <span className={`truncate ${activeMenu === 'gestao_usuarios' ? 'font-bold' : ''}`}>Gestão de Usuários</span>
-                    </div>
-                  </button>
+                                      onClick={() => {
+                                        handleMenuChange('gestao_usuarios');
+                                        setIsMobileMenuOpen(false);
+                                      }}
+                                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'gestao_usuarios' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <Users className={`w-4 h-4 shrink-0 ${activeMenu === 'gestao_usuarios' ? 'text-blue-400' : ''}`} />
+                                        <span className={`truncate ${activeMenu === 'gestao_usuarios' ? 'font-bold' : ''}`}>Gestão de Usuários</span>
+                                      </div>
+                                    </button>
+                )}
+                  {hasMenuPerm('explorador_dados') && (
                   <button
-                    onClick={() => {
-                      handleMenuChange('explorador_dados');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'explorador_dados' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Database className={`w-4 h-4 shrink-0 ${activeMenu === 'explorador_dados' ? 'text-blue-400' : ''}`} />
-                      <span className={`truncate ${activeMenu === 'explorador_dados' ? 'font-bold' : ''}`}>Explorador de Dados</span>
-                    </div>
-                  </button>
+                                      onClick={() => {
+                                        handleMenuChange('explorador_dados');
+                                        setIsMobileMenuOpen(false);
+                                      }}
+                                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors ${activeMenu === 'explorador_dados' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'} mt-2`}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <Database className={`w-4 h-4 shrink-0 ${activeMenu === 'explorador_dados' ? 'text-blue-400' : ''}`} />
+                                        <span className={`truncate ${activeMenu === 'explorador_dados' ? 'font-bold' : ''}`}>Explorador de Dados</span>
+                                      </div>
+                                    </button>
+                )}
                 </>
               )}
             </div>

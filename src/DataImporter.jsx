@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Database, Box, DollarSign, History, Calendar, LayoutList, Trash2, EyeOff, Copy, RefreshCw, CalendarDays, Truck } from 'lucide-react';
+import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Database, Box, DollarSign, History, Calendar, LayoutList, Trash2, EyeOff, Copy, RefreshCw, CalendarDays, Truck, Download } from 'lucide-react';
 import { supabase } from './supabase';
 import GestaoDadosTab from './GestaoDadosTab';
 
@@ -51,6 +51,17 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
   const [dispFile, setDispFile] = useState(null);
   const [isProcessingDisp, setIsProcessingDisp] = useState(false);
   const [progressDisp, setProgressDisp] = useState('');
+
+  const [retaguardaFile, setRetaguardaFile] = useState(null);
+  const [isProcessingRetaguarda, setIsProcessingRetaguarda] = useState(false);
+  const [progressRetaguarda, setProgressRetaguarda] = useState('');
+  
+  const [isManualRetaguarda, setIsManualRetaguarda] = useState(false);
+  const [retQuinzenaManual, setRetQuinzenaManual] = useState('');
+  const [retFilialManual, setRetFilialManual] = useState('');
+  const [retNomeManual, setRetNomeManual] = useState('');
+  const [retDocManual, setRetDocManual] = useState('');
+  const [retValorManual, setRetValorManual] = useState('');
 
   const [historico, setHistorico] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -301,54 +312,19 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
   const saveToSupabase = async (tableName, quinzena, dataArray, setProgress, isPartial = false) => {
     try {
       const q = quinzena || 'GERAL';
+      setProgress(`Enviando dados da quinzena ${q} para o servidor em lote único...`);
       
-      if (!isPartial) {
-          setProgress(`Apagando dados antigos da quinzena ${q}...`);
-          
-          let hasMore = true;
-          while (hasMore) {
-             const { data: toDelete, error: selErr } = await supabase
-                .from(tableName)
-                .select('id')
-                .eq('quinzena', q)
-                .limit(5000);
-                
-             if (selErr) throw selErr;
-             
-             if (!toDelete || toDelete.length === 0) {
-                 hasMore = false;
-             } else {
-                 const ids = toDelete.map(d => d.id);
-                 for (let i = 0; i < ids.length; i += 100) {
-                     const chunkIds = ids.slice(i, i + 100);
-                     const { error: delErr } = await supabase
-                        .from(tableName)
-                        .delete()
-                        .in('id', chunkIds);
-                     if (delErr) throw delErr;
-                 }
-             }
-          }
-      } else {
-          setProgress(`Modo Parcial: Adicionando dados à quinzena ${q}...`);
-      }
-
-      let savedCount = 0;
-      const CHUNK_SIZE = 1000;
+      const payload = dataArray.map(cleanUndefined);
       
-      for (let i = 0; i < dataArray.length; i += CHUNK_SIZE) {
-        const chunk = dataArray.slice(i, i + CHUNK_SIZE);
-        const cleanedChunk = chunk.map(cleanUndefined);
-        
-        const { error: insertError } = await supabase
-          .from(tableName)
-          .insert(cleanedChunk);
-          
-        if (insertError) throw insertError;
-        
-        savedCount += chunk.length;
-        setProgress(`Processando linhas ${savedCount} de ${dataArray.length}...`);
-      }
+      const { error } = await supabase.rpc('rpc_import_dados', {
+        p_table: tableName,
+        p_quinzena: q,
+        p_payload: payload,
+        p_is_partial: isPartial
+      });
+      
+      if (error) throw error;
+      setProgress(`Dados inseridos e visualizações atualizadas com sucesso!`);
     } catch (err) {
       console.error(`Erro em saveToSupabase (${tableName}):`, err);
       throw err;
@@ -1436,6 +1412,146 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     }
   };
 
+  const downloadTemplateRetaguarda = () => {
+    const ws = XLSX.utils.json_to_sheet([{
+      Quinzena: "202610Q1",
+      Filial: "SPO",
+      "Nome do colaborador": "João Silva",
+      Documento: "111.222.333-44",
+      "Valor Pago": 1500.50
+    }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template_Retaguarda");
+    XLSX.writeFile(wb, "template_retaguarda.xlsx");
+  };
+
+  const salvarRetaguardaManual = async (e) => {
+    e.preventDefault();
+    if (!retQuinzenaManual || !retFilialManual || !retValorManual) {
+      addLog("Preencha ao menos Quinzena, Filial e Valor Pago.", 'error');
+      return;
+    }
+    setIsProcessingRetaguarda(true);
+    setProgressRetaguarda('Salvando...');
+
+    try {
+      let valorNum = parseFloat(retValorManual.toString().replace(',', '.'));
+      if (isNaN(valorNum)) valorNum = 0;
+
+      const dataToSave = {
+        quinzena: retQuinzenaManual.trim().toUpperCase(),
+        filial: retFilialManual.trim().toUpperCase(),
+        nome_colaborador: retNomeManual.trim(),
+        documento: retDocManual.trim(),
+        valor_pago: valorNum,
+        dados_originais: { manual_entry: true }
+      };
+
+      const { error } = await supabase.from('retaguarda').insert([dataToSave]);
+      if (error) throw error;
+
+      await registrarImportacao('Retaguarda (Manual)', dataToSave.quinzena, 1);
+      
+      addLog(`Registro manual salvo com sucesso para a filial ${dataToSave.filial}.`, 'success');
+      
+      setRetQuinzenaManual('');
+      setRetFilialManual('');
+      setRetNomeManual('');
+      setRetDocManual('');
+      setRetValorManual('');
+    } catch (err) {
+      console.error(err);
+      addLog(`Erro ao salvar retaguarda manual: ${err.message}`, 'error');
+    } finally {
+      setIsProcessingRetaguarda(false);
+      setProgressRetaguarda('');
+    }
+  };
+
+  const parseRetaguarda = async () => {
+    if (!retaguardaFile) {
+      addLog("Selecione um arquivo de retaguarda.", 'error');
+      return;
+    }
+    setIsProcessingRetaguarda(true);
+    setProgressRetaguarda('Lendo arquivo...');
+    addLog(`Lendo arquivo ${retaguardaFile.name}...`, 'info');
+
+    const processData = async (data) => {
+      try {
+        if (!data || data.length < 2) throw new Error("Arquivo vazio ou sem dados.");
+        
+        const header = data[0].map(h => String(h || '').trim().toLowerCase());
+        const quinzenaIdx = header.findIndex(h => h.includes('quinzena'));
+        const filialIdx = header.findIndex(h => h === 'filial' || h.includes('centro') || h.includes('custo'));
+        const nomeIdx = header.findIndex(h => h.includes('nome') || h.includes('colaborador'));
+        const docIdx = header.findIndex(h => h.includes('documento') || h.includes('cpf') || h.includes('cnpj'));
+        const valorIdx = header.findIndex(h => h.includes('valor'));
+
+        if (quinzenaIdx === -1 || filialIdx === -1 || valorIdx === -1) {
+            throw new Error(`Não encontramos as colunas necessárias (Quinzena, Filial, Valor Pago). Cabeçalho encontrado: ${header.join(', ')}`);
+        }
+
+        const validRows = data.slice(1).filter(r => r && r[quinzenaIdx] && r[valorIdx]);
+        
+        const finalDataToSave = validRows.map(row => {
+          let valStr = String(row[valorIdx] || '0').replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
+          let valorNum = parseFloat(valStr);
+          if (isNaN(valorNum)) valorNum = 0;
+
+          return {
+            quinzena: String(row[quinzenaIdx] || '').trim(),
+            filial: String(row[filialIdx] || '').trim(),
+            nome_colaborador: nomeIdx !== -1 ? String(row[nomeIdx] || '').trim() : '',
+            documento: docIdx !== -1 ? String(row[docIdx] || '').trim() : '',
+            valor_pago: valorNum,
+            dados_originais: cleanUndefined(row)
+          };
+        });
+
+        if (finalDataToSave.length === 0) throw new Error("Nenhum dado válido extraído.");
+
+        setProgressRetaguarda('Salvando no Supabase...');
+        addLog(`Inserindo ${finalDataToSave.length} registros de retaguarda no Supabase...`, 'info');
+
+        for (let i = 0; i < finalDataToSave.length; i += CHUNK_SIZE) {
+            const chunk = finalDataToSave.slice(i, i + CHUNK_SIZE);
+            const { error } = await supabase.from('retaguarda').insert(chunk);
+            if (error) throw error;
+        }
+
+        const quinzenaBase = finalDataToSave[0].quinzena;
+        await registrarImportacao('Retaguarda', quinzenaBase, finalDataToSave.length);
+
+        setProgressRetaguarda('');
+        setRetaguardaFile(null);
+        addLog(`Sucesso! ${finalDataToSave.length} despesas de retaguarda importadas.`, 'success');
+      } catch (e) {
+        console.error(e);
+        addLog(`Erro ao importar retaguarda: ${e.message}`, 'error');
+      } finally {
+        setIsProcessingRetaguarda(false);
+      }
+    };
+
+    if (retaguardaFile.name.endsWith('.csv')) {
+      Papa.parse(retaguardaFile, {
+        complete: (results) => processData(results.data),
+        error: (err) => { addLog(`Erro ao ler CSV: ${err.message}`, 'error'); setIsProcessingRetaguarda(false); }
+      });
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, raw: false, dateNF: 'dd/mm' });
+          processData(jsonData);
+        } catch (err) { addLog(err.message, 'error'); setIsProcessingRetaguarda(false); }
+      };
+      reader.readAsArrayBuffer(retaguardaFile);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 lg:p-8 bg-slate-900 min-h-full">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -1456,6 +1572,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
             </>
           )}
           <button onClick={() => setActiveStep(4)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 4 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>4. BSC</button>
+          <button onClick={() => setActiveStep(9)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 9 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>5. Retaguarda</button>
           <button onClick={() => setActiveStep(7)} className={`px-4 py-2 text-sm font-bold rounded-xl ${activeStep === 7 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>7. Disponibilidade</button>
           <button onClick={() => setActiveStep(5)} className={`px-4 py-2 text-sm font-bold rounded-xl flex items-center gap-2 ${activeStep === 5 ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
              Histórico
@@ -1733,6 +1850,98 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
                     </div>
                   )}
                 </div>
+              )}
+            </div>
+          )}
+          {activeStep === 9 && (
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <h2 className="text-2xl font-black text-white flex items-center gap-3"><DollarSign className="w-6 h-6 text-emerald-500" /> Custos de Retaguarda</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button onClick={downloadTemplateRetaguarda} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-bold rounded-xl transition-colors flex items-center gap-2 border border-slate-700">
+                    <Download className="w-4 h-4" /> Template
+                  </button>
+                  <button onClick={() => setIsManualRetaguarda(false)} className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors border ${!isManualRetaguarda ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Upload</button>
+                  <button onClick={() => setIsManualRetaguarda(true)} className={`px-4 py-2 text-sm font-bold rounded-xl transition-colors border ${isManualRetaguarda ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Manual</button>
+                </div>
+              </div>
+              
+              {!isManualRetaguarda ? (
+                <>
+                  {!retaguardaFile ? (
+                    <div className="border-2 border-dashed border-slate-700/50 rounded-2xl p-10 text-center hover:bg-slate-800/50 transition-colors group cursor-pointer relative">
+                      <input type="file" accept=".csv, .xlsx, .xls" onChange={(e) => setRetaguardaFile(e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <div className="bg-emerald-500/10 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform">
+                          <UploadCloud className="w-8 h-8 text-emerald-400" />
+                        </div>
+                        <p className="text-lg text-slate-300 font-medium mb-2">Arraste a planilha de Retaguarda ou clique</p>
+                        <p className="text-sm text-slate-500 max-w-sm mx-auto">Colunas necessárias: Quinzena, Filial, Nome do colaborador, Documento, Valor Pago.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-900/30 border border-slate-700 p-5 rounded-2xl flex flex-col gap-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="bg-emerald-500/20 p-3 rounded-xl">
+                            <FileSpreadsheet className="w-6 h-6 text-emerald-400" />
+                          </div>
+                          <div>
+                            <p className="text-white font-medium">{retaguardaFile.name}</p>
+                            <p className="text-sm text-slate-500">{(retaguardaFile.size / 1024).toFixed(1)} KB</p>
+                          </div>
+                        </div>
+                        {!isProcessingRetaguarda && (
+                          <button onClick={() => setRetaguardaFile(null)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors">
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
+                      
+                      {isProcessingRetaguarda ? (
+                        <div className="p-4 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 flex items-center gap-3">
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span className="font-medium">{progressRetaguarda}</span>
+                        </div>
+                      ) : (
+                        <button onClick={parseRetaguarda} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors">
+                          <Database className="w-5 h-5" /> Importar para o Supabase
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <form onSubmit={salvarRetaguardaManual} className="bg-slate-900/50 border border-slate-700/50 p-6 rounded-2xl space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Quinzena *</label>
+                      <input type="text" placeholder="Ex: 202610Q1" value={retQuinzenaManual} onChange={e => setRetQuinzenaManual(e.target.value)} required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Filial *</label>
+                      <input type="text" placeholder="Ex: SPO (ou Regional 1)" value={retFilialManual} onChange={e => setRetFilialManual(e.target.value)} required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Valor Pago *</label>
+                      <input type="number" step="0.01" placeholder="Ex: 1500.50" value={retValorManual} onChange={e => setRetValorManual(e.target.value)} required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none transition-colors" />
+                    </div>
+                    <div className="lg:col-span-1">
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nome (Opcional)</label>
+                      <input type="text" placeholder="Nome do colaborador" value={retNomeManual} onChange={e => setRetNomeManual(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none transition-colors" />
+                    </div>
+                    <div className="lg:col-span-2">
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Documento (Opcional)</label>
+                      <input type="text" placeholder="CPF/CNPJ" value={retDocManual} onChange={e => setRetDocManual(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none transition-colors" />
+                    </div>
+                  </div>
+                  <div className="pt-4 flex justify-end">
+                    <button type="submit" disabled={isProcessingRetaguarda} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl font-bold transition-colors flex items-center gap-2">
+                      {isProcessingRetaguarda ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                      Salvar Registro
+                    </button>
+                  </div>
+                </form>
               )}
             </div>
           )}
