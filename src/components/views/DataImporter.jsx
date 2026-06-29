@@ -21,6 +21,57 @@ const getInicioDaSemana = (dataString) => {
   return `W${weekNo}`;
 };
 
+const parseDateInfo = (dateStr) => {
+  if (!dateStr) return { quinzena: null, dataPadrao: 'N/A', diaSemanaTexto: 'N/A' };
+  
+  const dateStrTrimmed = String(dateStr).trim();
+  if (/^\d{6}Q[12]$/i.test(dateStrTrimmed)) {
+    return { quinzena: dateStrTrimmed.toUpperCase(), dataPadrao: 'N/A', diaSemanaTexto: 'N/A' };
+  }
+
+  let d;
+  const txtMatch = dateStrTrimmed.match(/^(\d{1,2})[\s\-de]+([a-zA-Z]{3,})/i);
+  if (txtMatch) {
+      const day = parseInt(txtMatch[1]);
+      const monthStr = txtMatch[2].toLowerCase().substring(0, 3);
+      const months = { jan:0, fev:1, mar:2, abr:3, mai:4, may:4, jun:5, jul:6, ago:7, aug:7, set:8, sep:8, out:9, oct:9, nov:10, dez:11, dec:11 };
+      const m = months[monthStr];
+      if (m !== undefined) {
+         d = new Date(new Date().getFullYear(), m, day);
+      }
+  } else {
+      const brMatch = String(dateStr).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (brMatch) {
+        d = new Date(parseInt(brMatch[3]), parseInt(brMatch[2]) - 1, parseInt(brMatch[1]));
+      } else {
+        d = new Date(dateStr);
+      }
+  }
+  
+  if (!d || isNaN(d.getTime())) {
+     const serial = Number(dateStr);
+     if (!isNaN(serial) && serial > 10000) {
+        d = new Date((serial - 25569) * 86400 * 1000);
+        d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+     }
+  }
+
+  if (!d || isNaN(d.getTime())) return { quinzena: null, dataPadrao: String(dateStr).trim(), diaSemanaTexto: 'N/A' };
+
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const q = d.getDate() <= 15 ? 'Q1' : 'Q2';
+  
+  const dd = String(d.getDate()).padStart(2, '0');
+  const dataPadrao = `${dd}/${m}/${y}`;
+  
+  const diasSemana = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+  const diaSemanaTexto = diasSemana[d.getDay()];
+
+  return { quinzena: `${y}${m}${q}`, dataPadrao, diaSemanaTexto };
+};
+
+
 export default function DataImporter({ onImportOperacional, onImportBilling, onImportCapCar, onImportOperacionalBSC, rawFaturamentoData = [], rawOperacionalData = [], mapeamentoFiliais = [], isImporter = false, isAdmin = false }) {
   const [logs, setLogs] = useState([]);
   const [activeStep, setActiveStep] = useState(1);
@@ -366,79 +417,68 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
     setProgressOp('Lendo arquivo...');
 
     const processData = async (dataArray) => {
-      let headerRowIdx = -1;
-      let rotaColIdx = -1, xptColIdx = -1, saldoColIdx = -1, entreguesColIdx = -1, insucessosColIdx = -1, driverIdColIdx = -1, motoristaColIdx = -1, quinzenaColIdx = -1, regionalColIdx = -1, supervisorColIdx = -1;
-
-      for (let i = 0; i < Math.min(15, dataArray.length); i++) {
-        const row = dataArray[i];
-        if (!row) continue;
-        const cRota = row.findIndex(c => String(c).toUpperCase().includes('ROTA'));
-        const cXpt = row.findIndex(c => String(c).toUpperCase() === 'XPT' || String(c).toUpperCase() === 'FILIAL');
-        const cSaldo = row.findIndex(c => String(c).toUpperCase() === 'SALDO');
-        const cEntregues = row.findIndex(c => String(c).toUpperCase() === 'ENTREGUES');
-        const cInsucessos = row.findIndex(c => String(c).toUpperCase() === 'INSUCESSOS');
-        const cDriver = row.findIndex((c, idx) => String(c).toUpperCase() === 'DRIVER' || String(c).toUpperCase() === 'DRIVER ID' || (String(c).trim() === '#' && idx === 5));
-        const cMotorista = row.findIndex(c => String(c).toUpperCase() === 'MOTORISTA' || String(c).toUpperCase() === 'DRIVER NAME' || String(c).toUpperCase() === 'NOME');
-        const cQuinzena = row.findIndex(c => String(c).toUpperCase().includes('QUINZENA'));
-        const cRegional = row.findIndex(c => String(c).toUpperCase().includes('REGIONAL') || String(c).toUpperCase() === 'REGIAO');
-        const cSupervisor = row.findIndex(c => String(c).toUpperCase().includes('SUPERV') || String(c).toUpperCase().includes('GESTOR') || String(c).toUpperCase().includes('COORD'));
-
-        if (cRota !== -1 && cXpt !== -1) {
-          headerRowIdx = i; rotaColIdx = cRota; xptColIdx = cXpt; saldoColIdx = cSaldo; entreguesColIdx = cEntregues;
-          insucessosColIdx = cInsucessos; driverIdColIdx = cDriver; motoristaColIdx = cMotorista; 
-          regionalColIdx = cRegional; supervisorColIdx = cSupervisor;
-          if (isOpMulti) quinzenaColIdx = cQuinzena;
-          break;
-        }
-      }
-
-      if (headerRowIdx === -1) {
-        addLog('Erro: Colunas ROTA e FILIAL não encontradas.', 'error');
-        setIsProcessingOp(false);
-        return;
-      }
-      if (isOpMulti && quinzenaColIdx === -1) {
-        addLog('Erro: Coluna QUINZENA não encontrada no modo Multi-Quinzena.', 'error');
-        setIsProcessingOp(false);
-        return;
-      }
-
-      const configMap = {};
-      mapeamentoFiliais.forEach(m => configMap[String(m.filial).toUpperCase()] = m);
-
-      const mapInsucessosOp = {
-        'QTD BLOQUEADO': 'Bloqueado', 'QTD BLOQUEADO POR PALAVRA': 'Palavra Chave', 'QTD CANCELADO': 'Cancelado',
-        'QTD COLETADO': 'Coleta', 'QTD COMÉRCIO FECHADO': 'Comercial', 'QTD COMPRADOR REJEITOU': 'Recusa',
-        'QTD DANIFICADO': 'Avaria', 'QTD DESTINATÁRIO MUDOU': 'Mudou Endereco', 'QTD ENDEREÇO INACESSÍVEL': 'Area Inacessivel',
-        'QTD ENDEREÇO NÃO VISITADO': 'Nao Visitado', 'QTD ENDEREÇO RUIM': 'Nao Localizado', 'QTD FALTANDO': 'Faltante',
-        'QTD FORA DE ROTA': 'Fora de Rota', 'QTD NINGUÉM PRA RECEBER': 'Cliente Ausente', 'QTD TENTATIVA DE ROUBO': 'Tentativa Roubo',
-        'BLOQUEADO': 'Bloqueado', 'PALAVRA CHAVE': 'Palavra Chave', 'CANCELADO': 'Cancelado', 'COLETA': 'Coleta',
-        'COMERCIAL': 'Comercial', 'RECUSA': 'Recusa', 'AVARIA': 'Avaria', 'MUDOU ENDERECO': 'Mudou Endereco',
-        'AREA INACESSIVEL': 'Area Inacessivel', 'NAO VISITADO': 'Nao Visitado', 'NAO LOCALIZADO': 'Nao Localizado',
-        'FALTANTE': 'Faltante', 'FORA DE ROTA': 'Fora de Rota', 'CLIENTE AUSENTE': 'Cliente Ausente', 'TENTATIVA ROUBO': 'Tentativa Roubo'
+      // EXACT INDEX MAPPING ACCORDING TO USER'S SPREADSHEET (OPERACIONAL)
+      // A (0) Quinzena, B (1) Rota, C (2) Filial, D (3) Data, E (4) Cluster
+      // F (5) Driver ID, G (6) CPF/CNPJ, H (7) Motorista, J (9) Placa, K (10) Categoria
+      // L (11) Dia da Semana, P (15) Pacotes (Saldo), R (17) Pacotes Entregues (Entregues)
+      
+      let headerRowIdx = 0;
+      
+      const headerRow = dataArray[0] || [];
+      const findCol = (fallback, ...keywords) => {
+         const idx = headerRow.findIndex(h => {
+             if (!h) return false;
+             const hStr = String(h).toLowerCase().trim();
+             return keywords.some(k => hStr.includes(k.toLowerCase()));
+         });
+         return idx !== -1 ? idx : fallback;
       };
 
-      const row = dataArray[headerRowIdx];
-      const rawHeadersOp = row.map(h => String(h || '').trim());
-      let insucessosHeaders = [];
-      const normalizeText = (text) => String(text).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+      let quinzenaColIdx = findCol(0, 'quinzena');
+      let rotaColIdx = findCol(1, 'rota');
+      let xptColIdx = findCol(2, 'filial', 'xpt');
+      let dataColIdx = findCol(3, 'data');
+      let clusterColIdx = findCol(4, 'cluster');
+      let driverIdColIdx = findCol(5, 'driver', 'id');
+      let cpfCnpjColIdx = findCol(6, 'cpf', 'cnpj');
+      let motoristaColIdx = findCol(7, 'motorista', 'nome');
+      let placaColIdx = findCol(9, 'placa');
+      let categoriaColIdx = findCol(10, 'categoria');
+      let diaSemanaColIdx = findCol(11, 'semana', 'dia');
+      let saldoColIdx = findCol(15, 'pacotes', 'saldo', 'volume');
+      let entreguesColIdx = findCol(17, 'entregues', 'realizado');
+      
+      // We will still extract supervisor and regional from mapeamento_filiais later if missing
+      let regionalColIdx = -1;
+      let supervisorColIdx = -1;
+      let insucessosColIdx = -1;
+      
+      const insucessosMapping = [
+        { index: 90, name: 'Palavra Chave' },   // CM
+        { index: 91, name: 'Cancelado' },       // CN
+        { index: 93, name: 'Comercial' },       // CP
+        { index: 94, name: 'Recusa' },          // CQ
+        { index: 95, name: 'Avaria' },          // CR
+        { index: 96, name: 'Mudou Endereco' },  // CS
+        { index: 97, name: 'Area Inacessivel' },// CT
+        { index: 98, name: 'Nao Visitado' },    // CU
+        { index: 99, name: 'Nao Localizado' },  // CV
+        { index: 100, name: 'Faltante' },       // CW
+        { index: 101, name: 'Fora de Rota' },   // CX
+        { index: 102, name: 'Cliente Ausente' },// CY
+        { index: 103, name: 'Tentativa Roubo' },// CZ
+      ];
 
-      for (let j = 0; j < row.length; j++) {
-        const colName = normalizeText(row[j]);
-        if (mapInsucessosOp[colName]) insucessosHeaders.push({ index: j, name: mapInsucessosOp[colName] });
-      }
-
-      if (insucessosHeaders.length === 0 && insucessosColIdx !== -1) {
-        for (let j = insucessosColIdx + 1; j < row.length; j++) {
-          if (row[j] && String(row[j]).trim() !== '') insucessosHeaders.push({ index: j, name: String(row[j]).trim() });
-        }
-      }
-
+      // headerRow já foi definido acima
+      let insucessosHeaders = insucessosMapping.filter(m => m.index < headerRow.length);
       const invalidOpKeys = ['% evid micro', '% evid distância', 'não rateadas', 'contar % entregue', '% evidenciado', '% entregue', 'km percorrido', 'paradas com adicional', 'total da taxa de entrega', 'volume'];
       insucessosHeaders = insucessosHeaders.filter(h => !invalidOpKeys.some(inv => h.name.toLowerCase().includes(inv)));
 
       const newOperacionalData = [];
       setProgressOp('Compilando registros...');
+
+      const configMap = {};
+      mapeamentoFiliais.forEach(m => configMap[String(m.filial).toUpperCase()] = m);
 
       for (let i = headerRowIdx + 1; i < dataArray.length; i++) {
         const r = dataArray[i];
@@ -450,19 +490,16 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
           const fKey = filial.toUpperCase();
           const config = configMap[fKey] || {};
           
-          let fileRegional = regionalColIdx !== -1 ? String(r[regionalColIdx] || '').trim() : '';
-          let fileSupervisor = supervisorColIdx !== -1 ? String(r[supervisorColIdx] || '').trim() : '';
-          
-          const finalRegional = (config.regional && config.regional !== 'N/A') ? config.regional : (fileRegional || 'N/A');
-          const finalSupervisor = (config.supervisor && config.supervisor !== 'N/A') ? config.supervisor : (fileSupervisor || 'N/A');
+          const finalRegional = (config.regional && config.regional !== 'N/A') ? config.regional : 'N/A';
+          const finalSupervisor = (config.supervisor && config.supervisor !== 'N/A') ? config.supervisor : 'N/A';
           
           const saldo = saldoColIdx !== -1 ? (parseFloat(r[saldoColIdx]) || 0) : 0;
           const entregues = entreguesColIdx !== -1 ? (parseFloat(r[entreguesColIdx]) || 0) : 0;
-          const driverId = driverIdColIdx !== -1 ? String(r[driverIdColIdx]).trim() : '';
-          const motorista = motoristaColIdx !== -1 ? String(r[motoristaColIdx]).trim() : 'N/A';
+          const driverId = driverIdColIdx !== -1 ? String(r[driverIdColIdx] || '').trim() : '';
+          const motorista = motoristaColIdx !== -1 ? String(r[motoristaColIdx] || '').trim() : 'N/A';
 
           const dados_originais = {};
-          rawHeadersOp.forEach((h, idx) => { if (h) dados_originais[h] = r[idx]; });
+          headerRow.forEach((h, idx) => { if (h) dados_originais[h] = r[idx]; });
 
           const insucessosDetalhados = {};
           insucessosHeaders.forEach(h => {
@@ -470,7 +507,16 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
             if (v > 0) insucessosDetalhados[h.name] = v;
           });
 
-          const rawQuinzena = isOpMulti && quinzenaColIdx !== -1 ? String(r[quinzenaColIdx] || '').trim().toUpperCase() : quinzenaOp.trim();
+          let rawQuinzena = quinzenaColIdx !== -1 ? r[quinzenaColIdx] : '';
+          
+          if (isOpMulti && !rawQuinzena && r[dataColIdx]) {
+              const { quinzena } = parseDateInfo(r[dataColIdx]);
+              rawQuinzena = quinzena;
+          }
+
+          let rawCluster = clusterColIdx !== -1 ? r[clusterColIdx] : 'Ambulâncias';
+          if (!rawCluster || String(rawCluster).trim() === '') rawCluster = 'Ambulâncias';
+
           if (isOpMulti && !rawQuinzena) continue;
 
           newOperacionalData.push({
@@ -484,7 +530,18 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
             quinzena: rawQuinzena || 'GERAL',
             driver_id: driverId,
             motorista: motorista || 'N/A',
-            dados_originais
+            dados_originais,
+            dia_semana: (() => {
+              let ds = (diaSemanaColIdx !== -1 && r[diaSemanaColIdx] !== undefined && String(r[diaSemanaColIdx]).trim() !== '') ? String(r[diaSemanaColIdx]).trim() : 'N/A';
+              if ((ds === 'N/A' || ds === '') && dataColIdx !== -1 && r[dataColIdx]) {
+                 const { diaSemanaTexto } = parseDateInfo(r[dataColIdx]);
+                 if (diaSemanaTexto && diaSemanaTexto !== 'N/A') ds = diaSemanaTexto;
+              }
+              return ds;
+            })(),
+            cluster: rawCluster,
+            regional: finalRegional,
+            supervisor: finalSupervisor
           });
         }
       }
@@ -1041,34 +1098,44 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
     const processData = async (dataArray) => {
       const headerRowIdx = 0;
-      const idxData = 0;         // A
-      const idxSvc = 2;          // C
-      const idxFilial = 3;       // D
-      const idxIdRota = 5;       // F
-      const idxQuinzena = 7;     // H
-      const idxCluster = 8;      // I
-      const idxDriverId = 9;     // J
-      
-      const idxSaldo = 22;       // W
-      const idxEntregues = 23;   // X
-      
-      const idxRegional = 38;
-      const idxSupervisor = 39;
-      const idxMotorista = 12;
-      const idxDiaSemana = 40;
+      const headerRow = dataArray[0] || [];
 
-      if (headerRowIdx === -1) {
-        addLog('Erro: Cabeçalhos obrigatórios não encontrados no BSC.', 'error');
-        setIsProcessingBsc(false);
-        return;
-      }
+      // EXACT INDEX MAPPING ACCORDING TO USER'S SPREADSHEET (BSC)
+      const idxQuinzena = 0;     // A
+      const idxIdRota = 1;       // B
+      const idxFilial = 2;       // C
+      const idxData = 3;         // D
+      const idxCluster = 4;      // E
+      const idxDriverId = 5;     // F
+      const idxCpfCnpj = 6;      // G
+      const idxMotorista = 7;    // H
+      const idxPlaca = 9;        // J
+      const idxCategoria = 10;   // K
+      const idxDiaSemana = 11;   // L
+      
+      const idxSaldo = 15;       // P (Pacotes)
+      const idxEntregues = 17;   // R (Pacotes Entregues)
+      
+      const idxRegional = -1;
+      const idxSupervisor = -1;
 
-      const row = dataArray[headerRowIdx];
-      const insucessosHeaders = [];
-      for (let j = 27; j <= 34; j++) {
-        const headerName = (row && row[j] && String(row[j]).trim() !== '') ? String(row[j]).trim() : `Insucesso_${j}`;
-        insucessosHeaders.push({ index: j, name: headerName });
-      }
+      const insucessosMapping = [
+        { index: 90, name: 'Palavra Chave' },   // CM
+        { index: 91, name: 'Cancelado' },       // CN
+        { index: 93, name: 'Comercial' },       // CP
+        { index: 94, name: 'Recusa' },          // CQ
+        { index: 95, name: 'Avaria' },          // CR
+        { index: 96, name: 'Endereço' },        // CS: Mudou Endereco
+        { index: 97, name: 'Endereço' },        // CT: Area Inacessivel
+        { index: 98, name: 'Endereço' },        // CU: Nao Visitado
+        { index: 99, name: 'Endereço' },        // CV: Nao Localizado
+        { index: 100, name: 'Faltante' },       // CW
+        { index: 101, name: 'Fora de Rota' },   // CX
+        { index: 102, name: 'Ausente' },        // CY: Cliente Ausente
+        { index: 103, name: 'Roubo' },          // CZ: Tentativa de Roubo
+      ];
+
+      const insucessosHeaders = insucessosMapping.filter(m => m.index < headerRow.length);
 
       const parsedData = [];
       setProgressBsc('Processando linhas do BSC...');
@@ -1076,49 +1143,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
       const configMap = {};
       mapeamentoFiliais.forEach(m => configMap[String(m.filial).toUpperCase()] = m);
 
-      const parseDateInfo = (dateStr) => {
-        if (!dateStr) return { quinzena: null, dataPadrao: 'N/A', diaSemanaTexto: 'N/A' };
-        let d;
-        const txtMatch = String(dateStr).match(/^(\d{1,2})[\s\-de]+([a-zA-Z]{3,})/i);
-        if (txtMatch) {
-            const day = parseInt(txtMatch[1]);
-            const monthStr = txtMatch[2].toLowerCase().substring(0, 3);
-            const months = { jan:0, fev:1, mar:2, abr:3, mai:4, may:4, jun:5, jul:6, ago:7, aug:7, set:8, sep:8, out:9, oct:9, nov:10, dez:11, dec:11 };
-            const m = months[monthStr];
-            if (m !== undefined) {
-               d = new Date(new Date().getFullYear(), m, day);
-            }
-        } else {
-            const brMatch = String(dateStr).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-            if (brMatch) {
-              d = new Date(parseInt(brMatch[3]), parseInt(brMatch[2]) - 1, parseInt(brMatch[1]));
-            } else {
-              d = new Date(dateStr);
-            }
-        }
-        
-        if (!d || isNaN(d.getTime())) {
-           const serial = Number(dateStr);
-           if (!isNaN(serial) && serial > 10000) {
-              d = new Date((serial - 25569) * 86400 * 1000);
-              d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
-           }
-        }
-
-        if (!d || isNaN(d.getTime())) return { quinzena: null, dataPadrao: String(dateStr).trim(), diaSemanaTexto: 'N/A' };
-
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const q = d.getDate() <= 15 ? 'Q1' : 'Q2';
-        
-        const dd = String(d.getDate()).padStart(2, '0');
-        const dataPadrao = `${dd}/${m}/${y}`;
-        
-        const diasSemana = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-        const diaSemanaTexto = diasSemana[d.getDay()];
-
-        return { quinzena: `${y}${m}${q}`, dataPadrao, diaSemanaTexto };
-      };
+      // parseDateInfo movido para fora do componente
 
       for (let i = headerRowIdx + 1; i < dataArray.length; i++) {
         const r = dataArray[i];
@@ -1206,7 +1231,7 @@ export default function DataImporter({ onImportOperacional, onImportBilling, onI
 
         const somaIns = Object.values(insucessosDetalhados).reduce((a, b) => a + b, 0);
         if (saldo > 0 || entregues > 0 || somaIns > 0) {
-          parsedData.push({ quinzena, dia_semana, regional, supervisor, filial, motorista, id_rota, saldo, entregues, insucessosDetalhados });
+          parsedData.push({ quinzena, dia_semana, regional, supervisor, filial, cluster, motorista, id_rota, saldo, entregues, insucessosDetalhados });
         }
       }
 
