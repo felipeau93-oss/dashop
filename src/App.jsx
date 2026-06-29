@@ -3314,7 +3314,7 @@ export default function App() {
     
     try {
       const extractItems = async (tableName) => {
-        const cacheKey = `supabase_${tableName}`;
+        const cacheKey = `supabase_${tableName}_v2`;
         
         // 1. Tentar ler do IndexedDB (Cache Instantâneo Local)
         if (!forceRefresh) {
@@ -3328,17 +3328,17 @@ export default function App() {
         // 2. Tentar baixar do Supabase Storage (Cache na Nuvem - Muito Rápido)
         if (!forceRefresh) {
             try {
-              console.log(`[Storage] Tentando baixar ${tableName}.json...`);
-              const { data: fileData, error: downloadError } = await supabase.storage.from('dados_json').download(`${tableName}.json`);
+              console.log(`[Storage] Tentando baixar ${tableName}_v2.json...`);
+              const { data: fileData, error: downloadError } = await supabase.storage.from('dados_json').download(`${tableName}_v2.json`);
               if (!downloadError && fileData) {
                 const text = await fileData.text();
                 const jsonData = JSON.parse(text);
-                console.log(`[Storage] Download concluído: ${tableName}`);
+                console.log(`[Storage] Download concluído: ${tableName}_v2`);
                 await setCache(cacheKey, { timestamp: new Date().getTime(), data: jsonData });
                 return jsonData;
               }
             } catch (e) {
-              console.warn(`[Storage] Arquivo ${tableName}.json não encontrado, buscando do banco...`);
+              console.warn(`[Storage] Arquivo ${tableName}_v2.json não encontrado, buscando do banco...`);
             }
         }
 
@@ -3367,12 +3367,12 @@ export default function App() {
         try {
            const jsonString = JSON.stringify(allData);
            const blob = new Blob([jsonString], { type: 'application/json' });
-           const { error: uploadError } = await supabase.storage.from('dados_json').upload(`${tableName}.json`, blob, {
+           const { error: uploadError } = await supabase.storage.from('dados_json').upload(`${tableName}_v2.json`, blob, {
              upsert: true,
              contentType: 'application/json'
            });
-           if (uploadError) console.error(`[Storage] Erro ao salvar ${tableName}.json:`, uploadError);
-           else console.log(`[Storage] Salvo com sucesso: ${tableName}.json`);
+           if (uploadError) console.error(`[Storage] Erro ao salvar ${tableName}_v2.json:`, uploadError);
+           else console.log(`[Storage] Salvo com sucesso: ${tableName}_v2.json`);
         } catch (e) { console.error(e); }
 
         // 5. Salvar no IndexedDB
