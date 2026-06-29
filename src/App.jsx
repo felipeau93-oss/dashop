@@ -3714,6 +3714,7 @@ export default function App() {
   const operacionalFiltrado = useMemo(() => {
     return rawOperacionalDataFiltrado.map(d => ({
       quinzena: d.quinzena, filial: d.filial, regional: d.regional, supervisor: d.supervisor, motorista: d.motorista,
+      cluster: d.cluster, dia_semana: d.dia_semana, driver_id: d.driver_id,
       entregues: d.entregues, saldo: d.saldo, insucessosDetalhados: typeof d.insucessosDetalhados === 'string' ? JSON.parse(d.insucessosDetalhados) : (d.insucessosDetalhados || {})
     }));
   }, [rawOperacionalDataFiltrado]);
@@ -3721,6 +3722,7 @@ export default function App() {
   const bscFiltrado = useMemo(() => {
     return gapsDataFiltrado.map(d => ({
       quinzena: d.quinzena, filial: d.filial, regional: d.regional, supervisor: d.supervisor, motorista: d.motorista,
+      cluster: d.cluster, dia_semana: d.dia_semana, driver_id: d.driver_id,
       entregues: d.pacotes_entregues, saldo: d.pacotes_saldo,
       insucessosDetalhados: { 'Not Visited': d.qtd_not_visited, 'PNRs': d.qtd_pnr, 'Lost Packages': d.qtd_lost }
     }));
