@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from './supabase';
-import { Truck, Search, Loader2, AlertCircle, FileSpreadsheet, X, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
+import { supabase } from '../../supabase';
+import { Truck, Search, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, Eye, X, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { TurnoverMotoristas } from './components/ui/TurnoverMotoristas';
+import { TurnoverMotoristas } from '../ui/TurnoverMotoristas';
 
 export default function GestaoMotoristas() {
   const [motoristas, setMotoristas] = useState([]);
@@ -230,7 +230,7 @@ export default function GestaoMotoristas() {
                           <th className="p-4 font-bold text-[10px] uppercase tracking-wider">Filial</th>
                           <th className="p-4 font-bold text-[10px] uppercase tracking-wider">Rota</th>
                           <th className="p-4 font-bold text-[10px] uppercase tracking-wider">Placa</th>
-                          <th className="p-4 font-bold text-[10px] uppercase tracking-wider text-center">Volume (Sdo/Ent/Ins)</th>
+                          <th className="p-4 font-bold text-[10px] uppercase tracking-wider text-center">QTD (Sdo/Ent/Ins)</th>
                           <th className="p-4 font-bold text-[10px] uppercase tracking-wider text-right">Penalidades</th>
                         </tr>
                       </thead>
@@ -425,7 +425,7 @@ export default function GestaoMotoristas() {
                   <th className="p-4 font-bold uppercase tracking-wider text-[10px]">Nome do Motorista</th>
                   <th className="p-4 font-bold uppercase tracking-wider text-[10px]">CPF / CNPJ</th>
                   <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-center">Total Rotas</th>
-                  <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-center">Volume (Sdo/Ent/Ins)</th>
+                  <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-center">QTD (Sdo/Ent/Ins)</th>
                   <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-right">Descontos (R$)</th>
                   <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-center">Ações</th>
                 </tr>

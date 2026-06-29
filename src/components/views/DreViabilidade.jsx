@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Truck, DollarSign, TrendingUp, TrendingDown, Save, History, Trash2, X, Clock, Plus, Fuel, Wrench, Shield, Users, CircleDollarSign, Percent, FileText, ChevronDown, ChevronUp, Copy, CalendarDays } from 'lucide-react';
-import { supabase } from './supabase';
+import { Truck, DollarSign, TrendingUp, TrendingDown, Save, History, Clock, Plus, Fuel, Wrench, Shield, Users, CircleDollarSign, Percent, FileText, ChevronDown, ChevronUp, Copy, CalendarDays, Trash2, X } from 'lucide-react';
+import { supabase } from '../../supabase';
 
 const formatCurrency = (value) => {
   if (isNaN(value) || value === null || value === undefined) return 'R$ 0,00';

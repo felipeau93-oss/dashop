@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Car, Truck, DollarSign, TrendingUp, TrendingDown, Package, Percent, MapPin, Calendar, Clock, Map, Save, History, Trash2, X, Check } from 'lucide-react';
-import { tarifas as defaultTarifas } from './data/tarifas';
-import { supabase } from './supabase';
+import { Car, Truck, DollarSign, TrendingUp, TrendingDown, Package, Percent, MapPin, Calendar, Clock, Map, Save, History, Trash2, X, Check } from "lucide-react";
+import { tarifas as defaultTarifas } from '../../data/tarifas';
+import { supabase } from '../../supabase';
 
 const formatCurrency = (value) => {
   if (isNaN(value)) return 'R$ 0,00';

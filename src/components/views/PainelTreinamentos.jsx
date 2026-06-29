@@ -1,30 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { 
-  GraduationCap, 
-  AlertTriangle, 
-  Users, 
-  MapPin, 
-  Search, 
-  UploadCloud, 
-  FileSpreadsheet,
-  Loader2,
-  History,
-  Calendar,
-  Clock,
-  CheckCircle2,
-  Copy,
-  LayoutDashboard,
-  Link,
-  X,
-  Download,
-  TrendingDown,
-  RefreshCw,
-  ChevronDown,
-  ChevronRight
-} from 'lucide-react';
-import { supabase } from './supabase';
+import { GraduationCap, AlertTriangle, Users, MapPin, Search, UploadCloud, FileSpreadsheet, History, Calendar, Clock, Copy, LayoutDashboard, Link, Download, TrendingDown, RefreshCw, ChevronDown, ChevronRight, Loader2, CheckCircle2, X } from 'lucide-react';
+import { supabase } from '../../supabase';
 
 // Converte textos de data para um formato padronizado (DD/MM/YYYY)
 const parseDataTexto = (text) => {

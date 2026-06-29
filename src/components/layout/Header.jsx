@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, Filter, RefreshCw, Settings, Sun, Moon } from 'lucide-react';
+import { Menu, Filter, RefreshCw, Sun, Moon } from 'lucide-react';
 import { InverseMultiSelectDropdown } from '../ui/InverseMultiSelectDropdown';
 import { supabase } from '../../supabase';
 
@@ -77,12 +77,7 @@ export default function Header({
       </div>
 
       <div className="flex shrink-0 w-full xl:w-auto mt-2 xl:mt-0 justify-end gap-3 items-center">
-        <button onClick={() => setActiveMenu('configuracoes')} className="flex items-center justify-center gap-2 bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
-          <Settings className="w-4 h-4" /> Configurações
-        </button>
-        <button onClick={() => supabase.auth.signOut()} className="flex items-center justify-center gap-2 bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
-          Sair
-        </button>
+
         <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 transition-colors shadow-sm" title={isDarkMode ? 'Modo Claro' : 'Modo Escuro'}>
           {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>

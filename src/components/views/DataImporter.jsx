@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowRight, Loader2, Database, Box, DollarSign, History, Calendar, LayoutList, Trash2, EyeOff, Copy, RefreshCw, CalendarDays, Truck, Download } from 'lucide-react';
-import { supabase } from './supabase';
-import GestaoDadosTab from './GestaoDadosTab';
+import { UploadCloud, FileSpreadsheet, AlertTriangle, ArrowRight, Database, Box, DollarSign, History, Calendar, LayoutList, EyeOff, Copy, RefreshCw, CalendarDays, Truck, Download, Trash2, Loader2, CheckCircle2 } from 'lucide-react';
+import { supabase } from '../../supabase';
+import GestaoDadosTab from "./GestaoDadosTab";
 
 const ANO_REFERENCIA = 2026;
 

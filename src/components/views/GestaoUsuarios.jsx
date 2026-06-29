@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from './supabase';
+import { supabase } from '../../supabase';
 import { createClient } from '@supabase/supabase-js';
-import { UserPlus, Trash2, Shield, User, Loader2, CheckCircle2, Clock, Settings, Save, X } from 'lucide-react';
+import { UserPlus, Shield, User, Clock, Settings, Save, Loader2, Trash2, X, CheckCircle2 } from 'lucide-react';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;

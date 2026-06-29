@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from './supabase';
-import { Database, Search, Edit3, Trash2, Check, X, RefreshCw, AlertTriangle, ChevronLeft, ChevronRight, Save, Filter } from 'lucide-react';
+import { supabase } from '../../supabase';
+import { Database, Search, Check, RefreshCw, AlertTriangle, ChevronLeft, ChevronRight, Save, Filter, X, Trash2, Edit3 } from 'lucide-react';
 
 const TABLES = [
   'operacional',

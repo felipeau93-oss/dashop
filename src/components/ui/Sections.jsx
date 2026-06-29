@@ -1,5 +1,6 @@
+const ofensoresModal = [];
 import React, { useState, useMemo, useEffect } from 'react';
-import { AlertCircle, TrendingUp, TrendingDown, ArrowRight, ArrowLeft, Download, RefreshCw, X, ChevronDown, ChevronRight, Calculator, FileText, CheckCircle2, Search, FileUp, Filter, Activity, ArrowDown, ArrowUp, ArrowUpDown, DollarSign, FileSpreadsheet, GitCompare, PieChart, Scale, Box } from 'lucide-react';
+import { AlertCircle, TrendingUp, TrendingDown, ArrowRight, ArrowLeft, Download, RefreshCw, X, ChevronDown, ChevronRight, Calculator, FileText, CheckCircle2, Search, FileUp, Filter, Activity, ArrowDown, ArrowUp, ArrowUpDown, DollarSign, FileSpreadsheet, GitCompare, PieChart, Scale, Box, Target } from 'lucide-react';
 import { NativeComboChart, NativeDSChart, NativeRunRateChart } from './Charts.jsx';
 import { formatCurrency, formatQtd, formatDS, normalizeText, formatDiaSemana } from '../../lib/formatters.js';
 import { supabase } from '../../supabase';
@@ -1549,7 +1550,7 @@ export const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
             {selectedMotorista && currentViewData.map((row, idx) => {
               const isExpanded = expandedMotivo === row.motivo;
               return (
-                <Fragment key={`motivo-${idx}`}>
+                <React.Fragment key={`motivo-${idx}`}>
                   <tr onClick={() => setExpandedMotivo(isExpanded ? null : row.motivo)} className={`border-b border-slate-100 text-xs transition-colors cursor-pointer ${isExpanded ? 'bg-blue-50/40' : 'bg-white hover:bg-slate-50'}`}>
                     <td className="py-3 px-3 font-bold text-slate-700 sticky left-0 z-10 border-r border-slate-100 bg-inherit">
                       <div className="flex items-center gap-2">
@@ -1579,7 +1580,7 @@ export const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
                       </td>
                     </tr>
                   )}
-                </Fragment>
+                </React.Fragment>
               );
             })}
           </tbody>

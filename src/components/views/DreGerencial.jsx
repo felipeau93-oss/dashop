@@ -1,19 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Building2, 
-  TrendingUp, 
-  TrendingDown, 
-  DollarSign, 
-  Calculator, 
-  AlertTriangle,
-  Download,
-  Filter,
-  BarChart3,
-  Loader2,
-  PieChart,
-  Wallet
-} from 'lucide-react';
-import { supabase } from './supabase';
+import { BarChart3, TrendingUp, TrendingDown, DollarSign, Calculator, AlertTriangle, Download, Filter, PieChart, Wallet, Loader2, Building2 } from 'lucide-react';
+import { supabase } from '../../supabase';
 import * as XLSX from 'xlsx';
 
 const formatCurr = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);

@@ -1,12 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { supabase } from './supabase';
-import { 
-  Calculator, Database, Plus, Trash2, MapPin, 
-  CalendarClock, TrendingUp, TrendingDown, 
-  LayoutDashboard, Loader2, AlertCircle,
-  History, Save, CheckCircle2, ChevronDown, ChevronUp, Percent,
-  BadgeDollarSign, Truck, Target, RotateCcw, BarChart3, UserMinus, Globe
-} from 'lucide-react';
+import { supabase } from '../../supabase';
+import { BarChart3, Calculator, Database, Plus, MapPin, CalendarClock, TrendingUp, TrendingDown, LayoutDashboard, AlertCircle, History, Save, ChevronDown, ChevronUp, Percent, BadgeDollarSign, Truck, Target, RotateCcw, UserMinus, Globe, Loader2, Trash2 } from 'lucide-react';
 
 export default function Simulador({ setAgentContext, capcarData = [] }) {
   // Estado para os inputs globais
@@ -1063,7 +1057,7 @@ export default function Simulador({ setAgentContext, capcarData = [] }) {
                     {resumoGlobalFilial.gapLucro > 0 ? (
                       <div className="mt-5 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-rose-300 block mb-1">
-                          Ponto de Equilíbrio (Volume {visaoDiaria ? 'Diário' : 'Total'})
+                          Ponto de Equilíbrio (QTD {visaoDiaria ? 'Diária' : 'Total'})
                         </span>
                         <p className="text-xs text-rose-100 mb-2">
                           Para recuperar essa perda financeira e empatar o lucro, você precisaria adicionar 

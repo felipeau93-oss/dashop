@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { supabase } from './supabase';
-import { Settings, Key, Lock, Loader2, CheckCircle2 } from 'lucide-react';
+import { supabase } from '../../supabase';
+import { Settings, Key, Lock, CheckCircle2, Loader2 } from 'lucide-react';
 
 export default function Configuracoes({ currentUser, userRole }) {
   const [newPassword, setNewPassword] = useState('');

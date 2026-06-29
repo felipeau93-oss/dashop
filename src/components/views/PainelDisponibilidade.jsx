@@ -1,9 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  Truck, AlertTriangle, CalendarDays, CheckCircle2, XCircle, Search, 
-  UploadCloud, FileSpreadsheet, Loader2, Calendar, TrendingUp, BarChart3, ArrowUp, History
-} from 'lucide-react';
-import { supabase } from './supabase';
+import { BarChart3, Truck, AlertTriangle, CalendarDays, XCircle, Search, UploadCloud, FileSpreadsheet, Calendar, TrendingUp, ArrowUp, History, CheckCircle2 } from 'lucide-react';
+import { supabase } from '../../supabase';
 
 const ANO_REFERENCIA = 2026;
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Plus, Trash2, MapPin, FileEdit } from 'lucide-react';
-import { tarifas as defaultTarifas } from './data/tarifas'; // Fallback seed
+import { Settings, Save, Plus, MapPin, FileEdit, Trash2 } from 'lucide-react';
+import { tarifas as defaultTarifas } from '../../data/tarifas'; // Fallback seed
 
 export default function ConfigTarifas({ tarifasAtuais = [], onSave }) {
   const [localMap, setLocalMap] = useState([]);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from './supabase';
-import { Database, Search, Edit3, Trash2, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { supabase } from '../../supabase';
+import { Database, Search, AlertTriangle, RefreshCw, Edit3, Trash2, CheckCircle2 } from 'lucide-react';
 
 export default function GestaoDadosTab({ mapeamentoFiliais, rawOperacionalData = [] }) {
   const [quinzenasAtivas, setQuinzenasAtivas] = useState([]);

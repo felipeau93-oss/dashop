@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Plus, Trash2, MapPin, Check, Edit2 } from 'lucide-react';
+import { Settings, Save, Plus, MapPin, Check, Edit2, Trash2 } from 'lucide-react';
 
 export default function ConfigFiliais({ mapeamentoFiliais, rawData = [], rawFaturamentoData = [], rawOperacionalData = [], onSave }) {
   const [localMap, setLocalMap] = useState([]);
