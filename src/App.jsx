@@ -1881,14 +1881,23 @@ const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
 
     let allClusters = [];
     filiaisList.forEach(f => allClusters = allClusters.concat(f.clusters));
-    const clusterCritico = allClusters.sort((a, b) => b.insucessos - a.insucessos)[0] || { cluster: 'N/A', insucessos: 0 };
+    const clusterCritico = allClusters
+      .filter(c => c.cluster && c.cluster !== 'N/A' && c.cluster !== 'Ambulâncias' && c.cluster !== '-')
+      .sort((a, b) => b.insucessos - a.insucessos)[0] || { cluster: 'N/A', insucessos: 0 };
 
     let allMotoristas = [];
     allClusters.forEach(c => allMotoristas = allMotoristas.concat(c.motoristas));
-    const motCritico = allMotoristas.sort((a, b) => b.insucessos - a.insucessos)[0] || { motorista: 'N/A', insucessos: 0 };
+    const motCritico = allMotoristas
+      .filter(m => m.motorista && m.motorista !== 'N/A' && m.motorista !== '-')
+      .sort((a, b) => b.insucessos - a.insucessos)[0] || { motorista: 'N/A', insucessos: 0 };
 
-    const topMotivoGeral = Object.entries(globalMotivos).sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
-    const topDiaGeral = Object.entries(globalDias).sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
+    const topMotivoGeral = Object.entries(globalMotivos)
+      .filter(([k]) => k !== 'N/A' && k !== '-')
+      .sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
+      
+    const topDiaGeral = Object.entries(globalDias)
+      .filter(([k]) => k !== 'N/A' && k !== '-' && k !== '')
+      .sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
 
     return {
       dataAgrupada: filiaisList,
