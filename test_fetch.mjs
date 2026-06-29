@@ -1,46 +1,34 @@
-import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const envPath = path.join(__dirname, '.env.local');
-const envContent = fs.readFileSync(envPath, 'utf8');
-
-let supabaseUrl = '';
-let supabaseKey = '';
-envContent.split(/\r?\n/).forEach(line => {
-  if (line.startsWith('VITE_SUPABASE_URL=')) supabaseUrl = line.split('=')[1].trim().replace(/['"]/g, '');
-  if (line.startsWith('VITE_SUPABASE_ANON_KEY=')) supabaseKey = line.split('=')[1].trim().replace(/['"]/g, '');
+// Load env
+const envLocal = fs.readFileSync(path.resolve('.env.local'), 'utf-8');
+const vars = {};
+envLocal.split('\n').forEach(l => {
+  const [k, ...v] = l.split('=');
+  if (k && v) vars[k.trim()] = v.join('=').replace(/"/g, '').trim();
 });
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const url = `${vars.VITE_SUPABASE_URL}/rest/v1/view_gaps_operacionais?select=*&limit=10`;
 
-async function check() {
-  const tableName = 'operacional';
-  const { count, error: countError } = await supabase.from(tableName).select('*', { count: 'exact', head: true });
-  console.log("Count exact:", count);
+async function run() {
+  console.log('Fetching:', url);
+  const res = await fetch(url, {
+    headers: {
+      'apikey': vars.VITE_SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${vars.VITE_SUPABASE_ANON_KEY}`,
+      'Accept': 'application/json'
+    }
+  });
   
-  const limit = 1000;
-  const promises = [];
-  for (let start = 0; start < count; start += limit) {
-      promises.push(
-          supabase.from(tableName).select('*').range(start, start + limit - 1)
-      );
+  console.log('Status:', res.status, res.statusText);
+  const data = await res.json();
+  console.log('Data length:', data.length);
+  if (data.length > 0) {
+    console.log('First item:', data[0]);
+  } else {
+    console.log('Error/Body:', data);
   }
-  
-  const results = await Promise.all(promises);
-  let allData = [];
-  let errorCount = 0;
-  for (const res of results) {
-      if (res.data) allData = allData.concat(res.data);
-      if (res.error) {
-          console.error("Error in chunk:", res.error);
-          errorCount++;
-      }
-  }
-  console.log(`Fetched ${allData.length} rows. Errors: ${errorCount}`);
 }
 
-check();
+run().catch(console.error);

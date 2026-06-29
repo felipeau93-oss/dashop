@@ -15,6 +15,7 @@ export const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
   const [selectedMotorista, setSelectedMotorista] = useState(null);
   const [selectedMotivo, setSelectedMotivo] = useState(null);
   const [expandedMotivo, setExpandedMotivo] = useState(null);
+  const [selectedDia, setSelectedDia] = useState(null);
 
   const handleSort = (key) => {
     let direction = 'desc';
@@ -32,6 +33,9 @@ export const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
     } else if (selectedMotivo) {
       setSelectedMotivo(null);
       setSortConfig({ key: 'insucessos', direction: 'desc' });
+    } else if (selectedDia) {
+      setSelectedDia(null);
+      setSortConfig({ key: 'insucessos', direction: 'desc' });
     } else if (selectedFilial) {
       setSelectedFilial(null);
       setSortConfig({ key: 'insucessos', direction: 'desc' });
@@ -41,13 +45,16 @@ export const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
 
   const activeData = dataSource === 'bsc' ? dataBsc : dataOp;
 
-  const { dataAgrupada, topCards } = useMemo(() => {
+  const dataAgrupada = useMemo(() => {
     const map = {};
     let globalSaldo = 0; let globalInsucessos = 0;
-    const globalMotivos = {};
-    const globalDias = {};
 
-    activeData.forEach(d => {
+    let validData = activeData;
+    if (selectedDia) {
+      validData = validData.filter(d => d.dia_semana === selectedDia);
+    }
+
+    validData.forEach(d => {
       const fKey = normalizeText(d.filial || 'N/A');
       const rawCluster = (d.cluster && String(d.cluster).trim() !== '' && String(d.cluster).trim() !== '-') ? d.cluster : 'N/A';
       const rawMotorista = (d.motorista && String(d.motorista).trim() !== '' && String(d.motorista).trim() !== '-') ? d.motorista : 'N/A';
@@ -66,16 +73,11 @@ export const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
       map[fKey].clustersMap[cKey].saldo += (d.saldo || 0); map[fKey].clustersMap[cKey].entregues += (d.entregues || 0); map[fKey].clustersMap[cKey].insucessos += insTotal;
       map[fKey].clustersMap[cKey].motoristasMap[mKey].saldo += (d.saldo || 0); map[fKey].clustersMap[cKey].motoristasMap[mKey].entregues += (d.entregues || 0); map[fKey].clustersMap[cKey].motoristasMap[mKey].insucessos += insTotal;
 
-      if (d.dia_semana && d.dia_semana !== 'N/A') {
-        globalDias[d.dia_semana] = (globalDias[d.dia_semana] || 0) + insTotal;
-      }
-
       if (d.insucessosDetalhados) {
         Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
           map[fKey].insDetalhes[k] = (map[fKey].insDetalhes[k] || 0) + v;
           map[fKey].clustersMap[cKey].insDetalhes[k] = (map[fKey].clustersMap[cKey].insDetalhes[k] || 0) + v;
           map[fKey].clustersMap[cKey].motoristasMap[mKey].insDetalhes[k] = (map[fKey].clustersMap[cKey].motoristasMap[mKey].insDetalhes[k] || 0) + v;
-          globalMotivos[k] = (globalMotivos[k] || 0) + v;
 
           if (!map[fKey].clustersMap[cKey].motoristasMap[mKey].rotasPorMotivo[k]) {
             map[fKey].clustersMap[cKey].motoristasMap[mKey].rotasPorMotivo[k] = new Set();
@@ -107,42 +109,85 @@ export const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
             representatividade: m.insucessos > 0 ? (qtd / m.insucessos) * 100 : 0,
             rotas: Array.from(m.rotasPorMotivo[motivo] || [])
           }));
-          return { ...m, ds: Math.min(100, m.saldo > 0 ? (m.entregues / m.saldo) * 100 : 0), impactoCluster, repInsucessosCluster, topMotivo: mTopMotivo, insDetalhes: m.insDetalhes, motivos };
+          return { ...m, ds: Math.min(100, m.saldo > 0 ? (m.entregues / m.saldo) * 100 : 0), impactoCluster, repInsucessosCluster, topMotivo: mTopMotivo, insDetalhes: m.insDetalhes, motivos, parentFilial: f.filial, parentCluster: c.cluster };
         });
 
-        return { ...c, ds: Math.min(100, c.saldo > 0 ? (c.entregues / c.saldo) * 100 : 0), impactoFilial, repInsucessosFilial, topMotivo: cTopMotivo, motoristas: motoristasList };
+        return { ...c, ds: Math.min(100, c.saldo > 0 ? (c.entregues / c.saldo) * 100 : 0), impactoFilial, repInsucessosFilial, topMotivo: cTopMotivo, motoristas: motoristasList, parentFilial: f.filial };
       });
 
       return { ...f, ds: Math.min(100, f.saldo > 0 ? (f.entregues / f.saldo) * 100 : 0), impactoGlobal, repInsucessosGerais, topMotivo: topMotivoKey, clusters: clustersList };
     });
 
-    const filialCritica = [...filiaisList].sort((a, b) => b.insucessos - a.insucessos)[0] || { filial: 'N/A', insucessos: 0 };
+    return filiaisList;
+  }, [activeData, selectedDia]);
 
-    let allClusters = [];
-    filiaisList.forEach(f => allClusters = allClusters.concat(f.clusters));
-    const clusterCritico = allClusters
-      .filter(c => c.cluster && c.cluster !== 'N/A' && c.cluster !== 'Ambulâncias' && c.cluster !== '-')
-      .sort((a, b) => b.insucessos - a.insucessos)[0] || { cluster: 'N/A', insucessos: 0 };
+  const topCards = useMemo(() => {
+    let validData = activeData;
 
-    let allMotoristas = [];
-    allClusters.forEach(c => allMotoristas = allMotoristas.concat(c.motoristas));
-    const motCritico = allMotoristas
-      .filter(m => m.motorista && m.motorista !== 'N/A' && m.motorista !== '-')
-      .sort((a, b) => b.insucessos - a.insucessos)[0] || { motorista: 'N/A', insucessos: 0 };
+    if (selectedFilial) validData = validData.filter(d => normalizeText(d.filial || 'N/A') === normalizeText(selectedFilial));
+    if (selectedCluster) validData = validData.filter(d => normalizeText(d.cluster || 'N/A') === normalizeText(selectedCluster));
+    if (selectedMotorista) validData = validData.filter(d => normalizeText(d.motorista || 'N/A') === normalizeText(selectedMotorista));
+    if (selectedMotivo) validData = validData.filter(d => d.insucessosDetalhados && d.insucessosDetalhados[selectedMotivo] > 0);
+    if (selectedDia) validData = validData.filter(d => d.dia_semana === selectedDia);
 
-    const topMotivoGeral = Object.entries(globalMotivos)
-      .filter(([k]) => k !== 'N/A' && k !== '-')
-      .sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
+    let totalGaps = 0;
+    const fMap = {};
+    const cMap = {};
+    const mMap = {};
+    const motMap = {};
+    const diaMap = {};
+
+    validData.forEach(d => {
+      const insTotal = selectedMotivo && d.insucessosDetalhados && d.insucessosDetalhados[selectedMotivo] 
+                       ? d.insucessosDetalhados[selectedMotivo] 
+                       : Math.max(0, (d.saldo || 0) - (d.entregues || 0));
+
+      if (insTotal <= 0) return;
+
+      totalGaps += insTotal;
+
+      const fKey = d.filial || 'N/A';
+      const cKey = (d.cluster && String(d.cluster).trim() !== '' && String(d.cluster).trim() !== '-') ? d.cluster : 'N/A';
+      const mKey = (d.motorista && String(d.motorista).trim() !== '' && String(d.motorista).trim() !== '-') ? d.motorista : 'N/A';
       
-    const topDiaGeral = Object.entries(globalDias)
-      .filter(([k]) => k !== 'N/A' && k !== '-' && k !== '')
-      .sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
+      fMap[fKey] = (fMap[fKey] || 0) + insTotal;
+      if (cKey !== 'N/A' && cKey !== 'Ambulâncias' && cKey !== '-') {
+          cMap[cKey] = cMap[cKey] || { qtd: 0, filial: fKey };
+          cMap[cKey].qtd += insTotal;
+      }
+      if (mKey !== 'N/A' && mKey !== '-') {
+          mMap[mKey] = mMap[mKey] || { qtd: 0, filial: fKey, cluster: cKey };
+          mMap[mKey].qtd += insTotal;
+      }
+
+      if (d.dia_semana && d.dia_semana !== 'N/A') {
+          diaMap[d.dia_semana] = (diaMap[d.dia_semana] || 0) + insTotal;
+      }
+
+      if (d.insucessosDetalhados) {
+          Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+              if (!selectedMotivo || selectedMotivo === k) {
+                  motMap[k] = (motMap[k] || 0) + v;
+              }
+          });
+      }
+    });
+
+    const topFilial = Object.entries(fMap).sort((a,b) => b[1] - a[1])[0];
+    const topCluster = Object.entries(cMap).sort((a,b) => b[1].qtd - a[1].qtd)[0];
+    const topMotorista = Object.entries(mMap).sort((a,b) => b[1].qtd - a[1].qtd)[0];
+    const topMotivo = Object.entries(motMap).filter(([k]) => k !== 'N/A' && k !== '-').sort((a,b) => b[1] - a[1])[0];
+    const topDia = Object.entries(diaMap).filter(([k]) => k !== 'N/A' && k !== '-' && k !== '').sort((a,b) => b[1] - a[1])[0];
 
     return {
-      dataAgrupada: filiaisList,
-      topCards: { totalGaps: globalInsucessos, filial: filialCritica, cluster: clusterCritico, motorista: motCritico, motivo: { nome: topMotivoGeral[0], qtd: topMotivoGeral[1] }, dia: { nome: topDiaGeral[0], qtd: topDiaGeral[1] } }
+        totalGaps,
+        filial: topFilial ? { filial: topFilial[0], insucessos: topFilial[1] } : { filial: 'N/A', insucessos: 0 },
+        cluster: topCluster ? { cluster: topCluster[0], insucessos: topCluster[1].qtd, parentFilial: topCluster[1].filial } : { cluster: 'N/A', insucessos: 0, parentFilial: null },
+        motorista: topMotorista ? { motorista: topMotorista[0], insucessos: topMotorista[1].qtd, parentFilial: topMotorista[1].filial, parentCluster: topMotorista[1].cluster } : { motorista: 'N/A', insucessos: 0 },
+        motivo: topMotivo ? { nome: topMotivo[0], qtd: topMotivo[1] } : { nome: 'N/A', qtd: 0 },
+        dia: topDia ? { nome: topDia[0], qtd: topDia[1] } : { nome: 'N/A', qtd: 0 }
     };
-  }, [activeData]);
+  }, [activeData, selectedFilial, selectedCluster, selectedMotorista, selectedMotivo, selectedDia]);
 
   const cardsBreakdown = useMemo(() => {
     if (selectedCluster) {
@@ -168,7 +213,11 @@ export const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
       return 0;
     });
 
-    if (!selectedFilial) return sortArray(dataAgrupada);
+    if (!selectedFilial) {
+      let filiaisList = dataAgrupada;
+      if (selectedMotivo) filiaisList = filiaisList.filter(f => f.insDetalhes && f.insDetalhes[selectedMotivo] > 0).map(f => ({ ...f, motivoFilterQtd: f.insDetalhes[selectedMotivo] || 0 }));
+      return sortArray(filiaisList);
+    }
 
     const filialData = dataAgrupada.find(f => f.filial === selectedFilial);
     if (!filialData) return [];
@@ -210,51 +259,86 @@ export const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto shrink-0">
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
-            <button onClick={() => { setDataSource('operacional'); setSelectedFilial(null); setSelectedCluster(null); setSelectedMotorista(null); setSelectedMotivo(null); setExpandedMotivo(null); }} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors ${dataSource === 'operacional' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Gestão Operacional</button>
-            <button onClick={() => { setDataSource('bsc'); setSelectedFilial(null); setSelectedCluster(null); setSelectedMotorista(null); setSelectedMotivo(null); setExpandedMotivo(null); }} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors ${dataSource === 'bsc' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Base BSC</button>
+            <button onClick={() => { setDataSource('operacional'); setSelectedFilial(null); setSelectedCluster(null); setSelectedMotorista(null); setSelectedMotivo(null); setSelectedDia(null); setExpandedMotivo(null); }} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors ${dataSource === 'operacional' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Gestão Operacional</button>
+            <button onClick={() => { setDataSource('bsc'); setSelectedFilial(null); setSelectedCluster(null); setSelectedMotorista(null); setSelectedMotivo(null); setSelectedDia(null); setExpandedMotivo(null); }} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors ${dataSource === 'bsc' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Base BSC</button>
           </div>
-          {(selectedFilial || selectedMotorista || selectedMotivo || selectedCluster) && (<button onClick={handleLevelUp} className="flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm shrink-0 w-full sm:w-auto">← Voltar</button>)}
+          {(selectedFilial || selectedMotorista || selectedMotivo || selectedCluster || selectedDia) && (<button onClick={handleLevelUp} className="flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm shrink-0 w-full sm:w-auto">← Voltar</button>)}
         </div>
       </div>
 
-      {!selectedMotorista && !selectedCluster && !selectedFilial && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-2">
-          <div className="bg-red-50 border border-red-100 p-4 rounded-2xl flex flex-col items-center justify-center text-center transition-all">
-            <span className="text-[10px] font-bold text-red-600 uppercase mb-1">QTD de Insucessos</span>
-            <span className="text-2xl font-black text-red-600">{formatQtd(topCards.totalGaps)}</span>
-          </div>
-
-          <div onClick={() => setSelectedFilial(topCards.filial.filial)} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
-            <span className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1 group-hover:text-blue-500">Filial Mais Crítica <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
-            <span className="text-lg font-black text-slate-800 line-clamp-2 w-full px-2 break-words" title={topCards.filial.filial}>{topCards.filial.filial}</span>
-            <span className="text-xs font-bold text-red-500 mt-auto pt-1">{formatQtd(topCards.filial.insucessos)} insucessos</span>
-          </div>
-
-          <div onClick={() => { setSelectedFilial(topCards.filial.filial); setSelectedCluster(topCards.cluster.cluster); }} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
-            <span className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1 group-hover:text-blue-500">Cluster Mais Crítico <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
-            <span className="text-lg font-black text-slate-800 line-clamp-2 w-full px-2 break-words" title={topCards.cluster.cluster}>{topCards.cluster.cluster}</span>
-            <span className="text-xs font-bold text-red-500 mt-auto pt-1">{formatQtd(topCards.cluster.insucessos)} insucessos</span>
-          </div>
-
-          <div onClick={() => { setSelectedFilial(topCards.filial.filial); setSelectedCluster(topCards.cluster.cluster); setSelectedMotorista(topCards.motorista.motorista); }} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
-            <span className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1 group-hover:text-blue-500">Motorista Mais Crítico <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
-            <span className="text-lg font-black text-slate-800 line-clamp-2 w-full px-2 break-words" title={topCards.motorista.motorista}>{topCards.motorista.motorista}</span>
-            <span className="text-xs font-bold text-red-500 mt-auto pt-1">{formatQtd(topCards.motorista.insucessos)} insucessos</span>
-          </div>
-
-          <div onClick={() => setSelectedMotivo(topCards.motivo.nome)} className="bg-orange-50 border border-orange-100 p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group">
-            <span className="text-[10px] font-bold text-orange-600 uppercase mb-1 flex items-center gap-1 group-hover:text-orange-800">Motivo Recorrente <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
-            <span className="text-sm font-black text-orange-600 line-clamp-2 w-full px-2 break-words" title={topCards.motivo.nome}>{topCards.motivo.nome}</span>
-            <span className="text-xs font-bold text-orange-500 mt-auto pt-1">{formatQtd(topCards.motivo.qtd)} pacotes</span>
-          </div>
-
-          <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl flex flex-col items-center justify-center text-center transition-all">
-            <span className="text-[10px] font-bold text-blue-600 uppercase mb-1">Dia Mais Crítico</span>
-            <span className="text-sm font-black text-blue-600 line-clamp-2 w-full px-2 break-words" title={topCards.dia.nome}>{topCards.dia.nome}</span>
-            <span className="text-xs font-bold text-blue-500 mt-auto pt-1">{formatQtd(topCards.dia.qtd)} insucessos</span>
-          </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+        <div className="bg-red-50 border border-red-100 p-4 rounded-2xl flex flex-col items-center justify-center text-center transition-all">
+          <span className="text-[10px] font-bold text-red-600 uppercase mb-1">QTD de Insucessos</span>
+          <span className="text-2xl font-black text-red-600">{formatQtd(topCards.totalGaps)}</span>
         </div>
-      )}
+
+        <div onClick={() => { 
+          if (selectedFilial === topCards.filial.filial) {
+            setSelectedFilial(null);
+            setSelectedCluster(null);
+            setSelectedMotorista(null);
+          } else {
+            setSelectedFilial(topCards.filial.filial); 
+            setSelectedCluster(null); 
+            setSelectedMotorista(null); 
+          }
+          setSortConfig({ key: 'insucessos', direction: 'desc' }); 
+        }} className={`bg-slate-50 border p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group ${selectedFilial === topCards.filial.filial ? 'border-blue-400 ring-2 ring-blue-400/20 bg-blue-50/50' : 'border-slate-200'}`}>
+          <span className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1 group-hover:text-blue-500">Filial Mais Crítica <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
+          <span className="text-lg font-black text-slate-800 line-clamp-2 w-full px-2 break-words" title={topCards.filial.filial}>{topCards.filial.filial}</span>
+          <span className="text-xs font-bold text-red-500 mt-auto pt-1">{formatQtd(topCards.filial.insucessos)} insucessos</span>
+        </div>
+
+        <div onClick={() => { 
+          if (selectedCluster === topCards.cluster.cluster) {
+            setSelectedCluster(null);
+            setSelectedMotorista(null);
+          } else {
+            setSelectedFilial(topCards.cluster.parentFilial); 
+            setSelectedCluster(topCards.cluster.cluster); 
+            setSelectedMotorista(null); 
+          }
+          setSortConfig({ key: 'insucessos', direction: 'desc' }); 
+        }} className={`bg-slate-50 border p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group ${selectedCluster === topCards.cluster.cluster ? 'border-blue-400 ring-2 ring-blue-400/20 bg-blue-50/50' : 'border-slate-200'}`}>
+          <span className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1 group-hover:text-blue-500">Cluster Mais Crítico <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
+          <span className="text-lg font-black text-slate-800 line-clamp-2 w-full px-2 break-words" title={topCards.cluster.cluster}>{topCards.cluster.cluster}</span>
+          <span className="text-xs font-bold text-red-500 mt-auto pt-1">{formatQtd(topCards.cluster.insucessos)} insucessos</span>
+        </div>
+
+        <div onClick={() => { 
+          if (selectedMotorista === topCards.motorista.motorista) {
+            setSelectedMotorista(null);
+          } else {
+            setSelectedFilial(topCards.motorista.parentFilial); 
+            setSelectedCluster(topCards.motorista.parentCluster); 
+            setSelectedMotorista(topCards.motorista.motorista); 
+          }
+          setSortConfig({ key: 'qtd', direction: 'desc' }); 
+        }} className={`bg-slate-50 border p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group ${selectedMotorista === topCards.motorista.motorista ? 'border-blue-400 ring-2 ring-blue-400/20 bg-blue-50/50' : 'border-slate-200'}`}>
+          <span className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1 group-hover:text-blue-500">Motorista Mais Crítico <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
+          <span className="text-lg font-black text-slate-800 line-clamp-2 w-full px-2 break-words" title={topCards.motorista.motorista}>{topCards.motorista.motorista}</span>
+          <span className="text-xs font-bold text-red-500 mt-auto pt-1">{formatQtd(topCards.motorista.insucessos)} insucessos</span>
+        </div>
+
+        <div onClick={() => { 
+          const isSelected = selectedMotivo === topCards.motivo.nome; 
+          setSelectedMotivo(isSelected ? null : topCards.motivo.nome); 
+          setSortConfig({ key: isSelected ? 'insucessos' : 'motivoFilterQtd', direction: 'desc' }); 
+        }} className={`bg-orange-50 border p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group ${selectedMotivo === topCards.motivo.nome ? 'border-orange-400 ring-2 ring-orange-400/20' : 'border-orange-100'}`}>
+          <span className="text-[10px] font-bold text-orange-600 uppercase mb-1 flex items-center gap-1 group-hover:text-orange-800">Motivo Recorrente <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
+          <span className="text-sm font-black text-orange-600 line-clamp-2 w-full px-2 break-words" title={topCards.motivo.nome}>{topCards.motivo.nome}</span>
+          <span className="text-xs font-bold text-orange-500 mt-auto pt-1">{formatQtd(topCards.motivo.qtd)} pacotes</span>
+        </div>
+
+        <div onClick={() => {
+           const isSelected = selectedDia === topCards.dia.nome;
+           setSelectedDia(isSelected ? null : topCards.dia.nome);
+        }} className={`bg-blue-50 border p-4 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all group ${selectedDia === topCards.dia.nome ? 'border-blue-400 ring-2 ring-blue-400/20' : 'border-blue-100'}`}>
+          <span className="text-[10px] font-bold text-blue-600 uppercase mb-1 flex items-center gap-1 group-hover:text-blue-800">Dia Mais Crítico <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" /></span>
+          <span className="text-sm font-black text-blue-600 line-clamp-2 w-full px-2 break-words" title={topCards.dia.nome}>{topCards.dia.nome}</span>
+          <span className="text-xs font-bold text-blue-500 mt-auto pt-1">{formatQtd(topCards.dia.qtd)} insucessos</span>
+        </div>
+      </div>
 
       {(selectedFilial || selectedCluster) && !selectedMotorista && cardsBreakdown.length > 0 && (
         <div className="mb-4 bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-inner">

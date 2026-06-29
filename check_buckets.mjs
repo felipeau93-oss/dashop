@@ -1,37 +1,20 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const envPath = path.join(__dirname, '.env.local');
-const envContent = fs.readFileSync(envPath, 'utf8');
-
-let supabaseUrl = '';
-let supabaseKey = '';
-
-envContent.split(/\r?\n/).forEach(line => {
-  if (line.startsWith('VITE_SUPABASE_URL=')) {
-    supabaseUrl = line.split('=')[1].trim().replace(/['"]/g, '');
-  }
-  if (line.startsWith('VITE_SUPABASE_ANON_KEY=')) {
-    supabaseKey = line.split('=')[1].trim().replace(/['"]/g, '');
-  }
+const envLocal = fs.readFileSync(path.resolve('.env.local'), 'utf-8');
+const vars = {};
+envLocal.split('\n').forEach(l => {
+  const [k, ...v] = l.split('=');
+  if (k && v) vars[k.trim()] = v.join('=').replace(/"/g, '').trim();
 });
 
+const supabase = createClient(vars.VITE_SUPABASE_URL, vars.VITE_SUPABASE_ANON_KEY);
+
 async function run() {
-  const res = await fetch(`${supabaseUrl}/storage/v1/bucket`, {
-    headers: {
-      'apikey': supabaseKey,
-      'Authorization': `Bearer ${supabaseKey}`
-    }
-  });
-  
-  if (res.ok) {
-     const data = await res.json();
-     console.log("Buckets:", data.map(b => b.name));
-  } else {
-     console.log("Error fetching buckets:", res.status, await res.text());
-  }
+  const { data, error } = await supabase.storage.from('dados_json').list();
+  if (error) console.error(error);
+  else console.log(data);
 }
+
 run();

@@ -1833,6 +1833,7 @@ const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
 
       if (d.insucessosDetalhados) {
         Object.entries(d.insucessosDetalhados).forEach(([k, v]) => {
+          if (k === 'Sem Motivo' && v === 0) return;
           map[fKey].insDetalhes[k] = (map[fKey].insDetalhes[k] || 0) + v;
           map[fKey].clustersMap[cKey].insDetalhes[k] = (map[fKey].clustersMap[cKey].insDetalhes[k] || 0) + v;
           map[fKey].clustersMap[cKey].motoristasMap[mKey].insDetalhes[k] = (map[fKey].clustersMap[cKey].motoristasMap[mKey].insDetalhes[k] || 0) + v;
@@ -1892,7 +1893,7 @@ const GapsOperacionaisSection = ({ dataOp, dataBsc }) => {
       .sort((a, b) => b.insucessos - a.insucessos)[0] || { motorista: 'N/A', insucessos: 0 };
 
     const topMotivoGeral = Object.entries(globalMotivos)
-      .filter(([k]) => k !== 'N/A' && k !== '-')
+      .filter(([k, v]) => k !== 'N/A' && k !== '-' && k !== 'Sem Motivo' && v > 0)
       .sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
       
     const topDiaGeral = Object.entries(globalDias)
@@ -2145,7 +2146,7 @@ const FilialPenalidadesModal = ({ filial, targetQuinzena, dadosPlanilha, faturam
     const mapEvolucao = {};
     const fatFilial = (faturamentoPlanilha || []).filter(f => norm(f.filial) === fName);
     fatFilial.forEach(f => {
-      const faturamentoTotal = (f.faturamento || 0) + (f.faturamento_paradas || 0);
+      const faturamentoTotal = (f.faturamento || 0);
       if (faturamentoTotal === 0 && !isOpMode) return; // IGNORA quinzenas que zeraram faturamento (vieram do operacional)
 
       const q = f.quinzena;
@@ -3314,7 +3315,7 @@ export default function App() {
     
     try {
       const extractItems = async (tableName) => {
-        const cacheKey = `supabase_${tableName}_v2`;
+        const cacheKey = `supabase_${tableName}_v3`;
         
         // 1. Tentar ler do IndexedDB (Cache Instantâneo Local)
         if (!forceRefresh) {
@@ -3714,7 +3715,7 @@ export default function App() {
   const operacionalFiltrado = useMemo(() => {
     return rawOperacionalDataFiltrado.map(d => ({
       quinzena: d.quinzena, filial: d.filial, regional: d.regional, supervisor: d.supervisor, motorista: d.motorista,
-      cluster: d.cluster, dia_semana: d.dia_semana, driver_id: d.driver_id,
+      cluster: d.cluster, dia_semana: d.dia_semana, driver_id: d.driver_id, id_rota: d.id_rota,
       entregues: d.entregues, saldo: d.saldo, insucessosDetalhados: typeof d.insucessosDetalhados === 'string' ? JSON.parse(d.insucessosDetalhados) : (d.insucessosDetalhados || {})
     }));
   }, [rawOperacionalDataFiltrado]);
@@ -3961,7 +3962,7 @@ export default function App() {
       if (selectedRegionalForMargin && normalizeText(reg) !== normalizeText(selectedRegionalForMargin)) return;
 
       if (!map[fKey]) map[fKey] = { filial: f.filial, faturamento: 0, custos: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
-      map[fKey].faturamento += (f.faturamento || 0) + (f.faturamento_paradas || 0);
+      map[fKey].faturamento += (f.faturamento || 0);
     });
 
     dadosFiltrados.forEach(p => {
@@ -4005,7 +4006,7 @@ export default function App() {
       const key = normalizeText(reg);
 
       if (!map[key]) map[key] = { regional: reg === 'N/A' ? 'Sem Regional' : `Regional ${reg}`, rawRegional: reg, faturamento: 0, custos: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
-      map[key].faturamento += (f.faturamento || 0) + (f.faturamento_paradas || 0);
+      map[key].faturamento += (f.faturamento || 0);
     });
 
     dadosFiltrados.forEach(p => {
@@ -4140,7 +4141,7 @@ export default function App() {
   const prevMargemBrutaMetrics = useMemo(() => {
     if (!prevQuinzenaName) return null;
     const prevFaturamento = faturamentoFiltradoEvolucao.filter(d => d.quinzena === prevQuinzenaName);
-    const totalFat = prevFaturamento.reduce((acc, curr) => acc + (curr.faturamento || 0) + (curr.faturamento_paradas || 0), 0);
+    const totalFat = prevFaturamento.reduce((acc, curr) => acc + (curr.faturamento || 0), 0);
     const totalCustos = prevCustosFiltrados.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
     const margemErroDescontada = totalFat * 0.025;
@@ -4166,7 +4167,7 @@ export default function App() {
     const validKeys = new Set(prevPrevFaturamento.map(f => `${f.filial}|${f.quinzena}`));
     const custos = rawCustosData.filter(c => validKeys.has(`${c.filial}|${c.quinzena}`));
 
-    const totalFat = prevPrevFaturamento.reduce((acc, curr) => acc + (curr.faturamento || 0) + (curr.faturamento_paradas || 0), 0);
+    const totalFat = prevPrevFaturamento.reduce((acc, curr) => acc + (curr.faturamento || 0), 0);
     const totalCustos = custos.reduce((acc, curr) => acc + (curr.valorPago || 0), 0);
     const impostoDescontado = totalFat * (percentualImpostoFinanceiro / 100);
 
@@ -4192,7 +4193,7 @@ export default function App() {
       if (!map[key]) map[key] = { filial: d.filial, regional: d.regional || 'N/A', supervisor: d.supervisor || 'N/A', faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
       if (d.regional && d.regional !== 'N/A') map[key].regional = d.regional;
       if (d.supervisor && d.supervisor !== 'N/A') map[key].supervisor = d.supervisor;
-      map[key].faturamento += (d.faturamento || 0) + (d.faturamento_paradas || 0);
+      map[key].faturamento += (d.faturamento || 0);
     });
     dadosFiltrados.filter(d => d.quinzena === targetQuinzenaRunRate).forEach(d => {
       const key = normalizeText(d.filial);
@@ -4250,7 +4251,7 @@ export default function App() {
     faturamentoFiltradoEvolucao.forEach(d => {
       const key = d.quinzena || 'N/A';
       if (!map[key]) map[key] = { quinzena: key, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
-      map[key].faturamento += (d.faturamento || 0) + (d.faturamento_paradas || 0);
+      map[key].faturamento += (d.faturamento || 0);
     });
     dadosFiltradosEvolucao.forEach(d => {
       const key = d.quinzena || 'N/A';
@@ -4274,7 +4275,7 @@ export default function App() {
     faturamentoFiltradoEvolucao.filter(d => d.quinzena === selectedQuinzenaPareto).forEach(d => {
       const key = normalizeText(d.filial);
       if (!map[key]) map[key] = { filial: d.filial, faturamento: 0, penalidades: 0, pnr: 0, lost: 0, notVisited: 0 };
-      map[key].faturamento += (d.faturamento || 0) + (d.faturamento_paradas || 0);
+      map[key].faturamento += (d.faturamento || 0);
     });
     dadosFiltradosEvolucao.filter(d => d.quinzena === selectedQuinzenaPareto).forEach(d => {
       const key = normalizeText(d.filial);
